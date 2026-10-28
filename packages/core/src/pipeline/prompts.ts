@@ -1,0 +1,310 @@
+import type { DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
+import { CATEGORIES, CATEGORY_GUIDE, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
+import * as v from 'valibot';
+import { hashOf } from '../hash.ts';
+import { isAgentGuidance, isDocumentation } from './guidance.ts';
+import { looksGenerated, looksLikeTest } from './heuristics.ts';
+import { YES } from './judge-questions.ts';
+
+/** Total diff characters inlined into one prompt, and per file (from codiff's budgets). */
+export const TOTAL_BUDGET = 60_000;
+export const FILE_BUDGET = 12_000;
+
+const categoryGuide = CATEGORIES.map((category) => `${category}: ${CATEGORY_GUIDE[category]}`).join(' ');
+
+const GroupSchema = v.object({
+  key: v.pipe(v.string(), v.description('Stable, short, kebab-case id, e.g. "auth-refresh" or "docs".')),
+  label: v.pipe(v.string(), v.description('Short, human-readable name for the group (2-5 words).')),
+  summary: v.pipe(
+    v.string(),
+    v.description('1-3 sentences on the intention of this group: why over what. Rendered as Markdown.'),
+  ),
+  category: v.pipe(
+    v.picklist(CATEGORIES),
+    v.description(`Which part of the system the group touches. ${categoryGuide}`),
+  ),
+});
+
+const groupsField = <T extends v.GenericSchema>(entry: T) =>
+  v.pipe(
+    v.array(entry),
+    v.description(
+      'Review groups in reading order: the core change first, supporting changes next, mechanical changes (tests, docs, generated) last.',
+    ),
+  );
+
+const overallSummary = v.pipe(
+  v.string(),
+  v.description('A short paragraph telling a reviewer what this change does and where to focus. Rendered as Markdown.'),
+);
+
+/** With Jev, the LLM only defines groups; Jev and code place the files. */
+export const DefineSchema = v.object({ overallSummary, groups: groupsField(GroupSchema) });
+
+/** Without Jev, the LLM also lists each group's files. */
+export const DefineWithFilesSchema = v.object({
+  overallSummary,
+  groups: groupsField(
+    v.object({
+      ...GroupSchema.entries,
+      fileIds: v.pipe(
+        v.array(v.string()),
+        v.description('Ids of the files in this group. Every file id MUST be in exactly one group.'),
+      ),
+      critical: v.optional(
+        v.pipe(
+          v.boolean(),
+          v.description(
+            'Set only when the whole group deserves extra reviewer care (security, data loss, hard to revert).',
+          ),
+        ),
+      ),
+    }),
+  ),
+});
+
+export const FollowupSchema = v.object({
+  placements: v.array(
+    v.object({
+      fileId: v.string(),
+      groupKey: v.pipe(v.string(), v.description('Key of an existing group.')),
+    }),
+  ),
+});
+
+const noteText = v.pipe(
+  v.string(),
+  v.description(
+    '1-2 sentences explaining what a reviewer would otherwise have to work out: non-obvious logic, a subtle behavior change, a risk. Rendered as Markdown. Never restate the code.',
+  ),
+);
+const noteCritical = v.optional(
+  v.pipe(
+    v.boolean(),
+    v.description('Set only when the reviewer should take extra care here: security, data loss, hard to revert.'),
+  ),
+);
+
+export const NotesSchema = v.object({
+  fileNotes: v.pipe(
+    v.array(v.object({ fileId: v.string(), text: noteText, critical: noteCritical })),
+    v.description('Notes about a whole file. Add one only where it saves the reviewer time; most files need none.'),
+  ),
+  lineNotes: v.pipe(
+    v.array(
+      v.object({
+        fileId: v.string(),
+        hunkId: v.pipe(v.string(), v.description('The hunk id shown in the hunk header.')),
+        side: v.pipe(
+          v.picklist(['additions', 'deletions']),
+          v.description('"additions" for a + or unchanged line, "deletions" for a - line.'),
+        ),
+        line: v.pipe(v.number(), v.description('The line number shown before the line in the diff.')),
+        text: noteText,
+        critical: noteCritical,
+      }),
+    ),
+    v.description('Notes pinned to one line. Prefer these over file notes when the point is about one spot.'),
+  ),
+  riskNotes: v.pipe(
+    v.array(
+      v.object({
+        fileId: v.string(),
+        risk: v.picklist(RISK_KEYS),
+        text: v.pipe(
+          v.string(),
+          v.description('What exactly changed and what the reviewer should verify. 1-2 sentences.'),
+        ),
+      }),
+    ),
+    v.description(
+      'One note per flagged risk listed in the prompt that the diff confirms. Empty when none were flagged.',
+    ),
+  ),
+});
+
+export const DEFINE_SYSTEM = `You are a senior engineer preparing a guided review tour of a code change.
+
+Split the change into review groups a reviewer can read one at a time. Group by intention (one feature, fix or refactor per group), not by file type or directory. Keep groups few: 2-7 for most changes, one for a small focused change. Tests belong with the code they test unless they are the point of the change; generated files may be their own group.
+
+Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md, .agents/, agent skills and SKILL.md, editor and agent rules, docs/, READMEs) are important. They state the intent of the change and the rules the code is meant to follow, so a reviewer reads them first. Put them together in one group with category "docs", first in the order, and summarize the intent or rules they establish, not just that docs changed.
+
+Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
+
+Call the submit tool once with the complete result.`;
+
+export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
+
+export const NOTES_SYSTEM = `You are a senior engineer annotating one group of a code change for a reviewer.
+
+Write a few precise notes where they save the reviewer real effort: non-obvious logic, subtle behavior changes, edge cases, risks, and things that look wrong but are not. Skip anything the code already says plainly. Most groups need 0-6 notes; quality over quantity.
+
+Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
+
+For documentation and agent guidance, note the rules or intent each change establishes or alters, so the reviewer can hold the code to them; flag instructions that are ambiguous or contradict each other.
+
+When the prompt lists flagged risks, check each against the diff and write a risk note only for those the diff confirms.
+
+Call the submit tool once with the result.`;
+
+/** Bump when a result schema above changes shape or field descriptions. */
+const SCHEMA_VERSION = 1;
+
+export const PROMPTS_VERSION = hashOf({
+  DEFINE_SYSTEM,
+  FOLLOWUP_SYSTEM,
+  NOTES_SYSTEM,
+  TOTAL_BUDGET,
+  FILE_BUDGET,
+  SCHEMA_VERSION,
+}).slice(0, 12);
+
+function header(meta: DiffMeta): string {
+  const lines = [`# ${meta.title}`, `${meta.baseRef} <- ${meta.headRef}`];
+  if (meta.description?.trim()) {
+    lines.push('', '## Description', meta.description.trim().slice(0, 4000));
+  }
+  if (meta.commits.length) {
+    lines.push('', '## Commits', ...meta.commits.slice(-30).map((commit) => `- ${commit.subject}`));
+  }
+  return lines.join('\n');
+}
+
+function collapsedReason(file: FileChange): string | undefined {
+  if (file.isBinary) {
+    return 'binary';
+  }
+  if (file.truncated) {
+    return 'too large to show';
+  }
+  if (file.generated || looksGenerated(file.path)) {
+    return 'generated';
+  }
+  return undefined;
+}
+
+function isGuidance(file: FileChange): boolean {
+  return isAgentGuidance(file.path) || (isDocumentation(file.path) && !looksLikeTest(file.path));
+}
+
+function manifestLine(file: FileChange): string {
+  const rename = file.previousPath ? ` (from ${file.previousPath})` : '';
+  const note = collapsedReason(file) ?? (isGuidance(file) ? 'guidance' : undefined);
+  return `${file.id} ${file.status} ${file.path}${rename} +${file.additions} -${file.deletions}${note ? ` [${note}]` : ''}`;
+}
+
+function plainDiff(file: FileChange, budget: number): string {
+  const text = file.hunks.map((hunk) => `${hunk.header}\n${hunk.patch}`).join('\n');
+  return text.length > budget ? `${text.slice(0, budget)}\n... (truncated)` : text;
+}
+
+/** The prompt for defining groups: a manifest of every file, then as many diffs as fit the budget. */
+export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
+  const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
+  let remaining = TOTAL_BUDGET;
+  const diffs: string[] = [];
+  const omitted: string[] = [];
+  // Guidance diffs go first so the budget never cuts the files that explain the change.
+  const ordered = [...files.filter(isGuidance), ...files.filter((file) => !isGuidance(file))];
+  for (const file of ordered) {
+    if (collapsedReason(file)) {
+      continue;
+    }
+    const body = plainDiff(file, Math.min(FILE_BUDGET, remaining));
+    if (remaining <= 0 || body.length === 0) {
+      omitted.push(file.id);
+      continue;
+    }
+    diffs.push(`### ${file.id} ${file.path}\n${body}`);
+    remaining -= body.length;
+  }
+  parts.push('', '## Diffs', ...diffs);
+  if (omitted.length) {
+    parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}. Judge them by path and the hunk headers.)`);
+  }
+  parts.push(
+    '',
+    withFiles
+      ? 'Define the review groups and assign every file id to exactly one group.'
+      : 'Define the review groups. Do not list files; they are placed separately.',
+  );
+  return parts.join('\n');
+}
+
+export function buildFollowupPrompt(
+  meta: DiffMeta,
+  groups: readonly GroupDefinition[],
+  files: readonly FileChange[],
+): string {
+  return [
+    header(meta),
+    '',
+    '## Groups',
+    ...groups.map((group) => `- ${group.key}: ${group.label}. ${group.summary}`),
+    '',
+    '## Files to place',
+    ...files.map((file) => `### ${manifestLine(file)}\n${plainDiff(file, 2000)}`),
+  ].join('\n');
+}
+
+/** Hunk lines numbered for line notes: new-file numbers on `+`/` ` lines, old-file numbers on `-` lines. */
+export function renderNumberedHunk(hunk: FileChange['hunks'][number]): string {
+  let oldLine = hunk.oldStart;
+  let newLine = hunk.newStart;
+  const out = [`@@ hunk ${hunk.id} ${hunk.header.replace(/^@@ .*? @@ ?/, '')}`.trimEnd()];
+  for (const line of hunk.patch.split('\n')) {
+    const marker = line[0] ?? ' ';
+    if (marker === '\\') {
+      continue;
+    }
+    const text = line.slice(1);
+    if (marker === '-') {
+      out.push(`- ${oldLine++} ${text}`);
+    } else if (marker === '+') {
+      out.push(`+ ${newLine++} ${text}`);
+    } else {
+      out.push(`  ${newLine++} ${text}`);
+      oldLine++;
+    }
+  }
+  return out.join('\n');
+}
+
+export function flaggedRisks(judgment: FileJudgment | undefined): (typeof RISK_KEYS)[number][] {
+  return RISK_KEYS.filter((key) => (judgment?.[key] ?? 0) >= YES);
+}
+
+export function buildNotesPrompt(
+  meta: DiffMeta,
+  overallSummary: string | undefined,
+  group: ResolvedGroup,
+  files: readonly FileChange[],
+  judgments: Record<string, FileJudgment>,
+): string {
+  const parts = [header(meta)];
+  if (overallSummary) {
+    parts.push('', '## Overall', overallSummary);
+  }
+  parts.push('', `## This group: ${group.label}`, group.summary);
+  const risks = files.flatMap((file) =>
+    flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),
+  );
+  parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
+  let remaining = TOTAL_BUDGET;
+  parts.push('', '## Files');
+  for (const file of files) {
+    const reason = collapsedReason(file);
+    if (reason) {
+      parts.push(`### ${manifestLine(file)}`);
+      continue;
+    }
+    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    if (body.length > budget) {
+      body = budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget)';
+    }
+    remaining -= body.length;
+    parts.push(`### ${manifestLine(file)}`, body);
+  }
+  return parts.join('\n');
+}
