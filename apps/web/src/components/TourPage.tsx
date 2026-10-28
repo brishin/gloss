@@ -68,10 +68,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const { viewed, toggle: toggleViewedRaw } = useViewed(state.diffId);
   // The file from a reloaded or shared URL, until its section has rendered and been scrolled to.
   const restoringFile = useRef(position.f);
+  // The last `f` this page wrote, so a different one can be told apart as arriving from history.
+  const writtenFile = useRef(position.f);
 
   const movePosition = useCallback(
     (next: { g?: string; f?: string }, replace: boolean) =>
-      void navigate({ to: '.', search: (prev) => ({ ...prev, ...next }), replace }),
+      // The page scrolls itself (top for a group, the file's header for a file): the router's
+      // default scroll reset would undo a file update mid-scroll.
+      void navigate({ to: '.', search: (prev) => ({ ...prev, ...next }), replace, resetScroll: false }),
     [navigate],
   );
 
@@ -88,6 +92,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     setActiveFileId(undefined);
     scrollToTop();
   }, [selected]);
+
+  // Back/forward can bring a file this page didn't just write: restore it like a reload would.
+  useEffect(() => {
+    if (position.f !== writtenFile.current) {
+      writtenFile.current = position.f;
+      restoringFile.current = position.f;
+    }
+  }, [position.f]);
 
   const jumpToFile = useCallback((fileId: string) => {
     setNavOpen(false);
@@ -190,11 +202,13 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   // The file in view replaces the URL entry rather than pushing one. The group's first file is
   // left out: restoring it would scroll past the group summary.
   useEffect(() => {
-    if (restoringFile.current || !current) {
+    // A file from the previous group can still be current for one render after a group change.
+    if (restoringFile.current || !current || (activeFileId && !order.includes(activeFileId))) {
       return;
     }
     const fileId = activeFileId === order[0] ? undefined : activeFileId;
     if (fileId !== position.f) {
+      writtenFile.current = fileId;
       movePosition({ f: fileId }, true);
     }
   }, [activeFileId, current, order, position.f, movePosition]);
