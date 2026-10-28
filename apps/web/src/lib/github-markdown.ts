@@ -1,9 +1,12 @@
+import { isGithubAssetUrl } from '@gloss/protocol';
+
 /**
  * Turns a GitHub PR body into the Markdown subset Astryx renders. GitHub allows inline
  * HTML, which Astryx shows as literal text, so the common cases are rewritten:
  * comments (bot attribution, templates) are dropped, `<br>` becomes a line break,
- * `<details>/<summary>` becomes a bold label, images become Markdown images, and any
- * other tag is unwrapped to its text.
+ * `<details>/<summary>` becomes a bold label, images and videos become Markdown images, and
+ * any other tag is unwrapped to its text. A GitHub attachment URL alone on its line (how
+ * GitHub embeds an uploaded video) also becomes an image, which the page renders as media.
  */
 export function githubBodyToMarkdown(body: string): string {
   return (
@@ -25,9 +28,10 @@ function attribute(tag: string, name: string): string | undefined {
 
 function rewriteHtml(text: string): string {
   return text
+    .replace(/^[ \t]*(https:\/\/\S+)[ \t]*$/gm, (line, url: string) => (isGithubAssetUrl(url) ? `![](${url})` : line))
     .replace(/<br\s*\/?>/gi, '  \n')
     .replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi, (_, label: string) => `\n\n**${label.trim()}**\n\n`)
-    .replace(/<img\b[^>]*>/gi, (tag) => {
+    .replace(/<(img|video)\b[^>]*>/gi, (tag) => {
       const src = attribute(tag, 'src');
       return src ? `![${attribute(tag, 'alt') ?? ''}](${src})` : '';
     })
