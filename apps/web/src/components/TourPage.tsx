@@ -220,6 +220,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
 
       <div className="tour">
         <GroupSidebar
+          sourceRef={sourceRef}
+          title={state.meta?.title}
           groups={groups}
           files={files}
           selection={selected}
