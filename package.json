@@ -1,8 +1,8 @@
 {
   "name": "gloss-monorepo",
-  "license": "MIT",
   "private": true,
   "description": "Streaming, annotated review tours for pull requests and local diffs.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "vp run -r build",
