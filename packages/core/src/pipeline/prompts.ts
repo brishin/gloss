@@ -41,20 +41,20 @@ const overallSummary = v.pipe(
 const decisionText = v.pipe(
   v.string(),
   v.description(
-    'One plain sentence: the choice, and the reason when it is not obvious. Name the choice, not the code. No Markdown.',
+    'One short sentence, under 25 words, naming one choice and its reason when the reason is not obvious. Add "instead of ..." when the alternative is not obvious. Name the choice, not the code. No Markdown.',
   ),
 );
 const decisionPriority = v.pipe(
   v.picklist(DECISION_PRIORITIES),
   v.description(
-    'urgent: the reviewer must agree before merging (security, access, data loss, hard to undo). high: shapes behavior other people or code will rely on. medium: a design choice worth a look. low: a minor default.',
+    'urgent: rare; the reviewer must agree before merging because it affects security, access or data loss, or is hard to undo. high: users or other code will depend on it. medium: a design choice worth a look. low: a minor default. Most decisions are medium or low.',
   ),
 );
 
 const prDecisions = v.pipe(
   v.array(v.object({ text: decisionText, priority: decisionPriority })),
   v.description(
-    'Key decisions about the change as a whole that no single line makes: product behavior, scope, rollout, tradeoffs the description states or the diff implies. Most changes have 0-4. Leave out anything one line of code decides; those are recorded later.',
+    'Key decisions about the change as a whole: product behavior, scope, rollout, and tradeoffs that span several files. Most changes have 1-4. Leave out choices that one line or one function makes; a later pass pins those to their lines.',
   ),
 );
 
@@ -157,7 +157,7 @@ export const NotesSchema = v.object({
       }),
     ),
     v.description(
-      'Key decisions this group makes in code, each pinned to the line that makes it: a chosen approach, default, data shape, check or ordering a reviewer should agree with on purpose. Not notes: a decision is a choice that could reasonably have gone another way. Most groups have 0-4.',
+      'Key decisions this group makes in code, each pinned to the line that makes it: a chosen approach, default, data shape, check or ordering a reviewer should agree with on purpose. Never on tests or stylesheets, and never one the change-wide list covers. Most groups have 0-3, and an unimportant group has none.',
     ),
   ),
 });
@@ -170,7 +170,7 @@ Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md,
 
 Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
 
-Also list the key decisions the change makes as a whole: choices a reviewer should agree with on purpose that no single line makes. Take them from the description where it states them, and infer the rest from the diff. Skip choices one line decides; a later pass pins those to their lines.
+Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file; a later pass pins the others to their lines. Do not describe what the code does.
 
 Call the submit tool once with the complete result.`;
 
@@ -186,7 +186,7 @@ For documentation and agent guidance, note the rules or intent each change estab
 
 When the prompt lists flagged risks, check each against the diff and write a risk note only for those the diff confirms.
 
-Separately from notes, list the key decisions this group makes in code, each on the line that makes it: choices that could reasonably have gone another way, such as an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Record a decision where the code makes it, not where a test checks it, so tests rarely have decisions of their own. Do not repeat the change-wide decisions listed in the prompt.
+Separately from notes, list the key decisions this group makes in code, each on the line that makes it. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Skip CSS and visual styling, layout, naming, refactors, error handling details and anything that only describes what the code does. Never put a decision on a test, fixture or story file: record it where the code makes it. Skip any choice the change-wide list already covers, even when you can point at its line.
 
 Call the submit tool once with the result.`;
 
@@ -330,7 +330,11 @@ export function buildNotesPrompt(
     parts.push('', '## Overall', overallSummary);
   }
   if (decisions.length) {
-    parts.push('', '## Change-wide decisions (already listed)', ...decisions.map((decision) => `- ${decision.text}`));
+    parts.push(
+      '',
+      '## Change-wide decisions (already listed; do not repeat)',
+      ...decisions.map((decision) => `- ${decision.text}`),
+    );
   }
   parts.push('', `## This group: ${group.label}`, group.summary);
   const risks = files.flatMap((file) =>
