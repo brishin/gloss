@@ -1,0 +1,24 @@
+{
+  "name": "gloss-monorepo",
+  "private": true,
+  "description": "Streaming, annotated review tours for pull requests and local diffs.",
+  "type": "module",
+  "scripts": {
+    "build": "vp run -r build",
+    "check": "vp check",
+    "dev": "vp run -r --parallel dev",
+    "gloss": "node packages/cli/src/bin.ts",
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.17.1"
+}
