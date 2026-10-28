@@ -1,0 +1,16 @@
+{
+  "name": "@gloss/models",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "catalog:",
+    "@flue/runtime": "catalog:",
+    "@gloss/core": "workspace:*",
+    "@gloss/protocol": "workspace:*",
+    "valibot": "catalog:"
+  }
+}
