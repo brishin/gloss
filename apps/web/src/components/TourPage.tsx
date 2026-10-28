@@ -1,11 +1,23 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
-import { Kbd } from '@astryxdesign/core/Kbd';
+import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import type { SourceRef } from '@gloss/protocol';
 import { describeRef, groupsInOrder } from '@gloss/protocol';
 import { Link } from '@tanstack/react-router';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  KeyboardIcon,
+  MapIcon,
+  RotateCwIcon,
+  SquareIcon,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OVERVIEW, orderedFileIds, STICKY_OFFSET, useViewed } from '../lib/tour-view.ts';
 import { useTour } from '../lib/use-tour.ts';
@@ -38,6 +50,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const current = groups.find((group) => group.key === selection);
   const selected = current ? current.key : OVERVIEW;
   const index = current ? groups.indexOf(current) : -1;
+  // From the overview (index -1), "next" is the first group.
+  const prev = index > 0 ? groups[index - 1] : undefined;
+  const next = groups[index + 1];
   const order = useMemo(() => orderedFileIds(current), [current]);
   const running = state.status === 'running' || connection === 'connecting';
   const mainRef = useRef<HTMLElement>(null);
@@ -211,11 +226,61 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </Text>
         )}
         <StageRail stages={state.stages} />
-        {running ? (
-          <Button size="sm" variant="ghost" label="Stop" onClick={abort} />
-        ) : (
-          <Button size="sm" variant="secondary" label="Re-run" onClick={rerun} />
-        )}
+        {/* macOS-style toolbar: icon-only controls in grouped capsules, names in tooltips. */}
+        <div className="toolbar">
+          <ButtonGroup label="Groups" size="sm">
+            <IconButton
+              variant="secondary"
+              label="Previous group"
+              tooltip={prev ? `Previous: ${prev.label} (k)` : 'Previous group (k)'}
+              icon={<Icon icon={ChevronLeftIcon} />}
+              isDisabled={!current}
+              onClick={() => select(prev ? prev.key : OVERVIEW)}
+            />
+            <IconButton
+              variant="secondary"
+              label="Overview"
+              tooltip="Overview (o)"
+              icon={<Icon icon={MapIcon} />}
+              onClick={() => select(OVERVIEW)}
+            />
+            <IconButton
+              variant="secondary"
+              label="Next group"
+              tooltip={next ? `Next: ${next.label} (j)` : 'Next group (j)'}
+              icon={<Icon icon={ChevronRightIcon} />}
+              isDisabled={!next}
+              onClick={() => next && select(next.key)}
+            />
+          </ButtonGroup>
+          {running ? (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Stop tour"
+              tooltip="Stop"
+              icon={<Icon icon={SquareIcon} />}
+              onClick={abort}
+            />
+          ) : (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Re-run tour"
+              tooltip="Re-run"
+              icon={<Icon icon={RotateCwIcon} />}
+              onClick={rerun}
+            />
+          )}
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label="Keyboard shortcuts"
+            tooltip="Shortcuts (?)"
+            icon={<Icon icon={KeyboardIcon} />}
+            onClick={() => setHelpOpen(true)}
+          />
+        </div>
       </header>
 
       <div className="tour">
@@ -245,22 +310,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 </>
               )}
             </span>
-            {groups[index + 1] && (
-              <Button
-                size="sm"
-                variant="ghost"
-                label={`Next: ${groups[index + 1]!.label}`}
-                endContent={<Kbd keys="j" />}
-                onClick={() => select(groups[index + 1]!.key)}
-              />
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              label="Shortcuts"
-              endContent={<Kbd keys="?" />}
-              onClick={() => setHelpOpen(true)}
-            />
           </div>
 
           <div className="content">
@@ -282,22 +331,20 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               <>
                 <GroupPanel key={current.key} group={current} state={state} diff={diff} controls={controls} />
                 <div className="group-nav">
-                  {index > 0 ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      label={`← ${groups[index - 1]!.label}`}
-                      onClick={() => select(groups[index - 1]!.key)}
-                    />
-                  ) : (
-                    <Button size="sm" variant="secondary" label="← Overview" onClick={() => select(OVERVIEW)} />
-                  )}
-                  {groups[index + 1] && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    label={prev ? prev.label : 'Overview'}
+                    icon={<Icon icon={ArrowLeftIcon} />}
+                    onClick={() => select(prev ? prev.key : OVERVIEW)}
+                  />
+                  {next && (
                     <Button
                       size="sm"
                       variant="primary"
-                      label={`${groups[index + 1]!.label} →`}
-                      onClick={() => select(groups[index + 1]!.key)}
+                      label={next.label}
+                      endContent={<Icon icon={ArrowRightIcon} />}
+                      onClick={() => select(next.key)}
                     />
                   )}
                 </div>
