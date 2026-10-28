@@ -4,7 +4,16 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
-import type { DiffPayload, FileChange, FileNote, FileSummary, GroupView, LineNote, TourState } from '@gloss/protocol';
+import type {
+  Decision,
+  DiffPayload,
+  FileChange,
+  FileNote,
+  FileSummary,
+  GroupView,
+  LineNote,
+  TourState,
+} from '@gloss/protocol';
 import { useMemo } from 'react';
 import {
   defaultExpanded,
@@ -18,6 +27,7 @@ import { FileView } from './FileView.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
 const NO_LINE_NOTES: LineNote[] = [];
+const NO_DECISIONS: Decision[] = [];
 const NO_RISKS: never[] = [];
 
 export interface FileControls {
@@ -58,13 +68,19 @@ export function GroupPanel({
   const byFile = useMemo(() => {
     const fileNotes = new Map<string, FileNote[]>();
     const lineNotes = new Map<string, LineNote[]>();
+    const decisions = new Map<string, Decision[]>();
     for (const note of notes?.fileNotes ?? []) {
       fileNotes.set(note.fileId, [...(fileNotes.get(note.fileId) ?? []), note]);
     }
     for (const note of notes?.lineNotes ?? []) {
       lineNotes.set(note.fileId, [...(lineNotes.get(note.fileId) ?? []), note]);
     }
-    return { fileNotes, lineNotes };
+    for (const decision of notes?.decisions ?? []) {
+      if (decision.fileId) {
+        decisions.set(decision.fileId, [...(decisions.get(decision.fileId) ?? []), decision]);
+      }
+    }
+    return { fileNotes, lineNotes, decisions };
   }, [notes]);
   const notesPending =
     !notes &&
@@ -131,6 +147,7 @@ export function GroupPanel({
             change={changes.get(fileId)}
             fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
             lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
+            decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
             risks={risks.get(fileId) ?? NO_RISKS}
             generated={isGeneratedFile(group, summary)}
             expanded={isFileExpanded(controls, group, summary)}

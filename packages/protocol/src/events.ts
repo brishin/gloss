@@ -2,6 +2,7 @@ import * as v from 'valibot';
 import { DiffMetaSchema, FileSummarySchema } from './diff.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import {
+  DecisionSchema,
   FileJudgmentSchema,
   GroupDefinitionSchema,
   GroupNotesSchema,
@@ -49,7 +50,7 @@ export const TourEventBodySchema = v.variant('type', [
   }),
   event('group.defined', { group: GroupDefinitionSchema }),
   event('groups.defined', { keys: v.array(v.string()) }),
-  event('tour.summary', { overallSummary: v.string() }),
+  event('tour.summary', { overallSummary: v.string(), decisions: v.optional(v.array(DecisionSchema)) }),
   event('file.judged', {
     fileId: v.string(),
     judgment: FileJudgmentSchema,

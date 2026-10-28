@@ -352,7 +352,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 </div>
               </>
             ) : state.meta || !running ? (
-              <Overview state={state} groups={groups} running={running} onSelect={select} />
+              <Overview state={state} groups={groups} running={running} onSelect={select} onJumpToFile={jumpToFile} />
             ) : (
               <Skeleton height={160} />
             )}

@@ -25,10 +25,18 @@ function visibleLines(hunk: FileChange['hunks'][number]): { additions: Set<numbe
   return { additions, deletions };
 }
 
+/** The hunk that shows `line` on `side`, preferring the one the model named. */
+function pinnedHunk(file: FileChange, hunkId: string, side: 'additions' | 'deletions', line: number) {
+  const named = file.hunks.find((candidate) => candidate.id === hunkId);
+  const hunk = named ?? file.hunks.find((candidate) => visibleLines(candidate)[side].has(line));
+  return hunk && visibleLines(hunk)[side].has(line) ? hunk : undefined;
+}
+
 /**
  * The trust boundary for model-written notes. Notes for files outside the group are
  * dropped (with a warning); a line note whose hunk or line is not visible is demoted to a
- * file note, never discarded, so the text survives a model's off-by-one.
+ * file note, never discarded, so the text survives a model's off-by-one. Decisions follow
+ * the same rule: one on an invisible line keeps its file and loses its line.
  */
 export function normalizeNotes(
   raw: v.InferOutput<typeof NotesSchema>,
@@ -37,7 +45,7 @@ export function normalizeNotes(
 ): { notes: GroupNotes; warnings: string[] } {
   const inGroup = new Map(files.filter((file) => group.fileIds.includes(file.id)).map((file) => [file.id, file]));
   const warnings: string[] = [];
-  const notes: GroupNotes = { fileNotes: [], lineNotes: [], riskNotes: [] };
+  const notes: GroupNotes = { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] };
   const unknown = (fileId: string) => {
     warnings.push(`Dropped a note for unknown file ${fileId} in group ${group.key}.`);
   };
@@ -54,15 +62,9 @@ export function normalizeNotes(
       unknown(note.fileId);
       continue;
     }
-    const hunk = file.hunks.find((candidate) => candidate.id === note.hunkId);
-    const fileHunk =
-      hunk ??
-      file.hunks.find((candidate) => {
-        const lines = visibleLines(candidate);
-        return lines[note.side].has(note.line);
-      });
-    if (fileHunk && visibleLines(fileHunk)[note.side].has(note.line)) {
-      notes.lineNotes.push({ ...note, hunkId: fileHunk.id });
+    const hunk = pinnedHunk(file, note.hunkId, note.side, note.line);
+    if (hunk) {
+      notes.lineNotes.push({ ...note, hunkId: hunk.id });
     } else {
       notes.fileNotes.push({ fileId: note.fileId, text: note.text, critical: note.critical });
     }
@@ -73,6 +75,15 @@ export function normalizeNotes(
     } else {
       unknown(note.fileId);
     }
+  }
+  for (const { fileId, hunkId, side, line, text, priority } of raw.decisions) {
+    const file = inGroup.get(fileId);
+    if (!file) {
+      unknown(fileId);
+      continue;
+    }
+    const hunk = pinnedHunk(file, hunkId, side, line);
+    notes.decisions!.push(hunk ? { text, priority, fileId, hunkId: hunk.id, side, line } : { text, priority, fileId });
   }
   return { notes, warnings };
 }

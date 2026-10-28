@@ -1,5 +1,5 @@
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
-import type { Category } from '@gloss/protocol';
+import type { Category, DecisionPriority } from '@gloss/protocol';
 import type { ReactNode } from 'react';
 
 /**
@@ -109,6 +109,50 @@ export function RefIcon({ kind }: { kind: 'github-pr' | 'local' }) {
 
 export function ChevronIcon() {
   return <Icon icon="chevronRight" size="sm" color="inherit" className="tree-chevron-icon" />;
+}
+
+const PRIORITY_LABEL: Record<DecisionPriority, string> = {
+  urgent: 'Urgent',
+  high: 'High priority',
+  medium: 'Medium priority',
+  low: 'Low priority',
+};
+
+/** Linear's priority marks: a filled square for urgent, else three rising bars with 3, 2 or 1 filled. */
+export function PriorityIcon({ priority }: { priority: DecisionPriority }) {
+  const label = PRIORITY_LABEL[priority];
+  if (priority === 'urgent') {
+    return (
+      <svg className="priority-icon priority-urgent" viewBox="0 0 16 16" role="img" aria-label={label}>
+        <title>{label}</title>
+        <rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" />
+        <rect x="7.1" y="4" width="1.8" height="5.2" rx="0.9" fill="var(--color-background-surface)" />
+        <circle cx="8" cy="11.6" r="1.05" fill="var(--color-background-surface)" />
+      </svg>
+    );
+  }
+  const filled = { high: 3, medium: 2, low: 1 }[priority];
+  return (
+    <svg className="priority-icon" viewBox="0 0 16 16" role="img" aria-label={label}>
+      <title>{label}</title>
+      {[
+        [1.5, 9, 5],
+        [6.5, 6, 8],
+        [11.5, 3, 11],
+      ].map(([x, y, height], index) => (
+        <rect
+          key={x}
+          x={x}
+          y={y}
+          width="3"
+          height={height}
+          rx="1"
+          fill="currentColor"
+          opacity={index < filled ? 1 : 0.28}
+        />
+      ))}
+    </svg>
+  );
 }
 
 export function CheckIcon() {

@@ -1,5 +1,5 @@
-import type { DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
-import { CATEGORIES, CATEGORY_GUIDE, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
+import type { Decision, DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
+import { CATEGORIES, CATEGORY_GUIDE, DECISION_PRIORITIES, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
 import * as v from 'valibot';
 import { hashOf } from '../hash.ts';
 import { isAgentGuidance, isDocumentation } from './guidance.ts';
@@ -38,12 +38,33 @@ const overallSummary = v.pipe(
   v.description('A short paragraph telling a reviewer what this change does and where to focus. Rendered as Markdown.'),
 );
 
+const decisionText = v.pipe(
+  v.string(),
+  v.description(
+    'One plain sentence: the choice, and the reason when it is not obvious. Name the choice, not the code. No Markdown.',
+  ),
+);
+const decisionPriority = v.pipe(
+  v.picklist(DECISION_PRIORITIES),
+  v.description(
+    'urgent: the reviewer must agree before merging (security, access, data loss, hard to undo). high: shapes behavior other people or code will rely on. medium: a design choice worth a look. low: a minor default.',
+  ),
+);
+
+const prDecisions = v.pipe(
+  v.array(v.object({ text: decisionText, priority: decisionPriority })),
+  v.description(
+    'Key decisions about the change as a whole that no single line makes: product behavior, scope, rollout, tradeoffs the description states or the diff implies. Most changes have 0-4. Leave out anything one line of code decides; those are recorded later.',
+  ),
+);
+
 /** With Jev, the LLM only defines groups; Jev and code place the files. */
-export const DefineSchema = v.object({ overallSummary, groups: groupsField(GroupSchema) });
+export const DefineSchema = v.object({ overallSummary, decisions: prDecisions, groups: groupsField(GroupSchema) });
 
 /** Without Jev, the LLM also lists each group's files. */
 export const DefineWithFilesSchema = v.object({
   overallSummary,
+  decisions: prDecisions,
   groups: groupsField(
     v.object({
       ...GroupSchema.entries,
@@ -121,6 +142,24 @@ export const NotesSchema = v.object({
       'One note per flagged risk listed in the prompt that the diff confirms. Empty when none were flagged.',
     ),
   ),
+  decisions: v.pipe(
+    v.array(
+      v.object({
+        fileId: v.string(),
+        hunkId: v.pipe(v.string(), v.description('The hunk id shown in the hunk header.')),
+        side: v.pipe(
+          v.picklist(['additions', 'deletions']),
+          v.description('"additions" for a + or unchanged line, "deletions" for a - line.'),
+        ),
+        line: v.pipe(v.number(), v.description('The line number of the line that makes the choice.')),
+        text: decisionText,
+        priority: decisionPriority,
+      }),
+    ),
+    v.description(
+      'Key decisions this group makes in code, each pinned to the line that makes it: a chosen approach, default, data shape, check or ordering a reviewer should agree with on purpose. Not notes: a decision is a choice that could reasonably have gone another way. Most groups have 0-4.',
+    ),
+  ),
 });
 
 export const DEFINE_SYSTEM = `You are a senior engineer preparing a guided review tour of a code change.
@@ -130,6 +169,8 @@ Split the change into review groups a reviewer can read one at a time. Group by 
 Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md, .agents/, agent skills and SKILL.md, editor and agent rules, docs/, READMEs) are important. They state the intent of the change and the rules the code is meant to follow, so a reviewer reads them first. Put them together in one group with category "docs", first in the order, and summarize the intent or rules they establish, not just that docs changed.
 
 Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
+
+Also list the key decisions the change makes as a whole: choices a reviewer should agree with on purpose that no single line makes. Take them from the description where it states them, and infer the rest from the diff. Skip choices one line decides; a later pass pins those to their lines.
 
 Call the submit tool once with the complete result.`;
 
@@ -145,10 +186,12 @@ For documentation and agent guidance, note the rules or intent each change estab
 
 When the prompt lists flagged risks, check each against the diff and write a risk note only for those the diff confirms.
 
+Separately from notes, list the key decisions this group makes in code, each on the line that makes it: choices that could reasonably have gone another way, such as an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Record a decision where the code makes it, not where a test checks it, so tests rarely have decisions of their own. Do not repeat the change-wide decisions listed in the prompt.
+
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
@@ -280,10 +323,14 @@ export function buildNotesPrompt(
   group: ResolvedGroup,
   files: readonly FileChange[],
   judgments: Record<string, FileJudgment>,
+  decisions: readonly Decision[] = [],
 ): string {
   const parts = [header(meta)];
   if (overallSummary) {
     parts.push('', '## Overall', overallSummary);
+  }
+  if (decisions.length) {
+    parts.push('', '## Change-wide decisions (already listed)', ...decisions.map((decision) => `- ${decision.text}`));
   }
   parts.push('', `## This group: ${group.label}`, group.summary);
   const risks = files.flatMap((file) =>

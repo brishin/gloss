@@ -254,7 +254,7 @@ export async function runTour(options: RunTourOptions): Promise<Tour> {
         const { key, label, summary, category } = group;
         send({ type: 'group.defined', group: { key, label, summary, category } });
       }
-      send({ type: 'tour.summary', overallSummary: definition.overallSummary });
+      send({ type: 'tour.summary', overallSummary: definition.overallSummary, decisions: definition.decisions });
       send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
       stage('define', 'done', `${definition.groups.length} groups`);
       return definition;
@@ -378,7 +378,7 @@ export async function runTour(options: RunTourOptions): Promise<Tour> {
       throwIfAborted(signal);
       const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
       const judgments: Record<string, FileJudgment> = state.judgments;
-      const prompt = buildNotesPrompt(meta, state.overallSummary, group, members, judgments);
+      const prompt = buildNotesPrompt(meta, state.overallSummary, group, members, judgments, state.decisions);
       try {
         const { value, hit } = await cached(
           'notes',
