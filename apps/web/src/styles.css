@@ -26,6 +26,9 @@
     --text-heading-2-size: 16px;
     --text-heading-3-size: 14px;
     --text-heading-4-size: 13px;
+    /* gloss's own hue, reserved for notes (see .note). */
+    --gloss-ink: light-dark(oklch(50% 0.17 285), oklch(78% 0.12 285));
+    --gloss-wash: light-dark(oklch(96% 0.025 285), oklch(29% 0.045 285));
   }
 
   html,
@@ -378,7 +381,7 @@
   }
 
   .marker-note {
-    background: var(--color-accent);
+    background: var(--gloss-ink);
   }
 
   .marker-critical {
@@ -645,16 +648,32 @@
     border-bottom: 1px solid var(--color-border);
   }
 
+  /*
+   * Notes are gloss's voice, so they get the one hue nothing else uses: diff green/red,
+   * risk amber and critical red are all taken, and the neutral theme's accent is grey.
+   */
   .note {
-    border-left: 3px solid var(--color-accent);
-    padding: var(--spacing-1) var(--spacing-2-5, 10px);
-    background: var(--color-background-card);
+    --note-ink: var(--gloss-ink);
+    --note-wash: var(--gloss-wash);
+    padding: var(--spacing-1-5) var(--spacing-2-5, 10px) var(--spacing-1);
+    border: 1px solid color-mix(in oklch, var(--note-ink) 45%, transparent);
+    background: var(--note-wash);
     border-radius: var(--radius-inner);
     font-family: var(--font-family-body);
   }
 
   .note[data-critical='true'] {
-    border-left-color: var(--color-error);
+    --note-ink: var(--color-error);
+    --note-wash: color-mix(in oklch, var(--color-error) 14%, var(--color-background-surface));
+  }
+
+  .note-label {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--note-ink);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 16px;
   }
 
   .line-note {
@@ -721,5 +740,98 @@
 
   .recent a:hover {
     background: var(--color-background-muted);
+  }
+
+  /* Narrow screens: the sidebar becomes a drawer, and the bars keep only what fits. */
+
+  .nav-toggle,
+  .nav-scrim {
+    display: none;
+  }
+
+  .topbar-ref,
+  .stage-rail,
+  .toolbar {
+    flex: none;
+  }
+
+  @media (max-width: 767px) {
+    .topbar {
+      gap: var(--spacing-2);
+      padding: 0 var(--spacing-2);
+    }
+
+    .topbar-ref,
+    .topbar-cached,
+    .stage-label {
+      display: none;
+    }
+
+    .stage-rail {
+      gap: var(--spacing-1);
+    }
+
+    .tour {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sidebar {
+      display: none;
+      position: fixed;
+      top: var(--topbar-h);
+      bottom: 0;
+      left: 0;
+      z-index: 30;
+      width: min(320px, 86vw);
+      max-height: none;
+      background: var(--color-background-surface);
+      border-right: 1px solid var(--color-border);
+      box-shadow: var(--shadow-high);
+    }
+
+    .tour[data-nav-open='true'] .sidebar {
+      display: flex;
+    }
+
+    .nav-scrim {
+      display: block;
+      position: fixed;
+      inset: var(--topbar-h) 0 0 0;
+      z-index: 25;
+      background: rgb(0 0 0 / 0.4);
+    }
+
+    .nav-toggle {
+      display: inline-flex;
+      flex: none;
+    }
+
+    .nav-item {
+      min-height: 36px;
+    }
+
+    .file-link {
+      height: 32px;
+    }
+
+    .subbar {
+      padding: 0 var(--spacing-2);
+    }
+
+    .content {
+      padding: var(--spacing-2) var(--spacing-2) var(--spacing-8);
+    }
+
+    .group-nav {
+      flex-wrap: wrap;
+    }
+
+    .home {
+      margin-top: var(--spacing-8);
+    }
+
+    .target-form {
+      flex-direction: column;
+    }
   }
 }

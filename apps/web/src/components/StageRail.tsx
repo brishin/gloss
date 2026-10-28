@@ -27,7 +27,9 @@ export function StageRail({ stages }: { stages: Record<Stage, StageStatus> }) {
         return (
           <span className="stage" key={stage} title={label}>
             <StatusDot variant={VARIANT[status.state]} label={label} isPulsing={status.state === 'running'} />
-            <span style={{ opacity: status.state === 'skipped' ? 0.5 : 1 }}>{LABELS[stage]}</span>
+            <span className="stage-label" style={{ opacity: status.state === 'skipped' ? 0.5 : 1 }}>
+              {LABELS[stage]}
+            </span>
           </span>
         );
       })}

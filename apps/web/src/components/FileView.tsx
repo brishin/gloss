@@ -29,6 +29,7 @@ function unifiedText(file: FileChange): string {
 function NoteCard({ text, critical, className }: { text: string; critical?: boolean; className?: string }) {
   return (
     <div className={`note ${className ?? ''}`} data-critical={critical ?? false}>
+      <span className="note-label">{critical ? 'gloss · critical' : 'gloss'}</span>
       <Markdown density="compact">{text}</Markdown>
     </div>
   );
