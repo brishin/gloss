@@ -1,9 +1,9 @@
 {
   "name": "gloss",
   "version": "0.0.0",
-  "license": "MIT",
   "private": true,
   "description": "Streaming, annotated review tours for pull requests and local diffs.",
+  "license": "MIT",
   "bin": {
     "gloss": "./src/bin.ts"
   },
