@@ -1,7 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router';
+import * as v from 'valibot';
 import { TourPage } from '../components/TourPage.tsx';
+import { tourPositionSearch } from '../lib/source-routes.tsx';
 
-export const Route = createFileRoute('/gh/$owner/$repo/pull/$number')({ component: GithubTour });
+const SearchSchema = v.object(tourPositionSearch);
+
+export const Route = createFileRoute('/gh/$owner/$repo/pull/$number')({
+  validateSearch: (search) => v.parse(SearchSchema, search),
+  component: GithubTour,
+});
 
 function GithubTour() {
   const { owner, repo, number } = Route.useParams();

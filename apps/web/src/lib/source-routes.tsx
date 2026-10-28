@@ -2,6 +2,13 @@ import type { SourceRef } from '@gloss/protocol';
 import { parseGithubTarget } from '@gloss/protocol';
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import * as v from 'valibot';
+
+// The router JSON-parses search values, so a commit like `7067545` arrives as a number.
+export const searchText = v.pipe(v.union([v.string(), v.number()]), v.transform(String));
+
+/** Where the reader is in a tour (`g` group key, `f` file id), so reload, back and shared links keep it. */
+export const tourPositionSearch = { g: v.optional(searchText), f: v.optional(searchText) };
 
 /** The only mapping between refs and routes (mirrored by the CLI's `webPath`). */
 export function RefLink({ sourceRef, children }: { sourceRef: SourceRef; children: ReactNode }) {

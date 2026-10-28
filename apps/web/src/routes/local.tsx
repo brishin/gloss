@@ -1,10 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import * as v from 'valibot';
 import { TourPage } from '../components/TourPage.tsx';
+import { searchText, tourPositionSearch } from '../lib/source-routes.tsx';
 
-// The router JSON-parses search values, so a commit like `7067545` arrives as a number.
-const text = v.pipe(v.union([v.string(), v.number()]), v.transform(String));
-const SearchSchema = v.object({ repo: text, target: v.optional(text, '') });
+const SearchSchema = v.object({ repo: searchText, target: v.optional(searchText, ''), ...tourPositionSearch });
 
 export const Route = createFileRoute('/local')({
   validateSearch: (search) => v.parse(SearchSchema, search),

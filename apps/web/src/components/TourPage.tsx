@@ -5,7 +5,7 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import type { SourceRef } from '@gloss/protocol';
 import { describeRef, groupsInOrder } from '@gloss/protocol';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OVERVIEW, orderedFileIds, STICKY_OFFSET, useViewed } from '../lib/tour-view.ts';
 import { useTour } from '../lib/use-tour.ts';
@@ -33,7 +33,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const { state, diff, connection, connectionError, rerun, abort } = useTour(sourceRef);
   const groups = useMemo(() => groupsInOrder(state), [state]);
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
-  const [selection, setSelection] = useState(OVERVIEW);
+  const position: { g?: string; f?: string } = useSearch({ strict: false });
+  const navigate = useNavigate();
+  const selection = position.g ?? OVERVIEW;
   // A group can disappear while streaming (heuristic groups give way to the model's): fall back to the overview.
   const current = groups.find((group) => group.key === selection);
   const selected = current ? current.key : OVERVIEW;
@@ -44,15 +46,33 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const [activeFileId, setActiveFileId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [expandedOverrides, setExpandedOverrides] = useState<Record<string, boolean>>({});
+  const [navOpen, setNavOpen] = useState(false);
   const { viewed, toggle: toggleViewedRaw } = useViewed(state.diffId);
+  // The file from a reloaded or shared URL, until its section has rendered and been scrolled to.
+  const restoringFile = useRef(position.f);
 
-  const select = useCallback((key: string) => {
-    setSelection(key);
+  const movePosition = useCallback(
+    (next: { g?: string; f?: string }, replace: boolean) =>
+      void navigate({ to: '.', search: (prev) => ({ ...prev, ...next }), replace }),
+    [navigate],
+  );
+
+  // Group changes push history entries, so back/forward step through groups.
+  const select = useCallback(
+    (key: string) => {
+      setNavOpen(false);
+      movePosition({ g: key === OVERVIEW ? undefined : key, f: undefined }, false);
+    },
+    [movePosition],
+  );
+
+  useEffect(() => {
     setActiveFileId(undefined);
     scrollToTop();
-  }, []);
+  }, [selected]);
 
   const jumpToFile = useCallback((fileId: string) => {
+    setNavOpen(false);
     setExpandedOverrides((overrides) => ({ ...overrides, [fileId]: overrides[fileId] ?? true }));
     // After the expansion renders, so the header lands under the sticky bars.
     requestAnimationFrame(() => document.getElementById(`file-${fileId}`)?.scrollIntoView({ block: 'start' }));
@@ -90,9 +110,13 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     const update = () => {
       frame = 0;
       const sections = mainRef.current?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [];
+      // At the bottom of the page the last files can never reach the line, so the line drops
+      // to the viewport's bottom edge: jumping to the last file then keeps it current.
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      const line = atBottom && window.scrollY > 0 ? window.innerHeight - 1 : READING_LINE;
       let active: string | undefined;
       for (const section of sections) {
-        if (section.getBoundingClientRect().top <= READING_LINE) {
+        if (section.getBoundingClientRect().top <= line) {
           active = section.dataset.fileId;
         }
       }
@@ -108,6 +132,45 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       cancelAnimationFrame(frame);
     };
   }, [selected, order.length, diff]);
+
+  // Restore the URL's file once its section and the diff exist; give up if the finished tour lacks it.
+  useEffect(() => {
+    const fileId = restoringFile.current;
+    if (!fileId) {
+      return;
+    }
+    const section = document.getElementById(`file-${fileId}`);
+    // Wait for the diff too: files above it grow when their hunks arrive and would push it away.
+    if (section && diff) {
+      restoringFile.current = undefined;
+      jumpToFile(fileId);
+    } else if (!section && state.status !== 'idle' && !running) {
+      restoringFile.current = undefined;
+    }
+  }, [selected, order, diff, running, state.status, jumpToFile]);
+
+  // The file in view replaces the URL entry rather than pushing one. The group's first file is
+  // left out: restoring it would scroll past the group summary.
+  useEffect(() => {
+    if (restoringFile.current || !current) {
+      return;
+    }
+    const fileId = activeFileId === order[0] ? undefined : activeFileId;
+    if (fileId !== position.f) {
+      movePosition({ f: fileId }, true);
+    }
+  }, [activeFileId, current, order, position.f, movePosition]);
+
+  const pageTitle = [current?.label, state.meta?.title ?? describeRef(sourceRef), 'gloss'].filter(Boolean).join(' · ');
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
+  useEffect(
+    () => () => {
+      document.title = 'gloss';
+    },
+    [],
+  );
 
   // Keyboard shortcuts (listed in ShortcutHelp).
   useEffect(() => {
@@ -163,6 +226,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           }
         },
         '?': () => setHelpOpen((open) => !open),
+        ...(navOpen && { Escape: () => setNavOpen(false) }),
       };
       const action = actions[event.key];
       if (action) {
@@ -172,7 +236,19 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [groups, selected, select, order, activeFileId, jumpToFile, toggleExpanded, toggleViewed, viewed, helpOpen]);
+  }, [
+    groups,
+    selected,
+    select,
+    order,
+    activeFileId,
+    jumpToFile,
+    toggleExpanded,
+    toggleViewed,
+    viewed,
+    helpOpen,
+    navOpen,
+  ]);
 
   const controls: FileControls = {
     expandedOverrides,
@@ -190,9 +266,11 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           gloss
         </Link>
         <div className="topbar-meta">
-          <Text color="secondary" size="sm">
-            {describeRef(sourceRef)}
-          </Text>
+          <span className="topbar-ref">
+            <Text color="secondary" size="sm">
+              {describeRef(sourceRef)}
+            </Text>
+          </span>
           <span className="topbar-title">
             {state.meta ? (
               state.meta.url ? (
@@ -218,7 +296,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         )}
       </header>
 
-      <div className="tour">
+      <div className="tour" data-nav-open={navOpen}>
+        {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />}
         <GroupSidebar
           groups={groups}
           files={files}
@@ -231,6 +310,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         />
         <main className="main" ref={mainRef}>
           <div className="subbar">
+            <span className="nav-toggle">
+              <Button
+                size="sm"
+                variant="secondary"
+                label={navOpen ? 'Close groups' : 'Groups'}
+                onClick={() => setNavOpen((open) => !open)}
+              />
+            </span>
             <span className="subbar-crumbs">
               {current ? (
                 <>
@@ -246,21 +333,25 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               )}
             </span>
             {groups[index + 1] && (
+              <span className="subbar-keyed">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  label={`Next: ${groups[index + 1]!.label}`}
+                  endContent={<Kbd keys="j" />}
+                  onClick={() => select(groups[index + 1]!.key)}
+                />
+              </span>
+            )}
+            <span className="subbar-keyed">
               <Button
                 size="sm"
                 variant="ghost"
-                label={`Next: ${groups[index + 1]!.label}`}
-                endContent={<Kbd keys="j" />}
-                onClick={() => select(groups[index + 1]!.key)}
+                label="Shortcuts"
+                endContent={<Kbd keys="?" />}
+                onClick={() => setHelpOpen(true)}
               />
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              label="Shortcuts"
-              endContent={<Kbd keys="?" />}
-              onClick={() => setHelpOpen(true)}
-            />
+            </span>
           </div>
 
           <div className="content">
