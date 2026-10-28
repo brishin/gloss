@@ -4,6 +4,7 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type { GroupView, TourState } from '@gloss/protocol';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
+import { DescriptionMedia } from './DescriptionMedia.tsx';
 
 /**
  * The tour's first stop: what the change is, how it is split, and where the risk is.
@@ -106,7 +107,11 @@ export function Overview({
         <div className="section prose">
           <Heading level={3}>Description</Heading>
           <div className="description">
-            <Markdown density="compact" headingLevelStart={descriptionHeadingStart(description)}>
+            <Markdown
+              density="compact"
+              headingLevelStart={descriptionHeadingStart(description)}
+              components={DESCRIPTION_COMPONENTS}
+            >
               {description}
             </Markdown>
           </div>
@@ -126,6 +131,8 @@ export function Overview({
     </div>
   );
 }
+
+const DESCRIPTION_COMPONENTS = { image: DescriptionMedia };
 
 /**
  * The body's top heading level renders as h4, under this page's h3 section titles: PR

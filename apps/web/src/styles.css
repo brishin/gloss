@@ -393,6 +393,16 @@
     background: var(--color-background-surface);
   }
 
+  /* Inline blocks, so a run of screenshots sits side by side as on GitHub. */
+  .description-media {
+    display: inline-block;
+    max-width: min(100%, 480px);
+    max-height: 360px;
+    margin: 0 var(--spacing-2) var(--spacing-2) 0;
+    vertical-align: top;
+    border-radius: var(--radius-element);
+  }
+
   .commit {
     display: flex;
     gap: var(--spacing-2);

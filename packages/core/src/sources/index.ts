@@ -12,7 +12,7 @@ export function createSource(ref: SourceRef): DiffSource {
   }
 }
 
-export { createGithubSource } from './github.ts';
+export { createGithubSource, resolveGithubAsset } from './github.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';

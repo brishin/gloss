@@ -31,6 +31,20 @@ describe('githubBodyToMarkdown', () => {
     );
   });
 
+  it('turns attachment URLs on their own line and video tags into media, leaving other URLs as text', () => {
+    const video = 'https://github.com/user-attachments/assets/eaf91621-cd04-455d-af6c-31d305e81247';
+    const body = [
+      video,
+      '',
+      'https://example.com/page',
+      `See ${video} inline.`,
+      '<video src="https://x/clip.mp4" controls></video>',
+    ].join('\n');
+    expect(githubBodyToMarkdown(body)).toBe(
+      [`![](${video})`, '', 'https://example.com/page', `See ${video} inline.`, '![](https://x/clip.mp4)'].join('\n'),
+    );
+  });
+
   it('leaves tags inside code untouched', () => {
     const body = 'Renders `<Banner>` now.\n\n```tsx\n<div className="x"><br/></div>\n```';
     expect(githubBodyToMarkdown(body)).toBe(body);

@@ -1,4 +1,5 @@
-import type { FileStatus, SourceRef } from '@gloss/protocol';
+import type { FileStatus, ResolvedAsset, SourceRef } from '@gloss/protocol';
+import { isGithubAssetUrl } from '@gloss/protocol';
 import { CommandError, run } from './exec.ts';
 import { isGenerated, parseGitattributes } from './gitattributes.ts';
 import { assignIds, countChanges, parseHunks, parsePatch, type ParsedFile } from './patch-parser.ts';
@@ -134,4 +135,23 @@ export function createGithubSource(ref: GithubRef): DiffSource {
       };
     },
   };
+}
+
+/**
+ * Resolves a PR body attachment to GitHub's short-lived signed URL (about five minutes),
+ * so the page can show images and videos from private repos. GitHub only accepts a token
+ * here, not `gh api`, so this reads the `gh` token for the one request and keeps nothing.
+ * Returns undefined when GitHub does not redirect (unknown asset, or no access).
+ */
+export async function resolveGithubAsset(url: string, signal?: AbortSignal): Promise<ResolvedAsset | undefined> {
+  if (!isGithubAssetUrl(url)) {
+    return undefined;
+  }
+  const token = (await run('gh', ['auth', 'token', '--hostname', 'github.com'], { signal })).trim();
+  const response = await fetch(url, { headers: { Authorization: `token ${token}` }, redirect: 'manual', signal });
+  const location = response.headers.get('location');
+  if (response.status < 300 || response.status >= 400 || !location) {
+    return undefined;
+  }
+  return { url: location, contentType: new URL(location).searchParams.get('response-content-type') ?? undefined };
 }
