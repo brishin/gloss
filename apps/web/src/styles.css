@@ -115,13 +115,13 @@
 
   .tour {
     display: grid;
-    grid-template-columns: clamp(264px, 22vw, 300px) minmax(0, 1fr);
+    grid-template-columns: clamp(280px, 24vw, 320px) minmax(0, 1fr);
     flex: 1;
   }
 
   .sidebar {
+    --side-tools-h: 41px;
     border-right: 1px solid var(--color-border);
-    padding: var(--spacing-2);
     position: sticky;
     top: var(--topbar-h);
     align-self: start;
@@ -130,7 +130,140 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Filter and nesting switch, pinned above the tree. */
+  .side-tools {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    box-sizing: border-box;
+    height: var(--side-tools-h);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1-5);
+    padding: 0 var(--spacing-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-background-body);
+  }
+
+  .side-tools > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tree {
+    display: flex;
+    flex-direction: column;
     gap: 1px;
+    padding: var(--spacing-1) var(--spacing-2) var(--spacing-4);
+  }
+
+  .tree-section {
+    padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+
+  .tree-node,
+  .tree-kids {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  /* Each level indents by one chevron, with a guide line like the file list's. */
+  .tree-kids {
+    margin: 1px 0 0 13px;
+    padding-left: 4px;
+    border-left: 1px solid var(--color-border);
+  }
+
+  .nav-item.tree-row {
+    gap: var(--spacing-1-5);
+    padding-left: 2px;
+  }
+
+  /* The toured PR stays visible while its groups scroll under it. */
+  .tree-row-sticky {
+    position: sticky;
+    top: var(--side-tools-h);
+    z-index: 2;
+    background: var(--color-background-body);
+  }
+
+  .tree-chevron {
+    all: unset;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 20px;
+    border-radius: var(--radius-inner);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  button.tree-chevron:hover {
+    color: var(--color-text-primary);
+    background: var(--color-border);
+  }
+
+  .tree-chevron-icon {
+    transition: transform 120ms;
+  }
+
+  .tree-row[aria-expanded='true'] > .tree-chevron .tree-chevron-icon {
+    transform: rotate(90deg);
+  }
+
+  .tree-lead {
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--color-text-secondary);
+  }
+
+  .tree-lead-category {
+    color: var(--color-text-disabled);
+  }
+
+  .tree-number {
+    margin-right: var(--spacing-1);
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-regular, 400);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tree-critical {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-error);
+  }
+
+  .tree-ring {
+    --progress: 0;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: conic-gradient(
+      var(--color-text-secondary) calc(var(--progress) * 360deg),
+      var(--color-border-emphasized, var(--color-border)) 0
+    );
+    mask: radial-gradient(circle, transparent 3px, #000 3.5px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tree-chevron-icon {
+      transition: none;
+    }
   }
 
   .nav-item {
@@ -195,7 +328,8 @@
   .file-list {
     display: flex;
     flex-direction: column;
-    margin: 1px 0 var(--spacing-1) 22px;
+    margin: 1px 0 var(--spacing-1) 13px;
+    padding-left: 4px;
     border-left: 1px solid var(--color-border);
   }
 
