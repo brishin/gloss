@@ -34,6 +34,7 @@ describe('normalizeNotes', () => {
           { fileId: 'f1', hunkId: 'h1', side: 'deletions', line: 11, text: 'removed b' },
           { fileId: 'f1', hunkId: 'bogus', side: 'additions', line: 12, text: 'wrong hunk id' },
           { fileId: 'f1', hunkId: 'h1', side: 'deletions', line: 99, text: 'off the hunk' },
+          { fileId: 'src/a.ts', hunkId: 'h1', side: 'additions', line: 13, text: 'by path' },
         ],
         riskNotes: [{ fileId: 'f1', risk: 'authCheck', text: 'risky' }],
         decisions: [
@@ -49,7 +50,9 @@ describe('normalizeNotes', () => {
       ['additions', 11, 'h1'],
       ['deletions', 11, 'h1'],
       ['additions', 12, 'h1'],
+      ['additions', 13, 'h1'],
     ]);
+    expect(notes.lineNotes.at(-1)?.fileId).toBe('f1');
     expect(notes.fileNotes).toEqual([{ fileId: 'f1', text: 'off the hunk', critical: undefined }]);
     expect(notes.riskNotes).toHaveLength(1);
     expect(notes.decisions).toEqual([
