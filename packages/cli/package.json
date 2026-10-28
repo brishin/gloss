@@ -1,0 +1,21 @@
+{
+  "name": "gloss",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Streaming, annotated review tours for pull requests and local diffs.",
+  "bin": {
+    "gloss": "./src/bin.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@gloss/core": "workspace:*",
+    "@gloss/models": "workspace:*",
+    "@gloss/protocol": "workspace:*",
+    "@gloss/server": "workspace:*",
+    "@hono/node-server": "catalog:",
+    "hono": "catalog:"
+  }
+}
