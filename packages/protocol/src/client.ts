@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { type ResolvedAsset, ResolvedAssetSchema } from './asset.ts';
 import { parseSseStream } from './codec.ts';
 import type { DiffPayload } from './diff.ts';
 import { DiffPayloadSchema } from './diff.ts';
@@ -43,6 +44,8 @@ export interface GlossClient {
   diff(diffId: string): Promise<DiffPayload>;
   health(): Promise<Health>;
   recent(): Promise<RecentTour[]>;
+  /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
+  asset(url: string): Promise<ResolvedAsset>;
 }
 
 export interface HttpGlossClientOptions {
@@ -128,5 +131,6 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     diff: (diffId) => json(DiffPayloadSchema, `/api/diffs/${encodeURIComponent(diffId)}`),
     health: () => json(HealthSchema, '/api/health'),
     recent: () => json(v.array(RecentTourSchema), '/api/recent'),
+    asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),
   };
 }

@@ -1,11 +1,23 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
-import { Kbd } from '@astryxdesign/core/Kbd';
+import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import type { SourceRef } from '@gloss/protocol';
 import { describeRef, groupsInOrder } from '@gloss/protocol';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  KeyboardIcon,
+  MapIcon,
+  RotateCwIcon,
+  SquareIcon,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OVERVIEW, orderedFileIds, STICKY_OFFSET, useViewed } from '../lib/tour-view.ts';
 import { useTour } from '../lib/use-tour.ts';
@@ -20,6 +32,9 @@ const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditabl
 
 /** The line a file or note must cross to count as "current": just below the sticky bars. */
 const READING_LINE = STICKY_OFFSET + 16;
+
+/** Input that means the reader is moving on their own, so a restored position stops being held. */
+const RELEASE_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
 
 function scrollToTop() {
   window.scrollTo({ top: 0 });
@@ -40,6 +55,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const current = groups.find((group) => group.key === selection);
   const selected = current ? current.key : OVERVIEW;
   const index = current ? groups.indexOf(current) : -1;
+  // From the overview (index -1), "next" is the first group.
+  const prev = index > 0 ? groups[index - 1] : undefined;
+  const next = groups[index + 1];
   const order = useMemo(() => orderedFileIds(current), [current]);
   const running = state.status === 'running' || connection === 'connecting';
   const mainRef = useRef<HTMLElement>(null);
@@ -144,6 +162,26 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     if (section && diff) {
       restoringFile.current = undefined;
       jumpToFile(fileId);
+      // Hunks above it still lay out after this (pierre highlights asynchronously), so keep it
+      // pinned while the page grows, until the reader takes over or the layout settles.
+      const main = mainRef.current;
+      if (!main) {
+        return;
+      }
+      const pin = new ResizeObserver(() => section.scrollIntoView({ block: 'start' }));
+      const release = () => {
+        pin.disconnect();
+        clearTimeout(timer);
+        for (const type of RELEASE_EVENTS) {
+          window.removeEventListener(type, release);
+        }
+      };
+      const timer = setTimeout(release, 3000);
+      pin.observe(main);
+      for (const type of RELEASE_EVENTS) {
+        window.addEventListener(type, release, { passive: true });
+      }
+      // Not tied to this effect's cleanup: its deps change as the stream finishes. The timer ends it.
     } else if (!section && state.status !== 'idle' && !running) {
       restoringFile.current = undefined;
     }
@@ -284,21 +322,75 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </span>
         </div>
         {state.cached && (
-          <Text color="secondary" size="sm">
-            cached
-          </Text>
+          <span className="topbar-cached">
+            <Text color="secondary" size="sm">
+              cached
+            </Text>
+          </span>
         )}
         <StageRail stages={state.stages} />
-        {running ? (
-          <Button size="sm" variant="ghost" label="Stop" onClick={abort} />
-        ) : (
-          <Button size="sm" variant="secondary" label="Re-run" onClick={rerun} />
-        )}
+        {/* macOS-style toolbar: icon-only controls in grouped capsules, names in tooltips. */}
+        <div className="toolbar">
+          <ButtonGroup label="Groups" size="sm">
+            <IconButton
+              variant="secondary"
+              label="Previous group"
+              tooltip={prev ? `Previous: ${prev.label} (k)` : 'Previous group (k)'}
+              icon={<Icon icon={ChevronLeftIcon} />}
+              isDisabled={!current}
+              onClick={() => select(prev ? prev.key : OVERVIEW)}
+            />
+            <IconButton
+              variant="secondary"
+              label="Overview"
+              tooltip="Overview (o)"
+              icon={<Icon icon={MapIcon} />}
+              onClick={() => select(OVERVIEW)}
+            />
+            <IconButton
+              variant="secondary"
+              label="Next group"
+              tooltip={next ? `Next: ${next.label} (j)` : 'Next group (j)'}
+              icon={<Icon icon={ChevronRightIcon} />}
+              isDisabled={!next}
+              onClick={() => next && select(next.key)}
+            />
+          </ButtonGroup>
+          {running ? (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Stop tour"
+              tooltip="Stop"
+              icon={<Icon icon={SquareIcon} />}
+              onClick={abort}
+            />
+          ) : (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Re-run tour"
+              tooltip="Re-run"
+              icon={<Icon icon={RotateCwIcon} />}
+              onClick={rerun}
+            />
+          )}
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label="Keyboard shortcuts"
+            tooltip="Shortcuts (?)"
+            icon={<Icon icon={KeyboardIcon} />}
+            onClick={() => setHelpOpen(true)}
+          />
+        </div>
       </header>
 
       <div className="tour" data-nav-open={navOpen}>
         {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />}
         <GroupSidebar
+          sourceRef={sourceRef}
+          title={state.meta?.title}
           groups={groups}
           files={files}
           selection={selected}
@@ -332,26 +424,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 </>
               )}
             </span>
-            {groups[index + 1] && (
-              <span className="subbar-keyed">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label={`Next: ${groups[index + 1]!.label}`}
-                  endContent={<Kbd keys="j" />}
-                  onClick={() => select(groups[index + 1]!.key)}
-                />
-              </span>
-            )}
-            <span className="subbar-keyed">
-              <Button
-                size="sm"
-                variant="ghost"
-                label="Shortcuts"
-                endContent={<Kbd keys="?" />}
-                onClick={() => setHelpOpen(true)}
-              />
-            </span>
           </div>
 
           <div className="content">
@@ -373,22 +445,20 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               <>
                 <GroupPanel key={current.key} group={current} state={state} diff={diff} controls={controls} />
                 <div className="group-nav">
-                  {index > 0 ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      label={`← ${groups[index - 1]!.label}`}
-                      onClick={() => select(groups[index - 1]!.key)}
-                    />
-                  ) : (
-                    <Button size="sm" variant="secondary" label="← Overview" onClick={() => select(OVERVIEW)} />
-                  )}
-                  {groups[index + 1] && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    label={prev ? prev.label : 'Overview'}
+                    icon={<Icon icon={ArrowLeftIcon} />}
+                    onClick={() => select(prev ? prev.key : OVERVIEW)}
+                  />
+                  {next && (
                     <Button
                       size="sm"
                       variant="primary"
-                      label={`${groups[index + 1]!.label} →`}
-                      onClick={() => select(groups[index + 1]!.key)}
+                      label={next.label}
+                      endContent={<Icon icon={ArrowRightIcon} />}
+                      onClick={() => select(next.key)}
                     />
                   )}
                 </div>

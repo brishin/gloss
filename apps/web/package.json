@@ -2,6 +2,7 @@
   "name": "@gloss/web",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "vp build",
@@ -15,6 +16,7 @@
     "@stylexjs/stylex": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "valibot": "catalog:"

@@ -48,6 +48,9 @@ catalogs:
     hono:
       specifier: 4.13.14
       version: 4.13.14
+    lucide-react:
+      specifier: 1.62.0
+      version: 1.62.0
     react:
       specifier: 19.3.1
       version: 19.3.1
@@ -116,6 +119,9 @@ importers:
       '@tanstack/react-start':
         specifier: 'catalog:'
         version: 1.169.4(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(rolldown@1.2.15)(vite@8.3.5(@types/node@26.6.5)(jiti@2.7.0))
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.62.0(@types/react@19.3.0)(react@19.3.1)
       react:
         specifier: 'catalog:'
         version: 19.3.1

@@ -1,5 +1,6 @@
 import type { CacheStore } from '@gloss/core';
-import type { DiffPayload, Health, TourEvent } from '@gloss/protocol';
+import { resolveGithubAsset } from '@gloss/core';
+import type { DiffPayload, Health, ResolvedAsset, TourEvent } from '@gloss/protocol';
 import { encodeNdjson, isTerminal, SourceRefSchema } from '@gloss/protocol';
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
@@ -16,6 +17,8 @@ export interface AppOptions {
   token?: string;
   /** Browser origins allowed to call the API cross-origin (the dev web server, a hosted frontend). */
   corsOrigins?: string[];
+  /** Resolves a PR body attachment to a URL the browser can load; defaults to the `gh` login. */
+  resolveAsset?: (url: string, signal?: AbortSignal) => Promise<ResolvedAsset | undefined>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -23,7 +26,14 @@ const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boo
 const PING_MS = 15_000;
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
-export function createApp({ jobs, cache, health, token, corsOrigins = [] }: AppOptions): Hono {
+export function createApp({
+  jobs,
+  cache,
+  health,
+  token,
+  corsOrigins = [],
+  resolveAsset = resolveGithubAsset,
+}: AppOptions): Hono {
   const app = new Hono();
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
@@ -136,6 +146,13 @@ export function createApp({ jobs, cache, health, token, corsOrigins = [] }: AppO
   app.get('/api/diffs/:id', (c) => {
     const diff = cache.get<DiffPayload>(c.req.param('id'));
     return diff ? c.json(diff) : c.json({ error: 'Unknown diff' }, 404);
+  });
+
+  app.get('/api/assets', async (c) => {
+    const asset = await resolveAsset(c.req.query('url') ?? '', c.req.raw.signal).catch(() => undefined);
+    // Signed URLs expire within minutes, so neither side may cache the answer.
+    c.header('Cache-Control', 'no-store');
+    return asset ? c.json(asset) : c.json({ error: 'Unknown asset' }, 404);
   });
 
   return app;
