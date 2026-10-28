@@ -204,28 +204,12 @@
     background: var(--color-border);
   }
 
-  .tree-chevron .glyph-chevron {
+  .tree-chevron-icon {
     transition: transform 120ms;
   }
 
-  .tree-row[aria-expanded='true'] > .tree-chevron .glyph-chevron {
+  .tree-row[aria-expanded='true'] > .tree-chevron .tree-chevron-icon {
     transform: rotate(90deg);
-  }
-
-  .glyph {
-    width: 14px;
-    height: 14px;
-    flex: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .glyph-done {
-    color: var(--color-success);
-    vertical-align: -3px;
   }
 
   .tree-lead {
@@ -268,27 +252,8 @@
     mask: radial-gradient(circle, transparent 3px, #000 3.5px);
   }
 
-  .tree-spinner {
-    flex: none;
-    width: 11px;
-    height: 11px;
-    box-sizing: border-box;
-    border-radius: 50%;
-    border: 1.5px solid var(--color-border);
-    border-top-color: var(--color-text-primary);
-    animation: tree-spin 0.8s linear infinite;
-  }
-
-  @keyframes tree-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .tree-spinner,
-    .tree-chevron .glyph-chevron {
-      animation: none;
+    .tree-chevron-icon {
       transition: none;
     }
   }

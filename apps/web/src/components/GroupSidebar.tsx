@@ -1,5 +1,6 @@
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
+import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import type { FileSummary, GroupView, RecentTour, SourceRef } from '@gloss/protocol';
@@ -26,7 +27,7 @@ import {
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath } from '../lib/tour-view.ts';
-import { CategoryIcon, CheckIcon, ChevronIcon, FolderIcon, PullRequestIcon } from './icons.tsx';
+import { CategoryIcon, CheckIcon, ChevronIcon, RefIcon } from './icons.tsx';
 
 /**
  * The review queue as a foldable tree: the toured PR, its groups (in tour order or nested
@@ -282,7 +283,9 @@ export function GroupSidebar({
             onToggle={(deep) => toggle(PR_NODE, deep)}
             onClick={() => activate(PR_NODE, OVERVIEW)}
           >
-            <span className="tree-lead">{sourceRef.kind === 'github-pr' ? <PullRequestIcon /> : <FolderIcon />}</span>
+            <span className="tree-lead">
+              <RefIcon kind={sourceRef.kind} />
+            </span>
             <RefLabel sourceRef={sourceRef} title={title} />
             {!prOpen && critical > 0 && (
               <span className="tree-critical" aria-label={`${critical} critical groups`}>
@@ -291,7 +294,7 @@ export function GroupSidebar({
               </span>
             )}
             {loading ? (
-              <span className="tree-spinner" aria-label="Tour running" />
+              <Spinner size="sm" shade="subtle" aria-label="Tour running" />
             ) : (
               <Progress seen={countViewed(allFileIds, viewed)} total={allFileIds.length} />
             )}
@@ -324,7 +327,9 @@ export function GroupSidebar({
             label={`${item.title} · ${describeRef(item.ref)}`}
             onClick={() => void navigateToRef(item.ref)}
           >
-            <span className="tree-lead">{item.ref.kind === 'github-pr' ? <PullRequestIcon /> : <FolderIcon />}</span>
+            <span className="tree-lead">
+              <RefIcon kind={item.ref.kind} />
+            </span>
             <RefLabel sourceRef={item.ref} title={item.title} />
           </TreeRow>
         ))}

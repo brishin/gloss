@@ -1,16 +1,30 @@
+import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import type { Category } from '@gloss/protocol';
 import type { ReactNode } from 'react';
 
-/** 16px stroke icons for the sidebar tree; they take `currentColor`. */
-function Glyph({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <svg className={`glyph ${className ?? ''}`} viewBox="0 0 16 16" aria-hidden="true">
-      {children}
-    </svg>
-  );
+/**
+ * Glyphs Astryx's icon set lacks (categories, PR, folder), drawn as 16px stroke icons and
+ * rendered through Astryx `Icon` so size and color follow the design system.
+ */
+function strokeIcon(paths: ReactNode): IconType {
+  return function StrokeIcon(props) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        {...props}
+      >
+        {paths}
+      </svg>
+    );
+  };
 }
 
-const CATEGORY_PATHS: Record<Category, ReactNode> = {
+const CATEGORY_GLYPHS = {
   ui: (
     <>
       <rect x="2" y="3" width="12" height="10" rx="1.5" />
@@ -68,43 +82,35 @@ const CATEGORY_PATHS: Record<Category, ReactNode> = {
     </>
   ),
   other: <circle cx="8" cy="8" r="2.5" />,
-};
+} satisfies Record<Category, ReactNode>;
+
+const CATEGORY_ICONS = Object.fromEntries(
+  Object.entries(CATEGORY_GLYPHS).map(([category, paths]) => [category, strokeIcon(paths)]),
+) as Record<Category, IconType>;
+
+const PULL_REQUEST = strokeIcon(
+  <>
+    <circle cx="4" cy="4" r="1.6" />
+    <circle cx="4" cy="12" r="1.6" />
+    <circle cx="12" cy="12" r="1.6" />
+    <path d="M4 5.6v4.8M12 10.4V7a2 2 0 0 0-2-2H7.5M9 3.5 7.5 5 9 6.5" />
+  </>,
+);
+
+const FOLDER = strokeIcon(<path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z" />);
 
 export function CategoryIcon({ category }: { category: Category }) {
-  return <Glyph className="glyph-category">{CATEGORY_PATHS[category]}</Glyph>;
+  return <Icon icon={CATEGORY_ICONS[category]} size="sm" color="inherit" />;
+}
+
+export function RefIcon({ kind }: { kind: 'github-pr' | 'local' }) {
+  return <Icon icon={kind === 'github-pr' ? PULL_REQUEST : FOLDER} size="sm" color="inherit" />;
 }
 
 export function ChevronIcon() {
-  return (
-    <Glyph className="glyph-chevron">
-      <path d="M6 4l4 4-4 4" />
-    </Glyph>
-  );
-}
-
-export function PullRequestIcon() {
-  return (
-    <Glyph>
-      <circle cx="4" cy="4" r="1.6" />
-      <circle cx="4" cy="12" r="1.6" />
-      <circle cx="12" cy="12" r="1.6" />
-      <path d="M4 5.6v4.8M12 10.4V7a2 2 0 0 0-2-2H7.5M9 3.5 7.5 5 9 6.5" />
-    </Glyph>
-  );
-}
-
-export function FolderIcon() {
-  return (
-    <Glyph>
-      <path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z" />
-    </Glyph>
-  );
+  return <Icon icon="chevronRight" size="sm" color="inherit" className="tree-chevron-icon" />;
 }
 
 export function CheckIcon() {
-  return (
-    <Glyph className="glyph-done">
-      <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
-    </Glyph>
-  );
+  return <Icon icon="check" size="sm" color="success" />;
 }
