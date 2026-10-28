@@ -5,15 +5,7 @@ import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import type { FileSummary, GroupView, RecentTour, SourceRef } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
-import {
-  type CSSProperties,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useState,
-} from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { useGlossClient } from '../lib/client.tsx';
 import {
   byCategory,
@@ -27,7 +19,8 @@ import {
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath } from '../lib/tour-view.ts';
-import { CategoryIcon, CheckIcon, ChevronIcon, RefIcon } from './icons.tsx';
+import { CategoryIcon, CheckIcon, RefIcon } from './icons.tsx';
+import { Progress, TreeRow } from './TreeRow.tsx';
 
 /**
  * The review queue as a foldable tree: the toured PR, its groups (in tour order or nested
@@ -276,6 +269,7 @@ export function GroupSidebar({
           <TreeRow
             id={PR_NODE}
             parent=""
+            tabbable
             current={false}
             expanded={prOpen}
             label={title ?? describeRef(sourceRef)}
@@ -338,90 +332,12 @@ export function GroupSidebar({
   );
 }
 
-/** One tree row. Rows are focusable treeitems (roving focus via arrow keys), not buttons, so the chevron can be one. */
-function TreeRow({
-  id,
-  parent,
-  current,
-  expanded,
-  label,
-  phase,
-  sticky,
-  onToggle,
-  onClick,
-  children,
-}: {
-  id: string;
-  parent: string;
-  current: boolean;
-  expanded?: boolean;
-  label: string;
-  phase?: GroupView['phase'];
-  sticky?: boolean;
-  onToggle?: (deep: boolean) => void;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      role="treeitem"
-      className={`nav-item tree-row${sticky ? ' tree-row-sticky' : ''}`}
-      data-node={id}
-      data-parent={parent}
-      data-phase={phase}
-      aria-expanded={expanded}
-      aria-current={current ? 'step' : undefined}
-      aria-selected={current}
-      tabIndex={current || id === PR_NODE ? 0 : -1}
-      title={label}
-      onClick={onClick}
-    >
-      {onToggle ? (
-        <button
-          type="button"
-          className="tree-chevron"
-          tabIndex={-1}
-          aria-label={`${expanded ? 'Fold' : 'Unfold'} ${label}`}
-          onClick={(event: MouseEvent) => {
-            event.stopPropagation();
-            onToggle(event.shiftKey);
-          }}
-        >
-          <ChevronIcon />
-        </button>
-      ) : (
-        <span className="tree-chevron" />
-      )}
-      {children}
-    </div>
-  );
-}
-
 function RefLabel({ sourceRef, title }: { sourceRef: SourceRef; title: string | undefined }) {
   return (
     <span className="nav-label">
       {sourceRef.kind === 'github-pr' && <span className="tree-number">#{sourceRef.number}</span>}
       {title ?? describeRef(sourceRef)}
     </span>
-  );
-}
-
-/** Files viewed so far: a ring while in progress, a check when done. */
-function Progress({ seen, total }: { seen: number; total: number }) {
-  if (total > 0 && seen === total) {
-    return (
-      <span className="nav-count" aria-label="All files viewed">
-        <CheckIcon />
-      </span>
-    );
-  }
-  return (
-    <span
-      className="tree-ring"
-      style={{ '--progress': total ? seen / total : 0 } as CSSProperties}
-      role="img"
-      aria-label={`${seen} of ${total} files viewed`}
-    />
   );
 }
 
