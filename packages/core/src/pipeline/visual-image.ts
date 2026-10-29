@@ -29,29 +29,35 @@ export function fit(text: string, width: number): string {
   return flat.length <= max ? flat : max < 2 ? '' : `${flat.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** The old and new diagrams side by side, each at most its natural size, as in the web app. */
+/** Wider than this, two diagrams side by side shrink past reading, so they stack (as in the web app). */
+const SIDE_BY_SIDE = 340;
+
+/** The old and new diagrams side by side, or stacked when either is too wide to halve. */
 function beforeAfterSvg(visual: Extract<Visual, { kind: 'before-after' }>): string {
-  const half = WIDTH / 2;
-  const room = half - 28;
-  const diagrams = [visual.before, visual.after].map((source, side) => {
+  const svgs = [visual.before, visual.after].map(mermaidSvg);
+  const stacked = svgs.some((svg) => new Resvg(svg).width > SIDE_BY_SIDE);
+  const cell = stacked ? WIDTH : WIDTH / 2;
+  const diagrams = svgs.map((svg, side) => {
     // Drawn to PNG first: resvg loads no fonts for an SVG nested as an image.
-    const svg = mermaidSvg(source);
-    const natural = new Resvg(svg);
-    const width = Math.round(Math.min(room, natural.width));
+    const width = Math.round(Math.min(cell - 28, new Resvg(svg).width));
     const png = new Resvg(svg, { background: side ? WASH : INK.bg, fitTo: { mode: 'width', value: width } }).render();
-    return { png: Buffer.from(png.asPng()).toString('base64'), width, height: png.height };
+    return { png: Buffer.from(png.asPng()).toString('base64'), width, height: png.height + 52 };
   });
-  const height = 44 + Math.max(...diagrams.map((diagram) => diagram.height)) + 12;
-  const column = (x: number, label: string, diagram: (typeof diagrams)[number]) =>
-    `<text x="${x + 14}" y="26" font-size="11" font-weight="600" fill="${INK.muted}" ${FONT}>${label}</text>` +
-    `<image x="${x + (half - diagram.width) / 2}" y="40" width="${diagram.width}" height="${diagram.height}" href="data:image/png;base64,${diagram.png}"/>`;
+  const [first, second] = diagrams as [(typeof diagrams)[number], (typeof diagrams)[number]];
+  const height = stacked ? first.height + second.height : Math.max(first.height, second.height);
+  const box = (x: number, y: number, h: number, label: string, diagram: typeof first, wash: boolean) =>
+    (wash ? `<rect x="${x}" y="${y}" width="${cell}" height="${h}" fill="${WASH}"/>` : '') +
+    `<text x="${x + 14}" y="${y + 26}" font-size="11" font-weight="600" fill="${INK.muted}" ${FONT}>${label}</text>` +
+    `<image x="${x + (cell - diagram.width) / 2}" y="${y + 40}" width="${diagram.width}" height="${diagram.height - 52}" href="data:image/png;base64,${diagram.png}"/>`;
   return svg(
     height,
     `<rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" fill="${INK.bg}" stroke="${INK.line}"/>` +
-      `<rect x="${half}" y="1" width="${half - 1.5}" height="${height - 2}" fill="${WASH}"/>` +
-      `<line x1="${half}" x2="${half}" y1="0" y2="${height}" stroke="${INK.line}"/>` +
-      column(0, 'BEFORE', diagrams[0]!) +
-      column(half, 'AFTER', diagrams[1]!),
+      box(0, 0, stacked ? first.height : height, 'BEFORE', first, false) +
+      (stacked
+        ? box(0, first.height, second.height, 'AFTER', second, true) +
+          `<line x1="0" x2="${WIDTH}" y1="${first.height}" y2="${first.height}" stroke="${INK.line}"/>`
+        : box(cell, 0, height, 'AFTER', second, true) +
+          `<line x1="${cell}" x2="${cell}" y1="0" y2="${height}" stroke="${INK.line}"/>`),
   );
 }
 

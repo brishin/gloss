@@ -20,16 +20,27 @@ const COLORS = {
  * neither restyles other SVGs on the page nor fetches anything.
  */
 export default function MermaidVisual({ source }: { source: string }) {
-  const svg = useMemo(() => {
-    try {
-      return renderMermaidSVG(source, COLORS)
+  const svg = useMemo(() => mermaidSvg(source), [source]);
+  return svg ? <Diagram svg={svg} /> : null;
+}
+
+/** The SVG markup and its natural width, or `undefined` when the source does not render. */
+export function mermaidSvg(source: string): { html: string; width: number } | undefined {
+  try {
+    const raw = renderMermaidSVG(source, COLORS);
+    return {
+      width: Number(/ width="([\d.]+)"/.exec(raw)?.[1] ?? 0),
+      html: raw
         .replace(/@import url\([^)]*\);?/g, '')
         .replace(/(^|\n)\s*text \{[^}]*\}/, '$1.visual-mermaid text { font-family: var(--font-family-body); }')
         .replace(/(^|\n)(\s*)svg \{/, '$1$2.visual-mermaid svg {')
-        .replace(/ width="([\d.]+)" height="[\d.]+" style="/, ' style="max-width: min(100%, $1px);');
-    } catch {
-      return undefined;
-    }
-  }, [source]);
-  return svg ? <div className="visual-mermaid" dangerouslySetInnerHTML={{ __html: svg }} /> : null;
+        .replace(/ width="([\d.]+)" height="[\d.]+" style="/, ' style="max-width: min(100%, $1px);'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function Diagram({ svg }: { svg: { html: string } }) {
+  return <div className="visual-mermaid" dangerouslySetInnerHTML={{ __html: svg.html }} />;
 }
