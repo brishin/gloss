@@ -164,10 +164,32 @@ export const RiskNoteSchema = v.object({
 });
 export type RiskNote = v.InferOutput<typeof RiskNoteSchema>;
 
+/** Linear's priority scale, most urgent first. */
+export const DECISION_PRIORITIES = ['urgent', 'high', 'medium', 'low'] as const;
+export const DecisionPrioritySchema = v.picklist(DECISION_PRIORITIES);
+export type DecisionPriority = v.InferOutput<typeof DecisionPrioritySchema>;
+
+/**
+ * A choice the change makes that a reviewer should agree with on purpose. With no
+ * `fileId` it is about the change as a whole; with `fileId` but no `line` it is about
+ * that file; with all of them it sits on that line.
+ */
+export const DecisionSchema = v.object({
+  text: v.string(),
+  priority: DecisionPrioritySchema,
+  fileId: v.optional(v.string()),
+  hunkId: v.optional(v.string()),
+  side: v.optional(DiffSideSchema),
+  line: v.optional(v.number()),
+});
+export type Decision = v.InferOutput<typeof DecisionSchema>;
+
 export const GroupNotesSchema = v.object({
   fileNotes: v.array(FileNoteSchema),
   lineNotes: v.array(LineNoteSchema),
   riskNotes: v.array(RiskNoteSchema),
+  /** Decisions in this group's files. Absent in tours written before decisions existed. */
+  decisions: v.optional(v.array(DecisionSchema)),
 });
 export type GroupNotes = v.InferOutput<typeof GroupNotesSchema>;
 
@@ -186,6 +208,8 @@ export const TourSchema = v.object({
   meta: DiffMetaSchema,
   files: v.array(FileSummarySchema),
   overallSummary: v.optional(v.string()),
+  /** Decisions about the change as a whole, not tied to a file. */
+  decisions: v.optional(v.array(DecisionSchema)),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),
   judgments: v.record(v.string(), FileJudgmentSchema),

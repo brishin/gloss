@@ -50,6 +50,7 @@ function collect() {
 
 const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
+  decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
@@ -73,6 +74,7 @@ function fakeModel() {
           fileNotes: [],
           lineNotes: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Note.' }],
           riskNotes: [],
+          decisions: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Compare by name.', priority: 'high' }],
         };
       },
     },
@@ -143,6 +145,10 @@ describe('runTour', () => {
     expect(tour.groups.find((group) => group.key === 'auth')?.critical).toBe(true);
     expect(tour.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(tour.notes.auth?.lineNotes).toHaveLength(1);
+    expect(tour.decisions).toEqual(groupsAnswer.decisions);
+    expect(tour.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
+    // Notes see the change-wide decisions so they don't repeat them on a line.
+    expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
 
     // Second run: a finished tour for the same head replays as two events, with no model calls.
     const calls = model.calls.length;
@@ -170,7 +176,7 @@ describe('runTour', () => {
           return { ...groupsAnswer, groups: [{ ...groupsAnswer.groups[0], fileIds: [ids[0], 'f-hallucinated'] }] };
         },
         followup: { placements: [] },
-        notes: { fileNotes: [], lineNotes: [], riskNotes: [] },
+        notes: { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] },
       },
     });
     const tour = await runTour({

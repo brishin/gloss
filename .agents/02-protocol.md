@@ -21,6 +21,11 @@ group), `tour.complete`. A cache hit is `job.started` then `tour.complete`.
 The client parses every event with valibot. It retries only network errors and 5xx,
 because a malformed event is a protocol bug and should fail loudly.
 
+Decisions are choices a reviewer should agree with on purpose, each one sentence with a
+Linear-style priority. Change-wide ones ride on `tour.summary` (and `Tour.decisions`);
+ones in code ride on `group.notes` as `notes.decisions`, with `fileId` and, when the line
+is visible, `hunkId`/`side`/`line`.
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

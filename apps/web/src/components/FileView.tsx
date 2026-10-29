@@ -1,12 +1,13 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { FileChange, FileNote, FileSummary, LineNote, RiskNote } from '@gloss/protocol';
+import type { Decision, FileChange, FileNote, FileSummary, LineNote, RiskNote } from '@gloss/protocol';
 import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { memo, useMemo } from 'react';
 import { RISK_SHORT, splitPath } from '../lib/tour-view.ts';
+import { PriorityIcon } from './icons.tsx';
 
 function unifiedText(file: FileChange): string {
   const oldPath = file.previousPath ?? file.path;
@@ -35,6 +36,18 @@ function NoteCard({ text, critical, className }: { text: string; critical?: bool
   );
 }
 
+function DecisionCard({ decision, className }: { decision: Decision; className?: string }) {
+  return (
+    <div className={`note decision ${className ?? ''}`}>
+      <PriorityIcon priority={decision.priority} />
+      <span>{decision.text}</span>
+    </div>
+  );
+}
+
+/** What a diff line carries: a note or a decision, rendered under the line. */
+type LineAnnotation = { kind: 'note'; note: LineNote } | { kind: 'decision'; decision: Decision };
+
 function Chevron() {
   return (
     <svg className="chevron" viewBox="0 0 12 12" aria-hidden="true">
@@ -48,6 +61,7 @@ export const FileView = memo(function FileView({
   change,
   fileNotes,
   lineNotes,
+  decisions,
   risks,
   generated,
   expanded,
@@ -60,6 +74,8 @@ export const FileView = memo(function FileView({
   change: FileChange | undefined;
   fileNotes: readonly FileNote[];
   lineNotes: readonly LineNote[];
+  /** Decisions in this file; one without a line shows with the file notes. */
+  decisions: readonly Decision[];
   risks: readonly RiskNote[];
   generated: boolean;
   expanded: boolean;
@@ -72,10 +88,22 @@ export const FileView = memo(function FileView({
     [change],
   );
   // Stable per notes array: pierre re-measures line heights when annotations change identity.
-  const annotations = useMemo<DiffLineAnnotation<LineNote>[]>(
-    () => lineNotes.map((note) => ({ side: note.side, lineNumber: note.line, metadata: note })),
-    [lineNotes],
+  const annotations = useMemo<DiffLineAnnotation<LineAnnotation>[]>(
+    () => [
+      ...decisions.flatMap((decision) =>
+        decision.side && decision.line !== undefined
+          ? [{ side: decision.side, lineNumber: decision.line, metadata: { kind: 'decision' as const, decision } }]
+          : [],
+      ),
+      ...lineNotes.map((note) => ({
+        side: note.side,
+        lineNumber: note.line,
+        metadata: { kind: 'note' as const, note },
+      })),
+    ],
+    [decisions, lineNotes],
   );
+  const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);
   const riskKinds = [...new Set(risks.map((risk) => risk.risk))];
 
@@ -110,8 +138,11 @@ export const FileView = memo(function FileView({
           Viewed
         </label>
       </header>
-      {expanded && fileNotes.length > 0 && (
+      {expanded && fileNotes.length + fileDecisions.length > 0 && (
         <div className="file-notes">
+          {fileDecisions.map((decision, index) => (
+            <DecisionCard key={`d${index}`} decision={decision} />
+          ))}
           {fileNotes.map((note, index) => (
             <NoteCard key={index} text={note.text} critical={note.critical} />
           ))}
@@ -129,17 +160,19 @@ export const FileView = memo(function FileView({
         ) : !fileDiff ? (
           <div className="collapsed">No content changes</div>
         ) : (
-          <FileDiff<LineNote, undefined>
+          <FileDiff<LineAnnotation, undefined>
             fileDiff={fileDiff}
             disableWorkerPool
             options={{ diffStyle: 'unified', disableFileHeader: true, overflow: 'wrap', themeType: 'system' }}
             lineAnnotations={annotations}
             renderAnnotation={(annotation) =>
-              annotation.metadata ? (
+              annotation.metadata?.kind === 'decision' ? (
+                <DecisionCard className="line-note" decision={annotation.metadata.decision} />
+              ) : annotation.metadata ? (
                 <NoteCard
                   className="line-note"
-                  text={annotation.metadata.text}
-                  critical={annotation.metadata.critical}
+                  text={annotation.metadata.note.text}
+                  critical={annotation.metadata.note.critical}
                 />
               ) : null
             }

@@ -4,6 +4,7 @@ import { STAGES } from './events.ts';
 import type { SourceRef } from './source-ref.ts';
 import type {
   Category,
+  Decision,
   FileJudgment,
   GroupDefinition,
   GroupNotes,
@@ -36,6 +37,8 @@ export interface TourState {
   definitions: GroupDefinition[];
   definitionsDone: boolean;
   overallSummary?: string;
+  /** Decisions about the change as a whole; per-group ones live in `notes`. */
+  decisions?: Decision[];
   judgments: Record<string, FileJudgment>;
   placements: Record<string, Placement>;
   resolved?: ResolvedGroup[];
@@ -109,7 +112,7 @@ export function reduceTourEvent(state: TourState, event: TourEvent | TourEventBo
       return { ...next, definitions, definitionsDone: true };
     }
     case 'tour.summary':
-      return { ...next, overallSummary: event.overallSummary };
+      return { ...next, overallSummary: event.overallSummary, decisions: event.decisions };
     case 'file.judged':
       return {
         ...next,
@@ -145,6 +148,7 @@ function hydrateFromTour(state: TourState, tour: Tour, cached: boolean): TourSta
     meta: tour.meta,
     files: tour.files,
     overallSummary: tour.overallSummary,
+    decisions: tour.decisions,
     definitions: tour.groups.map(({ key, label, summary, category }) => ({ key, label, summary, category })),
     definitionsDone: true,
     judgments: tour.judgments,
@@ -168,6 +172,7 @@ export function tourFromState(state: TourState): Tour | undefined {
     meta: state.meta,
     files: state.files,
     overallSummary: state.overallSummary,
+    decisions: state.decisions,
     groups: state.resolved,
     placements: state.placements,
     judgments: state.judgments,

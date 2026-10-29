@@ -4,7 +4,9 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type { GroupView, TourState } from '@gloss/protocol';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
+import { decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
+import { PriorityIcon } from './icons.tsx';
 
 /**
  * The tour's first stop: what the change is, how it is split, and where the risk is.
@@ -15,11 +17,13 @@ export function Overview({
   groups,
   running,
   onSelect,
+  onJumpToFile,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
   onSelect: (key: string) => void;
+  onJumpToFile: (fileId: string) => void;
 }) {
   const files = new Map(state.files.map((file) => [file.id, file]));
   const totals = (fileIds: readonly string[]) =>
@@ -35,6 +39,7 @@ export function Overview({
     group.notes ? group.notes.fileNotes.length + group.notes.lineNotes.length : 0;
   const meta = state.meta;
   const description = meta?.description ? githubBodyToMarkdown(meta.description) : '';
+  const decisions = decisionsInOrder(state, groups);
 
   return (
     <div className="section">
@@ -75,6 +80,44 @@ export function Overview({
           </>
         ) : null}
       </div>
+
+      {decisions.length > 0 && (
+        <div className="section">
+          <Heading level={3}>Decisions</Heading>
+          <table className="overview-table decisions">
+            <tbody>
+              {decisions.map(({ decision, groupKey }, index) => {
+                const path = decision.fileId ? files.get(decision.fileId)?.path : undefined;
+                return (
+                  <tr key={index}>
+                    <td className="decision-priority">
+                      <PriorityIcon priority={decision.priority} />
+                    </td>
+                    <td>{decision.text}</td>
+                    <td className="stat">
+                      {path && groupKey && decision.fileId && (
+                        <a
+                          className="decision-ref"
+                          href={`#file-${decision.fileId}`}
+                          title={path}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelect(groupKey);
+                            onJumpToFile(decision.fileId!);
+                          }}
+                        >
+                          {splitPath(path).base}
+                          {decision.line !== undefined && `:${decision.line}`}
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {groups.length > 0 && (
         <table className="overview-table">

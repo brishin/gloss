@@ -676,6 +676,45 @@
     line-height: 16px;
   }
 
+  .note.decision {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2);
+    border-left-color: var(--color-text-purple);
+  }
+
+  /* The icon sits on the first line of text. */
+  .note.decision .priority-icon {
+    align-self: flex-start;
+    margin-top: 3px;
+  }
+
+  .priority-icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    color: var(--color-text-secondary);
+  }
+
+  .priority-urgent {
+    color: var(--color-text-orange);
+  }
+
+  .decisions .decision-priority {
+    width: 14px;
+    padding-right: 0;
+    border-left: 3px solid var(--color-text-purple);
+  }
+
+  .decisions .priority-icon {
+    vertical-align: -2px;
+  }
+
+  .decision-ref {
+    font-family: var(--font-family-code);
+    color: var(--color-text-secondary);
+  }
+
   .line-note {
     margin: var(--spacing-1) var(--spacing-2);
   }

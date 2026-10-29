@@ -1,4 +1,5 @@
-import type { FileSummary, GroupView, RiskKey, RiskNote } from '@gloss/protocol';
+import type { Decision, FileSummary, GroupView, RiskKey, RiskNote, TourState } from '@gloss/protocol';
+import { DECISION_PRIORITIES } from '@gloss/protocol';
 import { useCallback, useEffect, useState } from 'react';
 
 /** Sidebar/selection key of the tour overview (never a group key: those come from the model or are synthetic). */
@@ -34,7 +35,27 @@ export function orderedFileIds(group: GroupView | undefined): string[] {
 
 export function notedFileIds(group: GroupView | undefined): Set<string> {
   const notes = group?.notes;
-  return new Set([...(notes?.fileNotes ?? []), ...(notes?.lineNotes ?? [])].map((note) => note.fileId));
+  return new Set(
+    [...(notes?.fileNotes ?? []), ...(notes?.lineNotes ?? []), ...(notes?.decisions ?? [])].flatMap((note) =>
+      note.fileId ? [note.fileId] : [],
+    ),
+  );
+}
+
+export interface DecisionEntry {
+  decision: Decision;
+  /** The group holding the decision's file; absent for a decision about the whole change. */
+  groupKey?: string;
+}
+
+/** Every decision, most urgent first. Within a priority, change-wide ones lead, then tour order. */
+export function decisionsInOrder(state: TourState, groups: readonly GroupView[]): DecisionEntry[] {
+  const entries: DecisionEntry[] = [
+    ...(state.decisions ?? []).map((decision) => ({ decision })),
+    ...groups.flatMap((group) => (group.notes?.decisions ?? []).map((decision) => ({ decision, groupKey: group.key }))),
+  ];
+  const rank = (entry: DecisionEntry) => DECISION_PRIORITIES.indexOf(entry.decision.priority);
+  return entries.toSorted((a, b) => rank(a) - rank(b));
 }
 
 export function isGeneratedFile(group: GroupView | undefined, file: FileSummary): boolean {

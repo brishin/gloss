@@ -1,5 +1,5 @@
-import type { DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
-import { CATEGORIES, CATEGORY_GUIDE, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
+import type { Decision, DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
+import { CATEGORIES, CATEGORY_GUIDE, DECISION_PRIORITIES, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
 import * as v from 'valibot';
 import { hashOf } from '../hash.ts';
 import { isAgentGuidance, isDocumentation } from './guidance.ts';
@@ -14,7 +14,7 @@ const categoryGuide = CATEGORIES.map((category) => `${category}: ${CATEGORY_GUID
 
 const GroupSchema = v.object({
   key: v.pipe(v.string(), v.description('Stable, short, kebab-case id, e.g. "auth-refresh" or "docs".')),
-  label: v.pipe(v.string(), v.description('Short, human-readable name for the group (2-5 words).')),
+  label: v.pipe(v.string(), v.description('Short, human-readable name for the group (2-5 words), in sentence case.')),
   summary: v.pipe(
     v.string(),
     v.description('1-3 sentences on the intention of this group: why over what. Rendered as Markdown.'),
@@ -35,15 +35,38 @@ const groupsField = <T extends v.GenericSchema>(entry: T) =>
 
 const overallSummary = v.pipe(
   v.string(),
-  v.description('A short paragraph telling a reviewer what this change does and where to focus. Rendered as Markdown.'),
+  v.description(
+    'A short paragraph, 2-4 sentences and under 80 words, telling a reviewer what this change does and where to focus. Rendered as Markdown.',
+  ),
+);
+
+const decisionText = v.pipe(
+  v.string(),
+  v.description(
+    'Exactly one short sentence, under 25 words, naming one choice and its reason when the reason is not obvious. Add "instead of ..." when the alternative is not obvious. Name the choice, not the code. No Markdown.',
+  ),
+);
+const decisionPriority = v.pipe(
+  v.picklist(DECISION_PRIORITIES),
+  v.description(
+    'urgent: rare; the reviewer must agree before merging because it affects security, access or data loss, or is hard to undo. high: users or other code will depend on it. medium: a design choice worth a look. low: a minor default. Most decisions are medium or low.',
+  ),
+);
+
+const prDecisions = v.pipe(
+  v.array(v.object({ text: decisionText, priority: decisionPriority })),
+  v.description(
+    'Key decisions about the change as a whole: product behavior, scope, rollout, and tradeoffs that span several files. Most changes have 1-4. Leave out choices that one line or one function makes; a later pass pins those to their lines.',
+  ),
 );
 
 /** With Jev, the LLM only defines groups; Jev and code place the files. */
-export const DefineSchema = v.object({ overallSummary, groups: groupsField(GroupSchema) });
+export const DefineSchema = v.object({ overallSummary, decisions: prDecisions, groups: groupsField(GroupSchema) });
 
 /** Without Jev, the LLM also lists each group's files. */
 export const DefineWithFilesSchema = v.object({
   overallSummary,
+  decisions: prDecisions,
   groups: groupsField(
     v.object({
       ...GroupSchema.entries,
@@ -75,7 +98,7 @@ export const FollowupSchema = v.object({
 const noteText = v.pipe(
   v.string(),
   v.description(
-    '1-2 sentences explaining what a reviewer would otherwise have to work out: non-obvious logic, a subtle behavior change, a risk. Rendered as Markdown. Never restate the code.',
+    '1-2 sentences, under 40 words, explaining what a reviewer would otherwise have to work out: non-obvious logic, a subtle behavior change, a risk. State what you found instead of asking the reviewer to verify it. Rendered as Markdown. Never restate the code.',
   ),
 );
 const noteCritical = v.optional(
@@ -121,15 +144,35 @@ export const NotesSchema = v.object({
       'One note per flagged risk listed in the prompt that the diff confirms. Empty when none were flagged.',
     ),
   ),
+  decisions: v.pipe(
+    v.array(
+      v.object({
+        fileId: v.string(),
+        hunkId: v.pipe(v.string(), v.description('The hunk id shown in the hunk header.')),
+        side: v.pipe(
+          v.picklist(['additions', 'deletions']),
+          v.description('"additions" for a + or unchanged line, "deletions" for a - line.'),
+        ),
+        line: v.pipe(v.number(), v.description('The line number of the line that makes the choice.')),
+        text: decisionText,
+        priority: decisionPriority,
+      }),
+    ),
+    v.description(
+      'Key decisions this group makes in code, each pinned to the line that makes it: a chosen approach, default, data shape, check or ordering a reviewer should agree with on purpose. Never on tests or stylesheets, and never one the change-wide list covers. Most groups have 0-3, and an unimportant group has none.',
+    ),
+  ),
 });
 
 export const DEFINE_SYSTEM = `You are a senior engineer preparing a guided review tour of a code change.
 
-Split the change into review groups a reviewer can read one at a time. Group by intention (one feature, fix or refactor per group), not by file type or directory. Keep groups few: 2-7 for most changes, one for a small focused change. Tests belong with the code they test unless they are the point of the change; generated files may be their own group.
+Split the change into review groups a reviewer can read one at a time. Group by intention (one feature, fix or refactor per group), not by file type or directory. Keep groups few: 2-7 for most changes, one for a small focused change. Fold small supporting edits (formatting, field order, a dependency added for the feature, styles for a component) into the group they support instead of giving them their own group. Tests belong with the code they test unless they are the point of the change; generated files may be their own group.
 
 Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md, .agents/, agent skills and SKILL.md, editor and agent rules, docs/, READMEs) are important. They state the intent of the change and the rules the code is meant to follow, so a reviewer reads them first. Put them together in one group with category "docs", first in the order, and summarize the intent or rules they establish, not just that docs changed.
 
 Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
+
+Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
 Call the submit tool once with the complete result.`;
 
@@ -139,16 +182,18 @@ export const NOTES_SYSTEM = `You are a senior engineer annotating one group of a
 
 Write a few precise notes where they save the reviewer real effort: non-obvious logic, subtle behavior changes, edge cases, risks, and things that look wrong but are not. Skip anything the code already says plainly. Most groups need 0-6 notes; quality over quantity.
 
-Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
+Only reference file ids listed under "## Files"; other files belong to other groups. Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
 
 For documentation and agent guidance, note the rules or intent each change establishes or alters, so the reviewer can hold the code to them; flag instructions that are ambiguous or contradict each other.
 
 When the prompt lists flagged risks, check each against the diff and write a risk note only for those the diff confirms.
 
+Separately from notes, list the key decisions this group makes in code, each on the line that makes it. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Skip CSS and visual styling, layout, naming, refactors, error handling details and anything that only describes what the code does. Never put a decision on a test, fixture or story file: record it where the code makes it. Skip any choice the change-wide list already covers, even when you can point at its line. Before you submit, remove each decision that restates a change-wide one.
+
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
@@ -280,10 +325,18 @@ export function buildNotesPrompt(
   group: ResolvedGroup,
   files: readonly FileChange[],
   judgments: Record<string, FileJudgment>,
+  decisions: readonly Decision[] = [],
 ): string {
   const parts = [header(meta)];
   if (overallSummary) {
     parts.push('', '## Overall', overallSummary);
+  }
+  if (decisions.length) {
+    parts.push(
+      '',
+      '## Change-wide decisions (already listed; do not repeat)',
+      ...decisions.map((decision) => `- ${decision.text}`),
+    );
   }
   parts.push('', `## This group: ${group.label}`, group.summary);
   const risks = files.flatMap((file) =>
