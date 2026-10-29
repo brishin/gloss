@@ -169,7 +169,7 @@ export function GroupSidebar({
             files={files}
             activeFileId={selected ? activeFileId : undefined}
             viewed={viewed}
-            onSelectFile={(fileId) => dispatch({ type: 'FileJumped', fileId, groupKey: group.key })}
+            onSelectFile={(fileId) => dispatch({ type: 'FileJumped', fileId })}
           />
         )}
       </div>

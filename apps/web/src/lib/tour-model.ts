@@ -20,7 +20,6 @@ import {
   categoryNode,
   groupNode,
   initialSidebar,
-  isNodeOpen,
   type Nesting,
   PR_NODE,
   setNodesOpen,
@@ -49,6 +48,18 @@ export interface Position {
   f?: string;
 }
 
+/**
+ * What the scroll-spy read off the page: the group and file whose tops last crossed the
+ * reading line. At the bottom of the page the last stops can never reach that line, so it
+ * also lists the groups and files on screen there (`visible`), and a stop just jumped to
+ * stays current while it is in view.
+ */
+export interface Spied {
+  groupKey?: string;
+  fileId?: string;
+  visible?: { groupKeys: readonly string[]; fileIds: readonly string[] };
+}
+
 export interface Model {
   ref: SourceRef;
   connection: Connection;
@@ -59,8 +70,8 @@ export interface Model {
   /** The diff last asked for, so each one is fetched once. */
   diffRequested?: string;
   position: Position;
-  /** A file from a reloaded or shared URL (or back/forward), until its section exists and has been scrolled to. */
-  restoring?: string;
+  /** A position from a reloaded or shared URL (or back/forward), until its section exists and has been scrolled to. */
+  restoring?: Position;
   /** The file at the reading line (scroll-spy), or the one just jumped to. */
   activeFileId?: string;
   /** Files the reader expanded or collapsed themselves. */
@@ -90,11 +101,11 @@ export type Msg =
   | { type: 'UrlChanged'; position: Position }
   | { type: 'GroupSelected'; key: string }
   | { type: 'GroupStepped'; by: Step }
-  /** `groupKey` opens that group first (a file row under another group in the sidebar). */
-  | { type: 'FileJumped'; fileId: string; groupKey?: string }
+  | { type: 'FileJumped'; fileId: string }
   | { type: 'FileStepped'; by: Step }
   | { type: 'NoteStepped'; by: Step }
-  | { type: 'ActiveFileChanged'; fileId: string | undefined }
+  /** The reader scrolled (or the page moved under them): the position follows the page. */
+  | { type: 'Scrolled'; spied: Spied }
   | { type: 'ExpandedToggled'; fileId: string }
   | { type: 'ViewedToggled'; fileId: string }
   /** `v`: marks the current file viewed and moves on, or unmarks it. */
@@ -104,7 +115,7 @@ export type Msg =
   | { type: 'HelpSet'; open: boolean }
   | { type: 'HelpToggled' }
   | { type: 'SidebarToggled'; node: string; deep: boolean }
-  /** A click on a PR or group row: opens it, or folds it when it is already the selection. */
+  /** A click on a PR or group row: jumps there and unfolds it. */
   | { type: 'SidebarActivated'; node: string; key: string }
   | { type: 'NestingChanged'; nesting: Nesting }
   | { type: 'QueryChanged'; query: string }
@@ -140,15 +151,21 @@ export type Cmd =
   | { type: 'FetchDiff'; diffId: string }
   | { type: 'LoadViewed'; diffId: string }
   | { type: 'SaveViewed'; diffId: string; fileIds: readonly string[] }
-  /** A group change pushes a history entry (back/forward step through groups); a file change replaces it. */
+  /**
+   * A jump to a group (click, j/k, a link) pushes a history entry, so back/forward step
+   * through the stops; scrolling and n/p replace it.
+   */
   | { type: 'Navigate'; position: Position; replace: boolean }
+  /** Jumps are instant: the reader is going there, not watching the page slide. */
   | { type: 'ScrollToTop' }
+  | { type: 'ScrollToGroup'; key: string }
   /** After the next render, so an expanded file's header lands under the sticky bars. */
   | { type: 'ScrollToFile'; fileId: string }
-  /** Scrolls to the file and holds it there while the page above it still grows. */
+  /** Scrolls to the group or file and holds it there while the page above it still grows. */
+  | { type: 'RestoreGroup'; key: string }
   | { type: 'RestoreFile'; fileId: string }
-  /** Reads the file at the reading line once the page has rendered. */
-  | { type: 'MeasureActiveFile' }
+  /** Reads the position off the page once it has rendered. */
+  | { type: 'MeasurePosition' }
   | { type: 'StepNote'; by: Step }
   | { type: 'SetTitle'; title: string }
   | { type: 'LoadReview'; diffId: string }
@@ -163,7 +180,7 @@ export function initialModel(ref: SourceRef, position: Position): Model {
     connection: 'connecting',
     tour: initialTourState(),
     position,
-    restoring: position.f,
+    restoring: position.g !== undefined || position.f !== undefined ? position : undefined,
     expanded: {},
     viewed: new Set(),
     navOpen: false,
@@ -187,6 +204,12 @@ export function currentGroup(model: Model, groups = groupsOf(model)): GroupView 
 
 export const selectedKey = (model: Model, groups = groupsOf(model)): string =>
   currentGroup(model, groups)?.key ?? OVERVIEW;
+
+/** Every file down the page, in reading order: the groups in tour order, each riskiest first. */
+export const fileOrder = (groups: readonly GroupView[]): string[] => groups.flatMap(orderedFileIds);
+
+export const groupOfFile = (groups: readonly GroupView[], fileId: string): GroupView | undefined =>
+  groups.find((group) => group.fileIds.includes(fileId));
 
 /** Reviews go to GitHub, so only a PR with its diff loaded can be reviewed. */
 export const canReview = (model: Model): boolean => model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
@@ -267,7 +290,7 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
 
 export function update(model: Model, msg: Msg): Next {
   const [next, cmds] = step(model, msg);
-  return next === model && cmds.length === 0 ? [model, cmds] : settle(model, next, cmds);
+  return next === model && cmds.length === 0 ? [model, cmds] : settle(model, next, cmds, msg.type === 'UrlChanged');
 }
 
 function step(model: Model, msg: Msg): Next {
@@ -296,7 +319,7 @@ function step(model: Model, msg: Msg): Next {
       if (g === model.position.g && f === model.position.f) {
         return [model, []];
       }
-      return [{ ...model, position: { g, f }, restoring: f !== model.position.f ? f : model.restoring }, []];
+      return [{ ...model, position: { g, f }, restoring: { g, f } }, []];
     }
     case 'GroupSelected':
       return select(model, msg.key);
@@ -306,26 +329,20 @@ function step(model: Model, msg: Msg): Next {
       const target = stops[stops.indexOf(selectedKey(model, groups)) + msg.by];
       return target ? select(model, target) : [model, []];
     }
-    case 'FileJumped': {
-      if (msg.groupKey === undefined || msg.groupKey === selectedKey(model)) {
-        return jump(model, msg.fileId);
-      }
-      const [selected, cmds] = select(model, msg.groupKey);
-      const [jumped, more] = jump(selected, msg.fileId);
-      return [jumped, [...cmds, ...more]];
-    }
+    case 'FileJumped':
+      return jump(model, msg.fileId, true);
     case 'FileStepped':
       return stepFile(model, msg.by);
     case 'NoteStepped':
       return [model, [{ type: 'StepNote', by: msg.by }]];
-    case 'ActiveFileChanged':
-      return msg.fileId === model.activeFileId ? [model, []] : [{ ...model, activeFileId: msg.fileId }, []];
+    case 'Scrolled':
+      return scrolled(model, msg.spied);
     case 'ExpandedToggled': {
       const file = model.tour.files.find((candidate) => candidate.id === msg.fileId);
       if (!file) {
         return [model, []];
       }
-      const expanded = isFileExpanded(model, currentGroup(model), file);
+      const expanded = isFileExpanded(model, groupOfFile(groupsOf(model), file.id), file);
       return [{ ...model, expanded: { ...model.expanded, [msg.fileId]: !expanded } }, []];
     }
     case 'ViewedToggled':
@@ -354,9 +371,7 @@ function step(model: Model, msg: Msg): Next {
     case 'SidebarToggled':
       return [{ ...model, sidebar: toggleNode(model.sidebar, groupsOf(model), msg.node, msg.deep) }, []];
     case 'SidebarActivated': {
-      if (selectedKey(model) === msg.key && isNodeOpen(model.sidebar, msg.node)) {
-        return [{ ...model, sidebar: setNodesOpen(model.sidebar, [msg.node], false) }, []];
-      }
+      // A row is a way to its place on the page, even the current one; its chevron folds it.
       const [selected, cmds] = select(model, msg.key);
       return [{ ...selected, sidebar: setNodesOpen(selected.sidebar, [msg.node], true) }, cmds];
     }
@@ -491,28 +506,80 @@ function save(model: Model): Next {
   return [model, diffId ? [{ type: 'SaveReview', diffId, saved: { body, comments } }] : []];
 }
 
+/** Jumps to a group (or the overview) on the page. */
 function select(model: Model, key: string): Next {
   const position = { g: key === OVERVIEW ? undefined : key, f: undefined };
-  return [{ ...model, navOpen: false, position }, [{ type: 'Navigate', position, replace: false }]];
+  return [
+    { ...model, navOpen: false, position, activeFileId: undefined },
+    [
+      { type: 'Navigate', position, replace: false },
+      key === OVERVIEW ? { type: 'ScrollToTop' } : { type: 'ScrollToGroup', key },
+    ],
+  ];
 }
 
-function jump(model: Model, fileId: string): Next {
+/** Jumps to a file, opening it; `push` makes a jump into another group a history entry. */
+function jump(model: Model, fileId: string, push = false): Next {
+  const group = groupOfFile(groupsOf(model), fileId);
+  const moved = group !== undefined && group.key !== selectedKey(model);
+  const position = moved ? { g: group.key, f: undefined } : model.position;
   return [
     {
       ...model,
       navOpen: false,
+      position,
       activeFileId: fileId,
       expanded: { ...model.expanded, [fileId]: model.expanded[fileId] ?? true },
     },
-    [{ type: 'ScrollToFile', fileId }],
+    [
+      ...(moved && push ? [{ type: 'Navigate', position, replace: false } as const] : []),
+      { type: 'ScrollToFile', fileId },
+    ],
   ];
 }
 
+/** n/p walk every file down the page, across groups. */
 function stepFile(model: Model, by: Step): Next {
-  const order = orderedFileIds(currentGroup(model));
+  const groups = groupsOf(model);
+  const order = fileOrder(groups);
   const at = model.activeFileId ? order.indexOf(model.activeFileId) : -1;
-  const target = order[at === -1 ? (by > 0 ? 0 : -1) : at + by];
+  const first = orderedFileIds(currentGroup(model, groups))[0] ?? order[0];
+  const target = at === -1 ? (by > 0 ? first : undefined) : order[at + by];
   return target ? jump(model, target) : [model, []];
+}
+
+/**
+ * The position follows the page as it scrolls. A group with no file at the reading line yet
+ * (its summary is) makes its first file current, so x and v work as soon as it is reached.
+ */
+function scrolled(model: Model, { groupKey, fileId, visible }: Spied): Next {
+  // A position being restored is where the page is headed; what passes by on the way is not.
+  if (model.restoring) {
+    return [model, []];
+  }
+  const groups = groupsOf(model);
+  const selected = selectedKey(model, groups);
+  let key = groupKey ?? OVERVIEW;
+  if (visible) {
+    key = visible.groupKeys.includes(selected) ? selected : (visible.groupKeys.at(-1) ?? key);
+  }
+  const group = groups.find((candidate) => candidate.key === key);
+  const order = orderedFileIds(group);
+  const kept = model.activeFileId;
+  const active =
+    kept && visible?.fileIds.includes(kept) && order.includes(kept)
+      ? kept
+      : fileId && order.includes(fileId)
+        ? fileId
+        : order[0];
+  const g = group?.key;
+  if (g === currentGroup(model, groups)?.key && active === model.activeFileId) {
+    return [model, []];
+  }
+  return [
+    { ...model, position: g === model.position.g ? model.position : { g, f: undefined }, activeFileId: active },
+    [],
+  ];
 }
 
 function toggleViewed(model: Model, fileId: string): Next {
@@ -528,19 +595,18 @@ function toggleViewed(model: Model, fileId: string): Next {
 
 /**
  * What follows from any change, whatever caused it: fetch a new diff, load its viewed files,
- * reset scrolling when the selection changes, unfold the sidebar to it, restore a file from
- * the URL once it can be shown, mirror the current file into the URL, and keep the title.
+ * unfold the sidebar to the current group, restore a position from the URL once it can be
+ * shown, mirror the position into the URL, and keep the title.
  */
-function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Next {
+function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[], fromUrl = false): Next {
   let next = model;
-  const out = [...cmds];
+  let out = [...cmds];
   const groups = groupsOf(next);
   const current = currentGroup(next, groups);
   const selected = current?.key ?? OVERVIEW;
   const prevGroups = prev && (prev.tour === next.tour ? groups : groupsOf(prev));
   const prevCurrent = prev && currentGroup(prev, prevGroups);
   const prevSelected = prev && (prevCurrent?.key ?? OVERVIEW);
-  const order = orderedFileIds(current);
 
   const diffId = next.tour.diffId;
   if (diffId && next.diff?.id !== diffId && next.diffRequested !== diffId) {
@@ -555,14 +621,8 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Ne
     }
   }
 
-  const selectionChanged = prevSelected !== selected;
-  // A new group starts at the top, unless this change also jumped to one of its files.
-  if (selectionChanged && !out.some((cmd) => cmd.type === 'ScrollToFile')) {
-    next = { ...next, activeFileId: undefined };
-    out.push({ type: 'ScrollToTop' });
-  }
-  // Selecting a group (click, j/k, a link in the panel, history) unfolds the path to it.
-  if (selectionChanged || prevCurrent?.category !== current?.category) {
+  // Reaching a group (a jump, scrolling into it, history) unfolds the sidebar to it.
+  if (prevSelected !== selected || prevCurrent?.category !== current?.category) {
     next = {
       ...next,
       sidebar: setNodesOpen(
@@ -574,33 +634,35 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Ne
   }
 
   if (next.restoring) {
-    const fileId = next.restoring;
-    const shown = order.includes(fileId) && next.tour.files.some((file) => file.id === fileId);
-    // Wait for the diff too: files above it grow when their hunks arrive and would push it away.
-    if (shown && next.diff) {
-      const [jumped] = jump({ ...next, restoring: undefined }, fileId);
-      next = jumped;
-      out.push({ type: 'RestoreFile', fileId });
-    } else if (!shown && next.tour.status !== 'idle' && !isRunning(next)) {
-      next = { ...next, restoring: undefined };
-    }
+    const [restored, more] = restore(next);
+    next = restored;
+    out.push(...more);
   }
 
-  const jumping = out.some((cmd) => cmd.type === 'ScrollToFile' || cmd.type === 'RestoreFile');
-  const prevOrder = prev ? orderedFileIds(prevCurrent) : [];
-  if (!jumping && (selectionChanged || prevOrder.length !== order.length || prev?.diff !== next.diff)) {
-    out.push({ type: 'MeasureActiveFile' });
+  const scrolling = out.some((cmd) => SCROLLS.has(cmd.type));
+  const order = fileOrder(groups);
+  const prevOrder = prev ? fileOrder(prevGroups ?? []) : [];
+  // The page grew or shrank under the reader (groups and hunks stream in): read where they are now.
+  if (!scrolling && !next.restoring && (prevOrder.length !== order.length || prev?.diff !== next.diff)) {
+    out.push({ type: 'MeasurePosition' });
   }
 
-  // The file in view replaces the URL entry. The group's first file is left out: restoring it
-  // would scroll past the group summary. A file not in this group is a leftover from the last one.
-  const active = next.activeFileId;
-  if (!next.restoring && current && !(active && !order.includes(active))) {
-    const f = active === order[0] ? undefined : active;
+  // The file in view goes in the URL. A group's first file is left out: restoring it would
+  // scroll past the group summary.
+  if (!next.restoring) {
+    const groupOrder = orderedFileIds(currentGroup(next, groups));
+    const active = next.activeFileId;
+    const f = active && groupOrder.includes(active) && active !== groupOrder[0] ? active : undefined;
     if (f !== next.position.f) {
       next = { ...next, position: { ...next.position, f } };
-      out.push({ type: 'Navigate', position: { f }, replace: true });
     }
+  }
+  // One URL write per change: a jump's history entry carries where it landed; anything else replaces.
+  const navigations = out.filter((cmd) => cmd.type === 'Navigate');
+  out = out.filter((cmd) => cmd.type !== 'Navigate');
+  if (prev && !fromUrl && !samePosition(prev.position, next.position)) {
+    const replace = navigations.every((cmd) => cmd.replace);
+    out.push({ type: 'Navigate', position: next.position, replace });
   }
 
   const title = pageTitle(next);
@@ -608,4 +670,42 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Ne
     out.push({ type: 'SetTitle', title });
   }
   return [next, out];
+}
+
+const SCROLLS: ReadonlySet<Cmd['type']> = new Set([
+  'ScrollToTop',
+  'ScrollToGroup',
+  'ScrollToFile',
+  'RestoreGroup',
+  'RestoreFile',
+]);
+
+const samePosition = (a: Position, b: Position) => a.g === b.g && a.f === b.f;
+
+/**
+ * A file or group from the URL, once its section is on the page. Waits for the diff too:
+ * files above it grow when their hunks arrive and would push it away. Gives up once a
+ * finished tour turns out not to have it.
+ */
+function restore(model: Model): Next {
+  const { g, f } = model.restoring ?? {};
+  const groups = groupsOf(model);
+  const settled = { ...model, restoring: undefined };
+  const finished = model.tour.status !== 'idle' && !isRunning(model);
+  if (f !== undefined) {
+    const shown = fileOrder(groups).includes(f) && model.tour.files.some((file) => file.id === f);
+    if (shown && model.diff) {
+      const [jumped] = jump(settled, f);
+      return [{ ...jumped, position: { ...jumped.position, f } }, [{ type: 'RestoreFile', fileId: f }]];
+    }
+    return [!shown && finished ? settled : model, []];
+  }
+  if (g === undefined) {
+    return [{ ...settled, activeFileId: undefined }, [{ type: 'ScrollToTop' }]];
+  }
+  const shown = groups.some((group) => group.key === g);
+  if (shown && model.diff) {
+    return [{ ...settled, activeFileId: undefined }, [{ type: 'RestoreGroup', key: g }]];
+  }
+  return [!shown && finished ? settled : model, []];
 }

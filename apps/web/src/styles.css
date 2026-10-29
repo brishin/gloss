@@ -478,8 +478,7 @@
     color: var(--color-text-primary);
   }
 
-  .crumb:focus-visible,
-  .row-link:focus-visible {
+  .crumb:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
@@ -509,6 +508,16 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-6);
+  }
+
+  /* The overview and each group, one after another down the page; a jump lands a stop's top under the sticky bars. */
+  .stop {
+    scroll-margin-top: var(--sticky-h);
+  }
+
+  .stop + .stop {
+    padding-top: var(--spacing-6);
+    border-top: 1px solid var(--color-border);
   }
 
   .page-head {
@@ -571,13 +580,6 @@
     color: var(--color-text-primary);
   }
 
-  .group-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--spacing-2);
-  }
-
   /* Overview */
 
   .stats {
@@ -614,32 +616,6 @@
   .overview-table td.stat {
     width: 1%;
     text-align: right;
-  }
-
-  /* Words read from the left even among right-aligned numbers. */
-  .overview-table td.cat {
-    text-align: left;
-  }
-
-  .group-cell {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--spacing-2);
-  }
-
-  .row-link {
-    all: unset;
-    cursor: pointer;
-    font-weight: var(--font-weight-semibold);
-    border-radius: var(--radius-inner);
-  }
-
-  .overview-table tr {
-    cursor: pointer;
-  }
-
-  .overview-table tr:hover td {
-    background: var(--color-background-muted);
   }
 
   .description {
@@ -1088,10 +1064,6 @@
 
     .subbar-position {
       display: none;
-    }
-
-    .group-nav {
-      flex-wrap: wrap;
     }
 
     .home {

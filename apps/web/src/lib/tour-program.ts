@@ -14,9 +14,10 @@ import {
   type Msg,
   type Position,
   SHORTCUT_KEYS,
+  type Spied,
   update,
 } from './tour-model.ts';
-import { STICKY_OFFSET } from './tour-view.ts';
+import { OVERVIEW, STICKY_OFFSET } from './tour-view.ts';
 
 /** The line a file or note must cross to count as "current": just below the sticky bars. */
 const READING_LINE = STICKY_OFFSET + 16;
@@ -53,7 +54,7 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
         ? 'session'
         : cmd.type === 'FetchDiff'
           ? 'diff'
-          : cmd.type === 'RestoreFile'
+          : cmd.type === 'RestoreFile' || cmd.type === 'RestoreGroup'
             ? 'pin'
             : cmd.type === 'SetTitle'
               ? 'title'
@@ -125,8 +126,7 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
         Effect.sync(() => storage(() => localStorage.setItem(viewedKey(cmd.diffId), JSON.stringify(cmd.fileIds)))),
       );
     case 'Navigate':
-      // The page scrolls itself (top for a group, the file's header for a file): the router's
-      // default scroll reset would undo a file update mid-scroll.
+      // The page scrolls itself: the router's default scroll reset would undo every jump.
       return once(
         Effect.sync(() => {
           void router.navigate({
@@ -137,14 +137,19 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           } as never);
         }),
       );
+    // `instant` overrides any `scroll-behavior: smooth` in the page's styles.
     case 'ScrollToTop':
-      return once(Effect.sync(() => window.scrollTo({ top: 0 })));
+      return once(Effect.sync(() => window.scrollTo({ top: 0, behavior: 'instant' })));
+    case 'ScrollToGroup':
+      return once(nextFrame.pipe(Effect.map(() => scrollToSection(groupSection(cmd.key)))));
     case 'ScrollToFile':
-      return once(nextFrame.pipe(Effect.map(() => fileSection(cmd.fileId)?.scrollIntoView({ block: 'start' }))));
+      return once(nextFrame.pipe(Effect.map(() => scrollToSection(fileSection(cmd.fileId)))));
+    case 'RestoreGroup':
+      return once(restore(() => groupSection(cmd.key)));
     case 'RestoreFile':
-      return once(restore(cmd.fileId));
-    case 'MeasureActiveFile':
-      return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'ActiveFileChanged', fileId: fileInView() }))));
+      return once(restore(() => fileSection(cmd.fileId)));
+    case 'MeasurePosition':
+      return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'Scrolled', spied: spy() }))));
     case 'StepNote':
       return once(Effect.sync(() => stepNote(cmd.by)));
     case 'SetTitle':
@@ -230,21 +235,37 @@ const nextFrame = Effect.callback<void>((resume) => {
 
 const main = () => document.querySelector<HTMLElement>('main.main');
 const fileSection = (fileId: string) => document.getElementById(`file-${fileId}`);
+const groupSection = (key: string) => document.getElementById(`group-${key}`);
 
-/** The current file: the last one whose top has crossed the reading line. */
-function fileInView(): string | undefined {
-  const sections = main()?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [];
-  // At the bottom of the page the last files can never reach the line, so the line drops
-  // to the viewport's bottom edge: jumping to the last file then keeps it current.
-  const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-  const line = atBottom && window.scrollY > 0 ? window.innerHeight - 1 : READING_LINE;
-  let active: string | undefined;
-  for (const section of sections) {
-    if (section.getBoundingClientRect().top <= line) {
-      active = section.dataset.fileId;
-    }
-  }
-  return active ?? sections[0]?.dataset.fileId;
+function scrollToSection(section: HTMLElement | null) {
+  section?.scrollIntoView({ block: 'start', behavior: 'instant' });
+}
+
+/** The group and file whose tops last crossed the reading line, and what is on screen at the bottom. */
+function spy(): Spied {
+  const page = main();
+  const groups = [...(page?.querySelectorAll<HTMLElement>('[data-group-key]') ?? [])];
+  const files = [...(page?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])];
+  const crossed = (sections: HTMLElement[]) =>
+    sections.findLast((el) => el.getBoundingClientRect().top <= READING_LINE);
+  const atBottom =
+    window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+  const onScreen = (sections: HTMLElement[]) =>
+    sections.filter((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.bottom > READING_LINE && rect.top < window.innerHeight;
+    });
+  const groupKey = crossed(groups)?.dataset.groupKey;
+  return {
+    groupKey: groupKey === OVERVIEW ? undefined : groupKey,
+    fileId: crossed(files)?.dataset.fileId,
+    visible: atBottom
+      ? {
+          groupKeys: onScreen(groups).map((el) => el.dataset.groupKey!),
+          fileIds: onScreen(files).map((el) => el.dataset.fileId!),
+        }
+      : undefined,
+  };
 }
 
 function stepNote(by: number) {
@@ -257,23 +278,23 @@ function stepNote(by: number) {
 }
 
 /**
- * Scrolls to a restored file, then keeps it pinned while hunks above it still lay out
+ * Scrolls to a restored group or file, then keeps it pinned while hunks above it still lay out
  * (pierre highlights asynchronously), until the reader takes over or the layout settles.
  */
-const restore = (fileId: string) =>
+const restore = (find: () => HTMLElement | null) =>
   Effect.gen(function* () {
     yield* nextFrame;
-    const section = fileSection(fileId);
+    const section = find();
     const page = main();
     if (!section || !page) {
       return;
     }
-    section.scrollIntoView({ block: 'start' });
+    scrollToSection(section);
     const released = yield* Deferred.make<void>();
     const release = () => Deferred.doneUnsafe(released, Effect.void);
     yield* Effect.acquireRelease(
       Effect.sync(() => {
-        const pin = new ResizeObserver(() => section.scrollIntoView({ block: 'start' }));
+        const pin = new ResizeObserver(() => scrollToSection(section));
         pin.observe(page);
         for (const type of RELEASE_EVENTS) {
           window.addEventListener(type, release, { passive: true });
@@ -324,7 +345,7 @@ const keys = Stream.callback<Msg>((queue) =>
   }),
 );
 
-/** Scroll-spy: the file at the reading line, at most once a frame. */
+/** Scroll-spy: where the reader is on the page, at most once a frame. */
 const scrollSpy = Stream.callback<Msg>((queue) => {
   let frame = 0;
   return Effect.gen(function* () {
@@ -333,7 +354,7 @@ const scrollSpy = Stream.callback<Msg>((queue) => {
       () => {
         frame ||= requestAnimationFrame(() => {
           frame = 0;
-          Queue.offerUnsafe(queue, { type: 'ActiveFileChanged', fileId: fileInView() });
+          Queue.offerUnsafe(queue, { type: 'Scrolled', spied: spy() });
         });
       },
       { passive: true },
