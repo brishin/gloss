@@ -29,6 +29,8 @@
     /* gloss's own hue, reserved for notes (see .note). */
     --gloss-ink: light-dark(oklch(50% 0.17 285), oklch(78% 0.12 285));
     --gloss-wash: light-dark(oklch(96% 0.025 285), oklch(29% 0.045 285));
+    /* The logo's turned face: the ink's tint, swapped in dark mode so the front face stays strongest. */
+    --gloss-tint: light-dark(oklch(78% 0.12 285), oklch(50% 0.17 285));
   }
 
   html,
@@ -75,8 +77,21 @@
   }
 
   .brand {
-    font-weight: var(--font-weight-bold);
-    letter-spacing: -0.02em;
+    display: flex;
+    color: var(--color-text-primary);
+  }
+
+  .brand svg {
+    height: 18px;
+    width: auto;
+  }
+
+  .logo-front {
+    fill: var(--gloss-ink);
+  }
+
+  .logo-back {
+    fill: var(--gloss-tint);
   }
 
   .topbar-meta {
@@ -736,6 +751,17 @@
   }
 
   /* Home */
+
+  .home-logo {
+    margin: 0 0 var(--spacing-2);
+    color: var(--color-text-primary);
+    line-height: 0;
+  }
+
+  .home-logo svg {
+    height: 32px;
+    width: auto;
+  }
 
   .home {
     max-width: 720px;

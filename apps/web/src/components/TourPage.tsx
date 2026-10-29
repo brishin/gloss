@@ -23,6 +23,7 @@ import { OVERVIEW, orderedFileIds, STICKY_OFFSET, useViewed } from '../lib/tour-
 import { useTour } from '../lib/use-tour.ts';
 import { type FileControls, GroupPanel, isFileExpanded } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
+import { Logo } from './Logo.tsx';
 import { Overview } from './Overview.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { StageRail } from './StageRail.tsx';
@@ -315,7 +316,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     <div className="app">
       <header className="topbar">
         <Link to="/" className="brand">
-          gloss
+          <Logo />
         </Link>
         <div className="topbar-meta">
           <span className="topbar-ref">
