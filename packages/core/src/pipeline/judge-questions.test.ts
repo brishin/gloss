@@ -2,38 +2,72 @@ import { describe, expect, it } from 'vitest';
 import type { JudgeAnswer } from '../adapters/types.ts';
 import { pickVisual, visualQuestions } from './judge-questions.ts';
 
-const best = (probabilities: Record<string, number>): JudgeAnswer => ({
-  type: 'choice',
-  choice: Object.entries(probabilities).toSorted((a, b) => b[1] - a[1])[0]![0],
-  confidence: 0,
-  probabilities,
-});
-const explains = (probability: number): JudgeAnswer => ({ type: 'bool', probability });
+const yes = (probability: number): JudgeAnswer => ({ type: 'bool', probability });
 
 describe('pickVisual', () => {
-  // Rows: Jev's ranking and per-candidate "explains" -> the candidate shown.
+  // Rows: per candidate [accurate, whole, easy] -> the candidate shown.
   it.each([
-    ['the top-ranked one that explains', { c1: 0.2, c2: 0.8 }, [0.9, 0.9], 1],
-    ['the next one when the top one misleads', { c1: 0.2, c2: 0.8 }, [0.9, 0.1], 0],
-    ['none when no candidate explains', { c1: 0.5, c2: 0.5 }, [0.25, 0.2], undefined],
-    ['the model order on a tie', { c1: 0.5, c2: 0.5 }, [0.9, 0.9], 0],
-  ] as const)('picks %s', (_, ranking, explained, expected) => {
-    const answers = {
-      best: best(ranking),
-      ...Object.fromEntries(explained.map((p, i) => [`c${i + 1}_explains`, explains(p)])),
-    };
-    expect(pickVisual(explained.length, answers)).toBe(expected);
+    [
+      'the one that shows the whole change',
+      [
+        [0.9, 0.4, 0.9],
+        [0.9, 0.9, 0.9],
+      ],
+      1,
+    ],
+    [
+      'the easier one to follow',
+      [
+        [0.9, 0.9, 0.2],
+        [0.9, 0.9, 0.8],
+      ],
+      1,
+    ],
+    [
+      'an accurate one over a better-looking wrong one',
+      [
+        [0.9, 0.5, 0.5],
+        [0.1, 0.9, 0.9],
+      ],
+      0,
+    ],
+    [
+      'none when no candidate is accurate',
+      [
+        [0.2, 0.9, 0.9],
+        [0.25, 0.9, 0.9],
+      ],
+      undefined,
+    ],
+    [
+      'the model order on a tie',
+      [
+        [0.9, 0.8, 0.8],
+        [0.9, 0.8, 0.8],
+      ],
+      0,
+    ],
+  ] as const)('picks %s', (_, scores, expected) => {
+    const answers = Object.fromEntries(
+      scores.flatMap(([accurate, whole, easy], i) => [
+        [`c${i + 1}_accurate`, yes(accurate)],
+        [`c${i + 1}_whole`, yes(whole)],
+        [`c${i + 1}_easy`, yes(easy)],
+      ]),
+    );
+    expect(pickVisual(scores.length, answers)).toBe(expected);
   });
 
-  it('filters a single candidate without ranking it', () => {
-    expect(Object.keys(visualQuestions(1, true))).toEqual(['c1_explains']);
-    expect(pickVisual(1, { c1_explains: explains(0.7) })).toBe(0);
-    expect(pickVisual(1, { c1_explains: explains(0.2) })).toBe(undefined);
+  it('ranks text-only answers without the picture question', () => {
+    expect(Object.keys(visualQuestions(1, false))).toEqual(['c1_accurate', 'c1_whole']);
+    expect(
+      pickVisual(2, { c1_accurate: yes(0.9), c1_whole: yes(0.3), c2_accurate: yes(0.9), c2_whole: yes(0.7) }),
+    ).toBe(1);
   });
 
   it('names each picture as the image Jev is sent', () => {
     const questions = visualQuestions(2, true);
-    expect(questions.c2_explains?.instructions).toContain('<image-2>');
+    expect(questions.c2_easy?.instructions).toContain('<image-2>');
     expect(JSON.stringify(visualQuestions(2, false))).not.toContain('<image-');
   });
 });

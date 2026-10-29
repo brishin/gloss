@@ -111,12 +111,9 @@ function fakeModel() {
 
 const fakeJudge = () =>
   createFakeJudgeClient((state, id): JudgeAnswer => {
-    // Jev prefers the mermaid candidate, but only the timeline explains the change.
-    if (id === 'best') {
-      return { type: 'choice', choice: 'c3', confidence: 0.6, probabilities: { c1: 0.1, c2: 0.3, c3: 0.6 } };
-    }
-    if (id.endsWith('_explains')) {
-      return { type: 'bool', probability: id === 'c2_explains' ? 0.8 : 0.2 };
+    // The mermaid candidate is wrong and the table shows one detail, so the timeline wins.
+    if (/^c\d_/.test(id)) {
+      return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
     const path = (state.file as { path: string }).path;
     if (id === 'group') {
