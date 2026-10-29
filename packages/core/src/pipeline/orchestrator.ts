@@ -35,7 +35,7 @@ import {
   judgmentFromGroupAnswers,
   QUESTIONS_VERSION,
 } from './judge-questions.ts';
-import { normalizeNotes } from './normalize.ts';
+import { normalizeNotes, normalizeVisual } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
   buildDefinePrompt,
@@ -215,7 +215,11 @@ const tourProgram = Effect.fnUntraced(function* (
       const { key, label, summary, category } = group;
       send({ type: 'group.defined', group: { key, label, summary, category } });
     }
-    send({ type: 'tour.summary', overallSummary: definition.overallSummary, decisions: definition.decisions });
+    const { visual, warnings } = normalizeVisual(definition.visual);
+    for (const message of warnings) {
+      warn('define', message);
+    }
+    send({ type: 'tour.summary', overallSummary: definition.overallSummary, decisions: definition.decisions, visual });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
     return definition;

@@ -3,7 +3,7 @@
 | Stage  | Who                                                                                                                                                                                                   | Typical time                     |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | fetch  | `gh api` / `git diff`, `.gitattributes`, path heuristics (`heuristics.ts`)                                                                                                                            | 0.2 s local, 1-3 s gh            |
-| define | LLM fast tier: group labels, summaries, categories, order, overall summary, change-wide decisions; **no file lists**                                                                                  | ~5 s                             |
+| define | LLM fast tier: group labels, summaries, categories, order, overall summary, change-wide decisions, optional visual; **no file lists**                                                                 | ~5 s                             |
 | judge  | Jev, in parallel with define: per-file yes/no flags (generated, tests_only, auth_check, stored_data, secrets_signing, personal_data, exported_signature); after define, group choice + fits_any_group | 0.1-0.6 s per file, 8 concurrent |
 | place  | `place.ts` truth table; one LLM follow-up turn for unsure files                                                                                                                                       | ms + 1 turn                      |
 | notes  | LLM strong tier, one call per group, 3 concurrent, lead group first; also pins decisions to lines                                                                                                     | 2-7 s per group                  |
@@ -32,6 +32,10 @@ Prompts: `prompts.ts`. Result schemas carry field descriptions that the model se
 the submit tool. Budgets are 60k characters per prompt and 12k per file, and generated,
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
+
+The visual is optional and most tours have none. `normalizeVisual` clips text, clamps
+timeline positions, caps rows and lanes, keeps only flowchart and state Mermaid without
+styling or click lines, and drops (with a warning) anything it cannot draw legibly.
 
 Ideas not built yet: re-tour only changed files on new commits (the per-file and
 per-group cache keys already make unchanged work free), moving group order to Jev, and

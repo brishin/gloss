@@ -26,6 +26,12 @@ Linear-style priority. Change-wide ones ride on `tour.summary` (and `Tour.decisi
 ones in code ride on `group.notes` as `notes.decisions`, with `fileId` and, when the line
 is visible, `hunkId`/`side`/`line`.
 
+The tour's visual rides on `tour.summary` (and `Tour.visual`): at most one picture of the
+main decision, as data the client draws. `before-after` is rows on each side, `timeline`
+is lanes of spans on a shared 0-100 axis with optional markers and an outcome per lane,
+and `mermaid` is a flowchart or state diagram rendered with beautiful-mermaid. Never
+model-written SVG or HTML.
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

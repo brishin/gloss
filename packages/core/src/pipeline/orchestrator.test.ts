@@ -69,6 +69,7 @@ async function tour(options: {
 const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
+  visual: { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
@@ -158,6 +159,7 @@ describe('runTour', () => {
     expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
     expect(finished.decisions).toEqual(groupsAnswer.decisions);
+    expect(finished.visual).toEqual(groupsAnswer.visual);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);

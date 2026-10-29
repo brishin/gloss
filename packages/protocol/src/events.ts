@@ -10,6 +10,7 @@ import {
   PlacementSchema,
   ResolvedGroupSchema,
   TourSchema,
+  VisualSchema,
 } from './tour.ts';
 
 export const StageSchema = v.picklist(['fetch', 'define', 'judge', 'place', 'notes']);
@@ -50,7 +51,11 @@ export const TourEventBodySchema = v.variant('type', [
   }),
   event('group.defined', { group: GroupDefinitionSchema }),
   event('groups.defined', { keys: v.array(v.string()) }),
-  event('tour.summary', { overallSummary: v.string(), decisions: v.optional(v.array(DecisionSchema)) }),
+  event('tour.summary', {
+    overallSummary: v.string(),
+    decisions: v.optional(v.array(DecisionSchema)),
+    visual: v.optional(VisualSchema),
+  }),
   event('file.judged', {
     fileId: v.string(),
     judgment: FileJudgmentSchema,

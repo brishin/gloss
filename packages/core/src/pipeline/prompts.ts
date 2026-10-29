@@ -60,13 +60,85 @@ const prDecisions = v.pipe(
   ),
 );
 
+const short = (description: string) => v.pipe(v.string(), v.description(description));
+const at = v.pipe(v.number(), v.description('Position on the time axis, 0 (start) to 100 (end).'));
+
+/**
+ * Lenient on purpose: `normalizeVisual` enforces the limits and drops what it can't draw.
+ * Required, with an explicit "none", because models skip an optional field almost always.
+ */
+const visual = v.pipe(
+  v.object({
+    kind: v.pipe(
+      v.picklist(['before-after', 'timeline', 'mermaid', 'none']),
+      v.description(
+        'none: only for a rename, a styling tweak, a dependency bump or a docs-only change. before-after: the change replaces one shape or flow with another (a data model, an API, a hot path). timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine.',
+      ),
+    ),
+    caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
+    before: v.optional(
+      v.pipe(
+        v.array(v.string()),
+        v.description('before-after only: 1-5 short rows, under 60 characters each. Wrap code names in backticks.'),
+      ),
+    ),
+    after: v.optional(v.pipe(v.array(v.string()), v.description('before-after only: 1-5 short rows, same style.'))),
+    markers: v.optional(
+      v.pipe(
+        v.array(v.object({ at, text: short('2-4 words.') })),
+        v.description('timeline only: 0-4 moments on the shared time axis, e.g. "app backgrounded".'),
+      ),
+    ),
+    lanes: v.optional(
+      v.pipe(
+        v.array(
+          v.object({
+            label: short('1-2 words, e.g. "Before", "After", "Retry".'),
+            spans: v.array(
+              v.object({
+                from: at,
+                to: at,
+                text: short('1-4 words shown inside the bar.'),
+                tone: v.optional(v.picklist(['accent', 'muted', 'bad'])),
+              }),
+            ),
+            outcome: v.optional(
+              v.object({ at, text: short('What happens, under 8 words.'), tone: v.picklist(['good', 'bad']) }),
+            ),
+          }),
+        ),
+        v.description(
+          'timeline only: 2-4 lanes sharing one time axis. Usually a "Before" and an "After" lane, each ending in an outcome.',
+        ),
+      ),
+    ),
+    mermaid: v.optional(
+      v.pipe(
+        v.string(),
+        v.description(
+          'mermaid only: "flowchart TD" or "stateDiagram-v2" source with at most 8 nodes and labels under 30 characters. No styling, classes or click lines.',
+        ),
+      ),
+    ),
+  }),
+  v.description(
+    'One picture of the main decision: a design replaced by another, events whose timing matters, or a flow of three or more steps.',
+  ),
+);
+
 /** With Jev, the LLM only defines groups; Jev and code place the files. */
-export const DefineSchema = v.object({ overallSummary, decisions: prDecisions, groups: groupsField(GroupSchema) });
+export const DefineSchema = v.object({
+  overallSummary,
+  decisions: prDecisions,
+  visual,
+  groups: groupsField(GroupSchema),
+});
 
 /** Without Jev, the LLM also lists each group's files. */
 export const DefineWithFilesSchema = v.object({
   overallSummary,
   decisions: prDecisions,
+  visual,
   groups: groupsField(
     v.object({
       ...GroupSchema.entries,
@@ -174,6 +246,8 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
+Then decide on one visual of the main decision. Add one whenever the change has any of these: a design replaced by another (before-after: the old shape, flow, data model or behavior next to the new one), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. Use kind "none" only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+
 Call the submit tool once with the complete result.`;
 
 export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
@@ -193,7 +267,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
