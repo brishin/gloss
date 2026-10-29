@@ -4,14 +4,17 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, TourState } from '@gloss/protocol';
 import { useMemo } from 'react';
+import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
 import { isGeneratedFile, orderedFileIds, RISK_SHORT, risksByFile, splitPath } from '../lib/tour-view.ts';
 import { FileView } from './FileView.tsx';
+import type { Reviewer } from './ReviewComments.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
 const NO_LINE_NOTES: LineNote[] = [];
 const NO_DECISIONS: Decision[] = [];
 const NO_RISKS: never[] = [];
+const NO_DRAFTS: DraftComment[] = [];
 
 export interface FileControls {
   expanded: Readonly<Record<string, boolean>>;
@@ -19,6 +22,8 @@ export interface FileControls {
   onToggleExpanded: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   onJumpToFile: (fileId: string) => void;
+  review: ReviewDraft;
+  reviewer: Reviewer | undefined;
 }
 
 export function GroupPanel({
@@ -37,6 +42,14 @@ export function GroupPanel({
   const notes = group.notes;
   const risks = useMemo(() => risksByFile(group), [group]);
   const order = useMemo(() => orderedFileIds(group), [group]);
+  const drafts = useMemo(() => {
+    const byId = new Map<string, DraftComment[]>();
+    for (const comment of controls.review.comments) {
+      byId.set(comment.fileId, [...(byId.get(comment.fileId) ?? []), comment]);
+    }
+    return byId;
+  }, [controls.review.comments]);
+  const composing = controls.review.composing;
   const byFile = useMemo(() => {
     const fileNotes = new Map<string, FileNote[]>();
     const lineNotes = new Map<string, LineNote[]>();
@@ -135,6 +148,9 @@ export function GroupPanel({
               viewed={controls.viewed.has(fileId)}
               onToggleExpanded={controls.onToggleExpanded}
               onToggleViewed={controls.onToggleViewed}
+              drafts={drafts.get(fileId) ?? NO_DRAFTS}
+              composing={composing?.fileId === fileId ? composing : undefined}
+              reviewer={controls.reviewer}
             />
           );
         })}

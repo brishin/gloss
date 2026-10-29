@@ -4,6 +4,7 @@ import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { Gloss, glossRuntime, request } from './client.ts';
+import type { SavedReview } from './review-draft.ts';
 import { makeProgram } from './tea.ts';
 import {
   type Cmd,
@@ -86,6 +87,33 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           const fileIds = storage(() => JSON.parse(stored ?? '[]') as string[]) ?? [];
           return { type: 'ViewedLoaded', diffId: cmd.diffId, fileIds };
         }),
+      );
+    case 'LoadReview':
+      return once(
+        Effect.sync((): Msg | void => {
+          const stored = storage(() => localStorage.getItem(reviewKey(cmd.diffId)));
+          const saved = stored ? storage(() => JSON.parse(stored) as SavedReview) : undefined;
+          return saved ? { type: 'ReviewLoaded', diffId: cmd.diffId, saved } : undefined;
+        }),
+      );
+    case 'SaveReview':
+      return once(
+        Effect.sync(() =>
+          storage(() =>
+            cmd.saved.body || cmd.saved.comments.length
+              ? localStorage.setItem(reviewKey(cmd.diffId), JSON.stringify(cmd.saved))
+              : localStorage.removeItem(reviewKey(cmd.diffId)),
+          ),
+        ),
+      );
+    case 'SubmitReview':
+      return Stream.fromEffect(
+        request((client) => client.review(cmd.request)).pipe(
+          Effect.match({
+            onSuccess: ({ url }): Msg => ({ type: 'ReviewSent', verdict: cmd.request.verdict, url }),
+            onFailure: ({ cause }): Msg => ({ type: 'ReviewFailed', error: reviewError(cause) }),
+          }),
+        ),
       );
     case 'SaveViewed':
       // Storage unavailable (private window): viewed state lasts for this page only.
@@ -171,6 +199,16 @@ function once<E, R>(effect: Effect.Effect<Msg | void, E, R>): Stream.Stream<Msg,
 }
 
 const viewedKey = (diffId: string) => `gloss.viewed.${diffId}`;
+const reviewKey = (diffId: string) => `gloss.review.${diffId}`;
+
+/** The backend answers a refused review with `{ error }`; show GitHub's reason, not the envelope. */
+function reviewError(cause: unknown): string {
+  if (cause instanceof GlossHttpError) {
+    const parsed = storage(() => JSON.parse(cause.message) as { error?: unknown });
+    return typeof parsed?.error === 'string' ? parsed.error : cause.message;
+  }
+  return describeError(cause).title;
+}
 
 function storage<A>(f: () => A): A | undefined {
   try {

@@ -13,6 +13,11 @@ export const SHORTCUTS: readonly (readonly [keys: string, action: string])[] = [
   ['[', 'Previous note'],
   ['x', 'Collapse or expand the current file'],
   ['v', 'Mark the current file viewed (and move on)'],
+  ['r a', 'Approve'],
+  ['r y', 'Approve now, without a comment'],
+  ['r n', 'Request changes'],
+  ['r c', 'Comment'],
+  ['mod+enter', 'Send the comment or review'],
   ['?', 'Show these shortcuts'],
 ];
 
@@ -24,7 +29,12 @@ export function ShortcutHelp({ isOpen, onOpenChange }: { isOpen: boolean; onOpen
         <div className="shortcuts">
           {SHORTCUTS.map(([keys, action]) => (
             <Fragment key={keys}>
-              <Kbd keys={keys} />
+              {/* A space is a sequence: press one key, then the next. */}
+              <span className="kbd-seq">
+                {keys.split(' ').map((key) => (
+                  <Kbd key={key} keys={key} />
+                ))}
+              </span>
               <span>{action}</span>
             </Fragment>
           ))}

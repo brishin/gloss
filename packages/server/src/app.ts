@@ -1,6 +1,15 @@
-import { resolveGithubAsset, resolveGithubStack, TourCache } from '@gloss/core';
-import type { DiffPayload, Health, ResolvedAsset, SourceRef, Stack, TourEvent } from '@gloss/protocol';
-import { encodeNdjson, SourceRefSchema } from '@gloss/protocol';
+import { resolveGithubAsset, resolveGithubStack, submitGithubReview, TourCache } from '@gloss/core';
+import type {
+  DiffPayload,
+  Health,
+  ResolvedAsset,
+  ReviewRequest,
+  ReviewResult,
+  SourceRef,
+  Stack,
+  TourEvent,
+} from '@gloss/protocol';
+import { encodeNdjson, ReviewRequestSchema, reviewProblem, SourceRefSchema } from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
@@ -21,6 +30,8 @@ export interface AppOptions {
   resolveAsset?: (url: string, signal?: AbortSignal) => Promise<ResolvedAsset | undefined>;
   /** Finds the stack a PR sits in; defaults to walking branches through the `gh` login. */
   resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
+  /** Posts a review to GitHub; defaults to the `gh` login. */
+  submitReview?: (review: ReviewRequest, signal?: AbortSignal) => Promise<ReviewResult>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -35,6 +46,7 @@ export function createApp({
   corsOrigins = [],
   resolveAsset = resolveGithubAsset,
   resolveStack = resolveGithubStack,
+  submitReview = submitGithubReview,
 }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
@@ -143,6 +155,23 @@ export function createApp({
       return c.json(await resolveStack(parsed.output, c.req.raw.signal));
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'Stack lookup failed' }, 502);
+    }
+  });
+
+  app.post('/api/reviews', async (c) => {
+    const parsed = v.safeParse(ReviewRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid review', issues: v.flatten(parsed.issues) }, 400);
+    }
+    const problem = reviewProblem(parsed.output);
+    if (problem) {
+      return c.json({ error: problem }, 400);
+    }
+    try {
+      // Not aborted with the request: once sent, a review should land even if the tab closes.
+      return c.json(await submitReview(parsed.output));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : 'Review failed' }, 502);
     }
   });
 

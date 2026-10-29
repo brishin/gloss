@@ -4,6 +4,7 @@ import { parseSseStream } from './codec.ts';
 import type { DiffPayload } from './diff.ts';
 import { DiffPayloadSchema } from './diff.ts';
 import { isTerminal, type TourEvent } from './events.ts';
+import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { type Stack, StackSchema } from './stack.ts';
@@ -49,6 +50,8 @@ export interface GlossClient {
   asset(url: string): Promise<ResolvedAsset>;
   /** The stack a GitHub PR sits in (a stack of one when it has no neighbours). */
   stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<Stack>;
+  /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
+  review(review: ReviewRequest): Promise<ReviewResult>;
 }
 
 export interface HttpGlossClientOptions {
@@ -140,5 +143,11 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         StackSchema,
         `/api/stack?${new URLSearchParams({ owner: ref.owner, repo: ref.repo, number: String(ref.number) })}`,
       ),
+    review: (review) =>
+      json(ReviewResultSchema, '/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(review),
+      }),
   };
 }

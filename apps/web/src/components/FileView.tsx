@@ -6,8 +6,10 @@ import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { memo, useMemo } from 'react';
+import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
 import { RISK_SHORT, splitPath } from '../lib/tour-view.ts';
 import { PriorityIcon } from './icons.tsx';
+import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
 function unifiedText(file: FileChange): string {
   const oldPath = file.previousPath ?? file.path;
@@ -45,8 +47,12 @@ function DecisionCard({ decision, className }: { decision: Decision; className?:
   );
 }
 
-/** What a diff line carries: a note or a decision, rendered under the line. */
-type LineAnnotation = { kind: 'note'; note: LineNote } | { kind: 'decision'; decision: Decision };
+/** What a diff line carries, rendered under the line: gloss's notes and decisions, and the reviewer's comments. */
+type LineAnnotation =
+  | { kind: 'note'; note: LineNote }
+  | { kind: 'decision'; decision: Decision }
+  | { kind: 'draft'; comment: DraftComment }
+  | { kind: 'composer' };
 
 function Chevron() {
   return (
@@ -68,6 +74,9 @@ export const FileView = memo(function FileView({
   viewed,
   onToggleExpanded,
   onToggleViewed,
+  drafts,
+  composing,
+  reviewer,
 }: {
   summary: FileSummary;
   /** Undefined until the diff body has loaded. */
@@ -82,7 +91,15 @@ export const FileView = memo(function FileView({
   viewed: boolean;
   onToggleExpanded: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
+  /** This file's pending review comments. */
+  drafts: readonly DraftComment[];
+  /** The comment being written, when it is on this file. */
+  composing: (CommentAnchor & { body: string; editing?: string }) | undefined;
+  reviewer: Reviewer | undefined;
 }) {
+  const composingDraft = composing?.editing;
+  const composingSide = composing?.side;
+  const composingLine = composing?.line;
   const fileDiff = useMemo<FileDiffMetadata | undefined>(
     () => (change && change.hunks.length ? processFile(unifiedText(change)) : undefined),
     [change],
@@ -100,8 +117,34 @@ export const FileView = memo(function FileView({
         lineNumber: note.line,
         metadata: { kind: 'note' as const, note },
       })),
+      // The comment being edited gives way to its composer.
+      ...drafts
+        .filter((comment) => comment.id !== composingDraft)
+        .map((comment) => ({
+          side: comment.side,
+          lineNumber: comment.line,
+          metadata: { kind: 'draft' as const, comment },
+        })),
+      ...(composingSide && composingLine !== undefined
+        ? [{ side: composingSide, lineNumber: composingLine, metadata: { kind: 'composer' as const } }]
+        : []),
     ],
-    [decisions, lineNotes],
+    // Not the composer's text: the annotations keep their identity while the reviewer types.
+    [decisions, lineNotes, drafts, composingDraft, composingSide, composingLine],
+  );
+  const options = useMemo(
+    () => ({
+      diffStyle: 'unified' as const,
+      disableFileHeader: true,
+      overflow: 'wrap' as const,
+      themeType: 'system' as const,
+      // The gutter's "+" (drag it for several lines) starts a review comment.
+      enableGutterUtility: Boolean(reviewer),
+      onGutterUtilityClick: reviewer
+        ? (range: Parameters<typeof anchorFromRange>[1]) => reviewer.start(anchorFromRange(summary.id, range))
+        : undefined,
+    }),
+    [reviewer, summary.id],
   );
   const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);
@@ -167,10 +210,15 @@ export const FileView = memo(function FileView({
           <FileDiff<LineAnnotation, undefined>
             fileDiff={fileDiff}
             disableWorkerPool
-            options={{ diffStyle: 'unified', disableFileHeader: true, overflow: 'wrap', themeType: 'system' }}
+            options={options}
             lineAnnotations={annotations}
             renderAnnotation={(annotation) =>
-              annotation.metadata?.kind === 'decision' ? (
+              annotation.metadata?.kind === 'composer' ? (
+                composing &&
+                reviewer && <CommentComposer anchor={composing} body={composing.body} reviewer={reviewer} />
+              ) : annotation.metadata?.kind === 'draft' ? (
+                reviewer && <DraftCommentCard comment={annotation.metadata.comment} reviewer={reviewer} />
+              ) : annotation.metadata?.kind === 'decision' ? (
                 <DecisionCard className="line-note" decision={annotation.metadata.decision} />
               ) : annotation.metadata ? (
                 <NoteCard
