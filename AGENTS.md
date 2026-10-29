@@ -12,6 +12,7 @@ events; the web app renders them as they land. Source and tests win over these d
 - `packages/server`: Hono API + `Jobs` service (dedupe, replay log, abort; each job is a fiber).
 - `packages/cli`: `gloss` bin: serves API + built web app, `tour`, `login`, `status`.
 - `apps/web`: TanStack Start (SPA mode) + Astryx (prebuilt CSS) + `@pierre/diffs`. The tour page is an Elm program on Effect Atom (`lib/tour-model.ts` pure update, `lib/tour-program.ts` commands, `lib/tea.ts` runtime).
+- `apps/extension`: Chrome MV3 extension (plain JS, no build) that opens a github.com PR in the local server; `gloss extension install` registers its native messaging host (`packages/cli/src/native-host.ts`) so it can start `gloss serve`.
 - `.agents/`: goal, architecture, protocol, pipeline and model notes. Read the relevant one before changing an area.
 
 ## Invariants

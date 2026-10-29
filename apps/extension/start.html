@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Starting gloss</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+      }
+      body {
+        max-width: 34rem;
+        margin: 20vh auto 0;
+        padding: 0 16px;
+      }
+      code {
+        font:
+          13px ui-monospace,
+          monospace;
+      }
+      p {
+        color: color-mix(in srgb, currentColor 70%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>gloss isn't running</h1>
+    <p>Start it with <code>gloss serve</code>. This page opens the pull request once it's up.</p>
+    <p>Run <code>gloss extension install</code> once to let the button start it for you.</p>
+    <script type="module" src="start.js"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@
     "check": "vp check",
     "dev": "vp run -r --parallel dev",
     "gloss": "node packages/cli/src/bin.ts",
+    "gloss:update": "git pull --ff-only && pnpm install && pnpm --filter @gloss/web build && node packages/cli/src/bin.ts restart",
     "test": "vp test"
   },
   "devDependencies": {
