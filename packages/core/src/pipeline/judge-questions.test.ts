@@ -79,7 +79,8 @@ describe('pickVisual', () => {
   });
   it.each([
     ['the sketch when the change is no workflow', sketchAndFlow(0.1), 0],
-    ['the higher-rated flowchart for a workflow', sketchAndFlow(0.8), 1],
+    ['the sketch when Jev is unsure it is a workflow', sketchAndFlow(0.88), 0],
+    ['the higher-rated flowchart for a workflow', sketchAndFlow(0.95), 1],
     ['the flowchart when the sketch is wrong', sketchAndFlow(0.1, 0.1), 1],
   ] as const)('shows %s', (_, answers, expected) => {
     expect(pickVisual(['svg', 'mermaid'], answers)).toBe(expected);

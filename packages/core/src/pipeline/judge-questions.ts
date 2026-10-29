@@ -247,8 +247,12 @@ export function visualState(
 /** Least sure a picture is accurate, and more than a list, before it can be shown. */
 export const ACCURATE = NO;
 
-/** Surest the change is a workflow before a flowchart may beat the sketch. */
-export const WORKFLOW = 0.5;
+/**
+ * How sure Jev must be that the change is a workflow before a flowchart may beat the sketch.
+ * High because Jev said 0.5-0.88 for one limit, a moved responsibility or a write-behind
+ * queue, where the sketch read better; real decision trees came in at 0.9 and over.
+ */
+export const WORKFLOW = 0.9;
 
 /**
  * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the
