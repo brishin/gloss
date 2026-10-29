@@ -199,6 +199,8 @@ describe('looseEnds', () => {
       `${box(0, 50)}${box(200, 50)}<line x1="100" y1="30" x2="200" y2="30" ${to}/>`,
       2,
     ],
+    ['a path without a marker that ends nowhere', `${box(0, 0)}<path d="M50 40V100H600"/>`, 1],
+    ['a marker shape without a close', `<defs><marker id="a"><path d="M0 0L8 4L0 8"/></marker></defs>${box(0, 0)}`, 0],
     ['a divider without a marker', `${box(0, 0)}<line x1="0" y1="80" x2="700" y2="80"/>`, 0],
     [
       'a polyline around to a circle',
@@ -226,7 +228,7 @@ describe('looseEnds', () => {
   it('drops a sketch with a loose arrow, and keeps the prompt example', () => {
     const svg = `<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90" ${to}/></svg>`;
     expect(normalizeSketch({ caption: 's', svg })).toEqual({
-      warnings: ['Dropped the svg visual: 1 arrow end touches no box.'],
+      warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
     });
     const example = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/)![0];
     expect(normalizeSketch({ caption: 'e', svg: example }).visual?.kind).toBe('svg');

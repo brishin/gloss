@@ -241,17 +241,21 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
 const TOUCH = 8;
 
 /**
- * Ends of arrows (a `line`, `polyline` or `path` with a marker) that touch no box, circle,
- * ellipse or polygon. An arrow into empty space is the commonest failure of a model-drawn sketch: the
- * loop or flow it was meant to show never closes. Lines without a marker are dividers and
- * axes. Paths count only when made of absolute M, L, H and V. Skipped (0) when anything is
- * transformed, since coordinates are then not comparable.
+ * Ends of connectors (a `line` with a marker, and every `polyline` or `path` outside `defs`)
+ * that touch no box, circle, ellipse or polygon. A connector into empty space is the commonest
+ * failure of a model-drawn sketch: the loop or flow it was meant to show never closes, with or
+ * without an arrowhead. Lines without a marker are dividers and axes. Paths count only when
+ * made of absolute M, L, H and V. Skipped (0) when anything is transformed, since coordinates
+ * are then not comparable.
  */
 export function looseEnds(svg: string): number {
   if (/\stransform="/.test(svg)) {
     return 0;
   }
-  const tags = (name: string) => [...svg.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => tag);
+  // A marker's own shape sits in `defs`, in its own coordinates.
+  const drawn = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+  const tags = (name: string, within = svg) =>
+    [...within.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => tag);
   const text = (tag: string, key: string) => tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1];
   const num = (tag: string, key: string, fallback = 0) => Number(text(tag, key) ?? fallback);
   const pairs = (list: string) => {
@@ -298,15 +302,11 @@ export function looseEnds(svg: string): number {
         [num(tag, 'x1'), num(tag, 'y1')],
         [num(tag, 'x2'), num(tag, 'y2')],
       ]),
-    ...tags('polyline')
-      .filter(arrow)
-      .flatMap((tag) => {
-        const all = pairs(text(tag, 'points') ?? '');
-        return all.length >= 2 ? [all[0]!, all.at(-1)!] : [];
-      }),
-    ...tags('path')
-      .filter(arrow)
-      .flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
+    ...tags('polyline', drawn).flatMap((tag) => {
+      const all = pairs(text(tag, 'points') ?? '');
+      return all.length >= 2 ? [all[0]!, all.at(-1)!] : [];
+    }),
+    ...tags('path', drawn).flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
   ];
   return ends.filter(([x, y]) => !shapes.some((touches) => touches(x!, y!))).length;
 }
@@ -353,7 +353,9 @@ export function normalizeSketch(raw: v.InferOutput<typeof SketchSchema>): { visu
     return { warnings: [`Dropped the svg visual: ${svg.why}.`] };
   }
   const loose = looseEnds(svg);
-  const gap = loose ? `${loose} arrow end${loose > 1 ? 's touch' : ' touches'} no box` : sketchGap(svg, caption ?? '');
+  const gap = loose
+    ? `${loose} connector end${loose > 1 ? 's touch' : ' touches'} no box`
+    : sketchGap(svg, caption ?? '');
   return gap
     ? { warnings: [`Dropped the svg visual: ${gap}.`] }
     : { visual: { kind: 'svg', caption, svg }, warnings: [] };
