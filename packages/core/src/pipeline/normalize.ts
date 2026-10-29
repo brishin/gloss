@@ -343,7 +343,10 @@ function pathEnds(d: string): number[][] {
   return start ? [...ends, start, [x, y]] : [];
 }
 
-export function normalizeSketch(raw: v.InferOutput<typeof SketchSchema>): { visual?: Visual; warnings: string[] } {
+export function normalizeSketch(raw: Omit<v.InferOutput<typeof SketchSchema>, 'form'>): {
+  visual?: Visual;
+  warnings: string[];
+} {
   if (!raw.svg.trim()) {
     return { warnings: [] };
   }

@@ -141,6 +141,12 @@ const visual = v.pipe(
  */
 export const SketchSchema = v.pipe(
   v.object({
+    form: v.pipe(
+      v.picklist(['bands', 'timeline', 'states', 'boundary', 'fan', 'shape', 'none']),
+      v.description(
+        'The figure type, chosen from the mechanism before drawing (see "Figure types"). none only when svg is "".',
+      ),
+    ),
     caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
     svg: v.pipe(
       v.string(),
@@ -282,11 +288,19 @@ export const NotesSchema = v.object({
  */
 const SKETCH_GUIDE = `Drawing the sketch. Draw it as the engineer who has to live with the decision, like a figure in a design doc:
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step or edge the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over the request plumbing every feature shares. Write the caption first, then draw every noun it names as a box: if it says "plus recent tours", recent tours is a box, and if it says "before", there is a BEFORE band.
-- For a change, stack a BEFORE band over an AFTER band on the same grid, so the step that differs sits in the same place in both. Color only that step: accent (stroke #5b4cc4, stroke-width 1.5, fill none) for what the change adds, bad (stroke #cf222e, stroke-dasharray "4 3", fill none) for what it removes or fixes. One accent at most. A part that only sometimes exists is a box with stroke-dasharray "4 3" in #8c959f. For the order of events, use a left-to-right time axis instead.
+- Color only the part that differs: accent (stroke #5b4cc4, stroke-width 1.5, fill none) for what the change adds, bad (stroke #cf222e, stroke-dasharray "4 3", fill none) for what it removes or fixes. One accent at most. A part that only sometimes exists is a box with stroke-dasharray "4 3" in #8c959f.
 - Everything else is neutral: boxes rx 8, 40 tall, fill #f6f8fa, stroke #d1d9e0; arrows are paths, stroke #8c959f, fill none, marker-end="url(#a)", one path per arrow (a marker marks only the last point). Every arrow starts and ends on a box edge; a loop is an arrow back to the box it left.
 - Text: labels 13px #1f2328 centered in their box (text-anchor middle); a second line or an arrow label 11.5px #59636e; code in font-family "ui-monospace,Menlo,monospace" 11.5px; band headings 12px, font-weight 600, letter-spacing .04em, #59636e, in capitals.
 - Label every arrow with a verb or condition ("calls", "miss", "writes", "on abort"), 11.5px #59636e, just above a level arrow or beside a vertical one. A word or three per label; a box is about 7px per character plus 24; sentences go in the caption.
 - Grid: viewBox 760 wide, 16 margins, shared baselines, even gaps (about 60 between boxes), height sized to the content (about 160-460). Three to six boxes a band; draw what the decision turns on, not the whole system.
+
+Figure types. Pick the one whose shape is the mechanism; the example below is bands only because a cache is a swapped path. Bands are the default habit, so choose them only when the old path is worth drawing next to the new one.
+- bands: a path or structure replaced by another. A BEFORE band over an AFTER band on the same grid, so the step that differs sits in the same place in both.
+- timeline: order or timing is the point (a timer, a debounce, a race, a retry, a lifecycle event). Lanes on one left-to-right time axis, events as small boxes or ticks on it, the moment the change moves accented.
+- states: a status, mode or lifecycle the change adds to or rewires. States as boxes, transitions as labelled arrows (the event or condition), the new or changed transition accented.
+- boundary: what crosses a line between places (client and server, app and worker, process, network, trust or package boundary). The places as wide tinted regions (fill #f6f8fa, no stroke) with their names as headings, the parts inside, arrows for what crosses.
+- fan: one-to-many or many-to-one (fan-out, batching, a queue, a pool, a concurrency limit, a cache shared by callers). One box to a short column of boxes, the count or limit in a label.
+- shape: the change is a data shape (a schema, a record, a tree, a table). The structure as nested boxes or rows of fields in monospace, the added or changed field accented.
 
 An example of the style, for a cache added in front of a query:
 <svg viewBox="0 0 760 272"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8c959f"/></marker></defs><text x="16" y="24" font-size="12" font-weight="600" letter-spacing=".04em" fill="#59636e">BEFORE</text><rect x="16" y="38" width="150" height="40" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="91" y="63" font-size="13" text-anchor="middle" fill="#1f2328">Request</text><rect x="226" y="38" width="150" height="40" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="301" y="63" font-size="13" text-anchor="middle" fill="#1f2328">Handler</text><rect x="436" y="38" width="150" height="40" rx="8" fill="none" stroke="#cf222e" stroke-dasharray="4 3"/><text x="511" y="56" font-size="11.5" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#cf222e">db.query()</text><text x="511" y="71" font-size="11.5" text-anchor="middle" fill="#59636e">every request</text><path d="M166 58H224" stroke="#8c959f" fill="none" marker-end="url(#a)"/><text x="195" y="52" font-size="11.5" text-anchor="middle" fill="#59636e">sends</text><path d="M376 58H434" stroke="#8c959f" fill="none" marker-end="url(#a)"/><text x="405" y="52" font-size="11.5" text-anchor="middle" fill="#59636e">calls</text><line x1="16" x2="744" y1="104" y2="104" stroke="#d1d9e0"/><text x="16" y="132" font-size="12" font-weight="600" letter-spacing=".04em" fill="#59636e">AFTER</text><rect x="16" y="146" width="150" height="40" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="91" y="171" font-size="13" text-anchor="middle" fill="#1f2328">Request</text><rect x="226" y="146" width="150" height="40" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="301" y="171" font-size="13" text-anchor="middle" fill="#1f2328">Handler</text><rect x="436" y="146" width="150" height="40" rx="8" fill="none" stroke="#5b4cc4" stroke-width="1.5"/><text x="511" y="164" font-size="13" text-anchor="middle" fill="#1f2328">Cache</text><text x="511" y="179" font-size="11.5" text-anchor="middle" fill="#59636e">hit: no query</text><path d="M166 166H224" stroke="#8c959f" fill="none" marker-end="url(#a)"/><text x="195" y="160" font-size="11.5" text-anchor="middle" fill="#59636e">sends</text><path d="M376 166H434" stroke="#8c959f" fill="none" marker-end="url(#a)"/><text x="405" y="160" font-size="11.5" text-anchor="middle" fill="#59636e">calls</text><path d="M511 186V214" stroke="#8c959f" fill="none" marker-end="url(#a)"/><text x="519" y="204" font-size="11.5" fill="#59636e">miss</text><rect x="436" y="216" width="150" height="40" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/><text x="511" y="241" font-size="11.5" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#1f2328">db.query()</text></svg>`;
@@ -328,7 +342,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
