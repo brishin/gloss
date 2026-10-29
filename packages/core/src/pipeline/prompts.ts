@@ -102,7 +102,7 @@ const visual = v.pipe(
       v.pipe(
         v.array(
           v.object({
-            label: short('1-2 words, e.g. "Before", "After", "Recording".'),
+            label: short('1-2 words, e.g. "Before", "After", "Retry".'),
             spans: v.array(
               v.object({
                 from: at,
