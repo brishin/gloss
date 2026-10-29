@@ -153,6 +153,8 @@ describe('isSinglePath', () => {
     ['a fork', 'flowchart TD\nA --> B\nA --> C', false],
     ['a merge', 'flowchart TD\nA --> C\nB --> C', false],
     ['a path beside a separate loop', 'flowchart TD\nA --> B\nC --> D\nD --> C', false],
+    ['a path beside a standalone node', 'flowchart TD\nA --> B\nC[Independent worker]', false],
+    ['a chain with its nodes declared first', 'flowchart TD\nA[One]\nB[Two]\nA --> B', true],
     ['a loop with labels', 'flowchart TD\nA[Start] --> B{Trunk?}\nB -- no --> C[Step down]\nC -->|again| B', false],
     ['a state machine cycle', 'stateDiagram-v2\n[*] --> Idle\nIdle --> Busy: start\nBusy --> Idle: done', false],
   ] as const)('%s', (_, source, expected) => {
