@@ -1,7 +1,7 @@
 import { Button } from '@astryxdesign/core/Button';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { TextArea } from '@astryxdesign/core/TextArea';
-import type { KeyboardEvent } from 'react';
+import { type KeyboardEvent, useEffect, useRef } from 'react';
 import type { CommentAnchor, DraftComment } from '../lib/review-draft.ts';
 
 /** What a file's diff needs to take line comments; absent when the tour cannot be reviewed (a local diff). */
@@ -40,9 +40,13 @@ export function CommentComposer({
   body: string;
   reviewer: Reviewer;
 }) {
+  // Rendered into the diff after the gutter click, so `autofocus` alone does not take.
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => input.current?.focus(), []);
   return (
     <div className="comment-composer line-note" onKeyDown={submitKeys(reviewer.save, reviewer.cancel)}>
       <TextArea
+        ref={input}
         label={`Comment on ${lines(anchor)}`}
         isLabelHidden
         placeholder={`Comment on ${lines(anchor)}`}

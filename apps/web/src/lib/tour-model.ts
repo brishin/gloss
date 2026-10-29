@@ -108,6 +108,11 @@ export type Msg =
   | { type: 'SidebarActivated'; node: string; key: string }
   | { type: 'NestingChanged'; nesting: Nesting }
   | { type: 'QueryChanged'; query: string }
+  /**
+   * A key outside any text field, read against the model when it is handled: the second key
+   * of a chord can arrive before the first has reached the model the keyboard sees.
+   */
+  | { type: 'KeyPressed'; key: string }
   | { type: 'ChordStarted'; chord: 'r' }
   | { type: 'ChordCancelled' }
   | { type: 'ReviewLoaded'; diffId: string; saved: SavedReview }
@@ -205,7 +210,10 @@ export function isFileExpanded(
 /** Keys typed into these elements are text, not shortcuts. */
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
-/** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key to the browser. */
+/** Keys that may be shortcuts, so the browser's own use of them is held back. */
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkonp][xv?rayc');
+
+/** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
   if ((model.helpOpen && key !== '?') || model.review.open) {
     return undefined;
@@ -355,6 +363,10 @@ function step(model: Model, msg: Msg): Next {
       return [{ ...model, sidebar: { ...model.sidebar, nesting: msg.nesting } }, []];
     case 'QueryChanged':
       return [{ ...model, sidebar: { ...model.sidebar, query: msg.query } }, []];
+    case 'KeyPressed': {
+      const action = keyToMsg(model, msg.key);
+      return action ? step(model, action) : [model, []];
+    }
     case 'ChordStarted':
       return [{ ...model, chord: msg.chord }, []];
     case 'ChordCancelled':

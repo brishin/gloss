@@ -11,10 +11,9 @@ import {
   type ConnectionError,
   EDITABLE,
   init,
-  keyToMsg,
-  type Model,
   type Msg,
   type Position,
+  SHORTCUT_KEYS,
   update,
 } from './tour-model.ts';
 import { STICKY_OFFSET } from './tour-view.ts';
@@ -59,7 +58,7 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
             : cmd.type === 'SetTitle'
               ? 'title'
               : undefined,
-    subscriptions: (model) => Stream.mergeAll([keys(model), scrollSpy, history(router)], { concurrency: 'unbounded' }),
+    subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
 
@@ -298,25 +297,27 @@ function listen<K extends keyof WindowEventMap>(
   );
 }
 
+const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
+
 /** Keyboard shortcuts (listed in ShortcutHelp). */
-const keys = (model: () => Model) =>
-  Stream.callback<Msg>((queue) =>
-    listen('keydown', (event) => {
-      if (
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        (event.target instanceof Element && event.target.closest(EDITABLE))
-      ) {
-        return;
-      }
-      const msg = keyToMsg(model(), event.key);
-      if (msg) {
-        event.preventDefault();
-        Queue.offerUnsafe(queue, msg);
-      }
-    }),
-  );
+const keys = Stream.callback<Msg>((queue) =>
+  listen('keydown', (event) => {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      MODIFIERS.has(event.key) ||
+      (event.target instanceof Element && event.target.closest(EDITABLE))
+    ) {
+      return;
+    }
+    // Every other key goes in, so one that is not a shortcut still ends a pending chord.
+    if (SHORTCUT_KEYS.has(event.key)) {
+      event.preventDefault();
+    }
+    Queue.offerUnsafe(queue, { type: 'KeyPressed', key: event.key });
+  }),
+);
 
 /** Scroll-spy: the file at the reading line, at most once a frame. */
 const scrollSpy = Stream.callback<Msg>((queue) => {

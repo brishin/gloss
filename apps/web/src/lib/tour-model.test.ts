@@ -246,20 +246,9 @@ function diffReady(diffId: string) {
 describe('review', () => {
   const META = { title: 't', baseRef: 'main', headRef: 'f', headSha: 'head1', commits: [] };
   const reviewable = () => model({ tour: tour({ meta: META } as Partial<TourState>) });
-  /** Feeds keys through `keyToMsg`, as the keyboard subscription does. */
-  function press(start: Model, ...keys: string[]): [Model, Cmd[]] {
-    let current = start;
-    const cmds: Cmd[] = [];
-    for (const key of keys) {
-      const msg = keyToMsg(current, key);
-      if (msg) {
-        const [next, out] = update(current, msg);
-        current = next;
-        cmds.push(...out);
-      }
-    }
-    return [current, cmds];
-  }
+  /** Presses keys as the keyboard subscription sends them. */
+  const press = (start: Model, ...keys: string[]) =>
+    run(start, ...keys.map((key): Msg => ({ type: 'KeyPressed', key })));
   const submitted = (cmds: readonly Cmd[]) => cmds.flatMap((cmd) => (cmd.type === 'SubmitReview' ? [cmd.request] : []));
 
   test.each([
@@ -300,11 +289,12 @@ describe('review', () => {
     expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
   });
 
-  test('any other key after r drops the chord and does nothing else', () => {
-    const [next, cmds] = press(reviewable(), 'r', 'j');
+  test.each(['j', 'z', 'Escape'])('%s after r drops the chord and does nothing else', (key) => {
+    const [next, cmds] = press(reviewable(), 'r', key);
     expect(next.chord).toBeUndefined();
     expect(next.position.g).toBeUndefined();
     expect(cmds).toEqual([]);
+    expect(press(next, 'a')[0].review.open).toBe(false);
   });
 
   test('a local diff, or a PR before its diff arrives, cannot be reviewed', () => {
