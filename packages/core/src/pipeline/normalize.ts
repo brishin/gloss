@@ -95,7 +95,8 @@ export function normalizeNotes(
   return { notes, warnings };
 }
 
-type RawVisual = v.InferOutput<typeof DefineSchema>['visuals'][number];
+type RawVisuals = v.InferOutput<typeof DefineSchema>['visuals'];
+type RawVisual = RawVisuals['first'];
 
 const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -118,6 +119,9 @@ const MERMAID_HEADER = /^(?:flowchart|graph)\s+(?:TD|TB|BT|LR|RL)\b|^stateDiagra
  * survive is dropped with a warning; a tour never fails over its picture.
  */
 export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: string[] } {
+  if (raw.kind === 'none') {
+    return { warnings: [] };
+  }
   const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
   const drop = (why: string) => ({ warnings: [`Dropped the ${raw.kind} visual: ${why}.`] });
   if (raw.kind === 'before-after') {
@@ -164,9 +168,9 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
   return { visual: { kind: 'mermaid', caption, source: lines.join('\n') }, warnings: [] };
 }
 
-/** Candidates that survive, in the model's order, capped at three. */
-export function normalizeVisuals(raw: readonly RawVisual[] | undefined): { visuals: Visual[]; warnings: string[] } {
-  const results = (raw ?? []).slice(0, 3).map(normalizeVisual);
+/** Candidates that survive, in the model's order. */
+export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual[]; warnings: string[] } {
+  const results = raw ? [raw.first, raw.second, raw.third].map(normalizeVisual) : [];
   return {
     visuals: results.flatMap((result) => (result.visual ? [result.visual] : [])),
     warnings: results.flatMap((result) => result.warnings),

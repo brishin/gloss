@@ -69,16 +69,16 @@ async function tour(options: {
 const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
-  visuals: [
-    { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
-    {
+  visuals: {
+    first: { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
+    second: {
       kind: 'timeline',
       caption: 'When a session loses access.',
       markers: [],
       lanes: [{ label: 'After', spans: [{ from: 0, to: 60, text: 'Signed in' }] }],
     },
-    { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B' },
-  ],
+    third: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B' },
+  },
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
@@ -175,7 +175,7 @@ describe('runTour', () => {
     expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
     expect(finished.decisions).toEqual(groupsAnswer.decisions);
-    expect(finished.visual).toEqual(groupsAnswer.visuals[1]);
+    expect(finished.visual).toEqual(groupsAnswer.visuals.second);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
@@ -204,7 +204,7 @@ describe('runTour', () => {
     ).toBe(true);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('f-hallucinated'))).toBe(true);
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
-    expect(finished.visual).toEqual(groupsAnswer.visuals[0]);
+    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
   });
 
   it('shows Jev the candidates as pictures and falls back to the first when it fails', async () => {
@@ -223,7 +223,7 @@ describe('runTour', () => {
     const { events, tour: finished } = await tour({ model: fakeModel(), judge: failing });
     expect(sent).toEqual([0x89504e47, 0x89504e47, 0x89504e47]);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('pick a visual'))).toBe(true);
-    expect(finished.visual).toEqual(groupsAnswer.visuals[0]);
+    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
   });
 
   it('reports a failed Jev file as a warning and still places it', async () => {

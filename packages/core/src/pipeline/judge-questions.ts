@@ -206,8 +206,11 @@ export function visualState(
   };
 }
 
-/** Least sure a picture explains the change before it is shown. */
-export const EXPLAINS = 0.5;
+/**
+ * Least sure a picture explains the change before it is shown. Low on purpose: on gloss
+ * PRs Jev put good pictures at 0.35-0.57 and hid only a muddled flowchart (0.27) at NO.
+ */
+export const EXPLAINS = NO;
 
 /**
  * Candidates ranked by `best` (model order breaks ties and stands in when there is one),

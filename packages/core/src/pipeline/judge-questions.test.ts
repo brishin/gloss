@@ -15,7 +15,7 @@ describe('pickVisual', () => {
   it.each([
     ['the top-ranked one that explains', { c1: 0.2, c2: 0.8 }, [0.9, 0.9], 1],
     ['the next one when the top one misleads', { c1: 0.2, c2: 0.8 }, [0.9, 0.1], 0],
-    ['none when no candidate explains', { c1: 0.5, c2: 0.5 }, [0.4, 0.2], undefined],
+    ['none when no candidate explains', { c1: 0.5, c2: 0.5 }, [0.25, 0.2], undefined],
     ['the model order on a tie', { c1: 0.5, c2: 0.5 }, [0.9, 0.9], 0],
   ] as const)('picks %s', (_, ranking, explained, expected) => {
     const answers = {
@@ -28,7 +28,7 @@ describe('pickVisual', () => {
   it('filters a single candidate without ranking it', () => {
     expect(Object.keys(visualQuestions(1, true))).toEqual(['c1_explains']);
     expect(pickVisual(1, { c1_explains: explains(0.7) })).toBe(0);
-    expect(pickVisual(1, { c1_explains: explains(0.3) })).toBe(undefined);
+    expect(pickVisual(1, { c1_explains: explains(0.2) })).toBe(undefined);
   });
 
   it('names each picture as the image Jev is sent', () => {

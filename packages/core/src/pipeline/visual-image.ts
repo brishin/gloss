@@ -13,6 +13,8 @@ const WASH = '#f3f1fd';
 const BAD = '#cf222e';
 const GOOD = '#1a7f37';
 const WIDTH = 760;
+const MIN_SIDE = 400;
+const MAX_SIDE = 1200;
 const FONT = 'font-family="sans-serif"';
 
 const escape = (text: string) =>
@@ -150,7 +152,17 @@ export function visualPng(visual: Visual): Uint8Array | undefined {
         : visual.kind === 'timeline'
           ? timelineSvg(visual)
           : mermaidSvg(visual.source);
-    return new Resvg(source, { background: INK.bg, fitTo: { mode: 'width', value: WIDTH } }).render().asPng();
+    const natural = new Resvg(source);
+    // The web app never draws a diagram wider than its natural size.
+    const width = visual.kind === 'mermaid' ? Math.min(WIDTH, natural.width) : WIDTH;
+    const height = (natural.height * width) / natural.width;
+    // Jev refuses a side outside about 280-1568 px: shrink tall pictures, pad small ones.
+    const scale = Math.min(1, MAX_SIDE / height);
+    const [w, h] = [Math.round(width * scale), Math.round(height * scale)];
+    const picture = new Resvg(source, { background: INK.bg, fitTo: { mode: 'width', value: w } }).render().asPng();
+    const [frameW, frameH] = [Math.max(w, MIN_SIDE), Math.max(h, MIN_SIDE)];
+    const frame = `<svg xmlns="http://www.w3.org/2000/svg" width="${frameW}" height="${frameH}"><image x="${(frameW - w) / 2}" y="${(frameH - h) / 2}" width="${w}" height="${h}" href="data:image/png;base64,${Buffer.from(picture).toString('base64')}"/></svg>`;
+    return new Resvg(frame, { background: INK.bg }).render().asPng();
   } catch {
     return undefined;
   }

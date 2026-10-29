@@ -18,7 +18,17 @@ describe('visualPng', () => {
   it.each(visuals.map((visual) => [visual.kind, visual] as const))('draws a %s as a PNG for Jev', (_, visual) => {
     const png = visualPng(visual);
     expect(png && Buffer.from(png).subarray(0, 4).toString('hex')).toBe('89504e47');
-    // The tour's width, so Jev sees what the reader sees.
-    expect(png && Buffer.from(png).readUInt32BE(16)).toBe(760);
+    // Every side inside what Jev accepts (about 280-1568 px).
+    for (const side of [Buffer.from(png!).readUInt32BE(16), Buffer.from(png!).readUInt32BE(20)]) {
+      expect(side).toBeGreaterThanOrEqual(400);
+      expect(side).toBeLessThanOrEqual(1200);
+    }
   });
+});
+
+it('shrinks a tall flowchart to a height Jev accepts', () => {
+  const steps = Array.from({ length: 25 }, (_, i) => `  S${i}[Step ${i}] --> S${i + 1}[Step ${i + 1}]`).join('\n');
+  const png = Buffer.from(visualPng({ kind: 'mermaid', source: `flowchart TD\n${steps}` })!);
+  expect(png.readUInt32BE(20)).toBe(1200);
+  expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(400);
 });
