@@ -367,7 +367,7 @@ export function normalizeSketch(raw: Omit<v.InferOutput<typeof SketchSchema>, 'f
 /**
  * What a sketch promises but does not draw, checked in code because the model skips these
  * rules often (eval rounds 9-10): a caption about "before" with no BEFORE band, or most
- * arrows without a label. Labels are texts outside every box, other than capitalised headings.
+ * arrows without a label. Labels are texts outside every box (regions around boxes do not count), other than capitalised headings.
  */
 export function sketchGap(svg: string, caption: string): string | undefined {
   if (/\bbefore\b/i.test(caption) && !/>\s*BEFORE\s*</i.test(svg)) {
@@ -376,12 +376,19 @@ export function sketchGap(svg: string, caption: string): string | undefined {
   const body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '');
   const arrows = [...body.matchAll(/<(?:line|polyline|path)\s[^>]*\smarker-(?:start|end)="/g)].length;
   const attr = (tag: string, key: string) => Number(tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1] ?? 0);
-  const boxes = [...body.matchAll(/<rect\s[^>]*>/g)].map(([tag]) => [
+  const rects = [...body.matchAll(/<rect\s[^>]*>/g)].map(([tag]) => [
     attr(tag, 'x'),
     attr(tag, 'y'),
     attr(tag, 'x') + attr(tag, 'width'),
     attr(tag, 'y') + attr(tag, 'height'),
   ]);
+  // A rect around other rects is a region (a boundary figure's place), and its arrow labels sit inside it.
+  const boxes = rects.filter(
+    ([left, top, right, bottom], i) =>
+      !rects.some(
+        (inner, j) => j !== i && inner[0]! >= left! && inner[1]! >= top! && inner[2]! <= right! && inner[3]! <= bottom!,
+      ),
+  );
   const labels = [...body.matchAll(/(<text\s[^>]*>)([^<]*)/g)].filter(([, tag, words]) => {
     const [x, y] = [attr(tag!, 'x'), attr(tag!, 'y')];
     const inside = boxes.some(([left, top, right, bottom]) => x >= left! && x <= right! && y >= top! && y <= bottom!);
