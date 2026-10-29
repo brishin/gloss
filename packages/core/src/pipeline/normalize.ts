@@ -366,11 +366,12 @@ export function normalizeSketch(raw: Omit<v.InferOutput<typeof SketchSchema>, 'f
 
 /**
  * What a sketch promises but does not draw, checked in code because the model skips these
- * rules often (eval rounds 9-10): a caption about "before" with no BEFORE band, or most
+ * rules often (eval rounds 9-10): a caption that compares a before with no BEFORE band, or most
  * arrows without a label. Labels are texts outside every box (regions around boxes do not count), other than capitalised headings.
  */
 export function sketchGap(svg: string, caption: string): string | undefined {
-  if (/\bbefore\b/i.test(caption) && !/>\s*BEFORE\s*</i.test(svg)) {
+  // "Before, ..." or "Before: ..." compares old and new; "checks the cache before the query" is order.
+  if (/\bbefore\s*[,:;]|\bbefore and after\b/i.test(caption) && !/>\s*BEFORE\s*</i.test(svg)) {
     return 'its caption describes a before it does not draw';
   }
   const body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '');

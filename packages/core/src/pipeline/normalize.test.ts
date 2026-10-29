@@ -288,6 +288,12 @@ describe('sketchGap', () => {
       'its caption describes a before it does not draw',
     ],
     [
+      'a before that is only an order',
+      box(0, 'A') + arrow(100, 'checks') + box(160, 'B'),
+      'Requests check the cache before reaching the database',
+      undefined,
+    ],
+    [
       'a before band',
       '<text x="16" y="24">BEFORE</text>' + box(0, 'A') + arrow(100, 'calls') + box(160, 'B'),
       'Before and after',
