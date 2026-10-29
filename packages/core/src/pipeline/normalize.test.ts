@@ -93,6 +93,10 @@ describe('normalizeVisual', () => {
     });
   });
 
+  it('treats kind none as no visual, without a warning', () => {
+    expect(normalizeVisual({ kind: 'none', caption: '' })).toEqual({ warnings: [] });
+  });
+
   it('needs rows on both sides of a before-after', () => {
     expect(normalizeVisual({ kind: 'before-after', caption: 'x', before: ['a'], after: ['  '] })).toEqual({
       warnings: ['Dropped the before-after visual: it needs rows on both sides.'],

@@ -95,7 +95,7 @@ export function normalizeNotes(
   return { notes, warnings };
 }
 
-type RawVisual = NonNullable<v.InferOutput<typeof DefineSchema>['visual']>;
+type RawVisual = v.InferOutput<typeof DefineSchema>['visual'];
 
 const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -118,7 +118,7 @@ const MERMAID_HEADER = /^(?:flowchart|graph)\s+(?:TD|TB|BT|LR|RL)\b|^stateDiagra
  * survive is dropped with a warning; a tour never fails over its picture.
  */
 export function normalizeVisual(raw: RawVisual | undefined): { visual?: Visual; warnings: string[] } {
-  if (!raw) {
+  if (!raw || raw.kind === 'none') {
     return { warnings: [] };
   }
   const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
