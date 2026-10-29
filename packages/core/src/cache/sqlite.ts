@@ -4,10 +4,14 @@ import { DatabaseSync } from 'node:sqlite';
 import type { RecentTour, SourceRef } from '@gloss/protocol';
 import type { CacheStore } from './store.ts';
 
+/** How long a write waits on another gloss process holding the lock before failing with SQLITE_BUSY. */
+const BUSY_TIMEOUT_MS = 10_000;
+
 /** One sqlite file (WAL) holds every cache kind: many small per-file rows write atomically and prune cheaply. */
 export function createSqliteCacheStore(path: string): CacheStore {
   mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
+  // Several gloss processes share one cache file. The timeout is set at open so it also covers the WAL switch below.
+  const db = new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS });
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
