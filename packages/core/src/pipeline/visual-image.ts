@@ -29,53 +29,29 @@ export function fit(text: string, width: number): string {
   return flat.length <= max ? flat : max < 2 ? '' : `${flat.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** Greedy word wrap by character count; resvg cannot wrap and has no text metrics. */
-export function wrap(text: string, max: number): string[] {
-  const lines: string[] = [];
-  let line = '';
-  for (const word of text.split(' ')) {
-    if (line && line.length + 1 + word.length > max) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? `${line} ${word}` : word;
-    }
-  }
-  return line ? [...lines, line] : lines;
-}
-
+/** The old and new diagrams side by side, each at most its natural size, as in the web app. */
 function beforeAfterSvg(visual: Extract<Visual, { kind: 'before-after' }>): string {
-  // About 50 characters of 13px sans fit the ~350px inside a column, as the web app wraps them.
-  const lineHeight = 18;
-  const rowGap = 4;
-  const layout = (rows: readonly string[]) => {
-    let y = 52;
-    const lines = rows.flatMap((row) => {
-      const wrapped = wrap(row.replace(/`([^`]+)`/g, '$1'), 50).map((text, i) => ({ text, y: y + i * lineHeight }));
-      y += wrapped.length * lineHeight + rowGap;
-      return wrapped;
-    });
-    return { lines, bottom: y - lineHeight - rowGap };
-  };
-  const before = layout(visual.before);
-  const after = layout(visual.after);
-  const height = Math.max(before.bottom, after.bottom) + 22;
-  const column = (x: number, label: string, { lines }: ReturnType<typeof layout>) =>
-    `<text x="${x + 14}" y="26" font-size="11" font-weight="600" fill="${INK.muted}" ${FONT}>${label}</text>` +
-    lines
-      .map(
-        (line) =>
-          `<text x="${x + 14}" y="${line.y}" font-size="13" fill="${INK.fg}" ${FONT}>${escape(line.text)}</text>`,
-      )
-      .join('');
   const half = WIDTH / 2;
+  const room = half - 28;
+  const diagrams = [visual.before, visual.after].map((source, side) => {
+    // Drawn to PNG first: resvg loads no fonts for an SVG nested as an image.
+    const svg = mermaidSvg(source);
+    const natural = new Resvg(svg);
+    const width = Math.round(Math.min(room, natural.width));
+    const png = new Resvg(svg, { background: side ? WASH : INK.bg, fitTo: { mode: 'width', value: width } }).render();
+    return { png: Buffer.from(png.asPng()).toString('base64'), width, height: png.height };
+  });
+  const height = 44 + Math.max(...diagrams.map((diagram) => diagram.height)) + 12;
+  const column = (x: number, label: string, diagram: (typeof diagrams)[number]) =>
+    `<text x="${x + 14}" y="26" font-size="11" font-weight="600" fill="${INK.muted}" ${FONT}>${label}</text>` +
+    `<image x="${x + (half - diagram.width) / 2}" y="40" width="${diagram.width}" height="${diagram.height}" href="data:image/png;base64,${diagram.png}"/>`;
   return svg(
     height,
     `<rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" fill="${INK.bg}" stroke="${INK.line}"/>` +
       `<rect x="${half}" y="1" width="${half - 1.5}" height="${height - 2}" fill="${WASH}"/>` +
       `<line x1="${half}" x2="${half}" y1="0" y2="${height}" stroke="${INK.line}"/>` +
-      column(0, 'BEFORE', before) +
-      column(half, 'AFTER', after),
+      column(0, 'BEFORE', diagrams[0]!) +
+      column(half, 'AFTER', diagrams[1]!),
   );
 }
 

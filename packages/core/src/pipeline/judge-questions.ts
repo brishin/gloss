@@ -84,6 +84,17 @@ export function visualQuestions(count: number, withImages: boolean): Record<stri
           },
         ],
         [
+          `${id}_beyond_text`,
+          {
+            type: 'bool',
+            instructions: `Does ${it} show structure that a bulleted list of its labels would lose: a flow, branching, an order or timing?`,
+            criteria: {
+              true: 'Arrows, branches, lanes or positions carry meaning that the words alone do not.',
+              false: 'It is text in boxes or columns that could be read as a list, or it restates the summary.',
+            },
+          },
+        ],
+        [
           `${id}_whole`,
           {
             type: 'bool',
@@ -220,17 +231,18 @@ export function visualState(
   };
 }
 
-/** Least sure a picture is accurate before it can be shown. */
+/** Least sure a picture is accurate, and more than a list, before it can be shown. */
 export const ACCURATE = NO;
 
 /**
- * Of the candidates Jev thinks are accurate, the one it rates highest for showing the whole
- * change and being easy to follow; model order breaks ties. `undefined` hides the visual.
+ * Of the candidates Jev thinks are accurate and more than a list, the one it rates highest
+ * for showing the whole change and being easy to follow; model order breaks ties.
+ * `undefined` hides the visual.
  */
 export function pickVisual(count: number, answers: Record<string, JudgeAnswer>): number | undefined {
   const p = (i: number, question: string) => bool(answers[`c${i + 1}_${question}`]);
   const weight = (i: number) => (p(i, 'whole') ?? 1) * (p(i, 'easy') ?? 1);
   return Array.from({ length: count }, (_, i) => i)
-    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE)
+    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE)
     .sort((a, b) => weight(b) - weight(a) || a - b)[0];
 }

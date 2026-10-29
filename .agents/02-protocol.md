@@ -27,7 +27,8 @@ ones in code ride on `group.notes` as `notes.decisions`, with `fileId` and, when
 is visible, `hunkId`/`side`/`line`.
 
 The tour's visual rides on `tour.summary` (and `Tour.visual`): at most one picture of the
-main decision, as data the client draws. `before-after` is rows on each side, `timeline`
+main decision, as data the client draws. `before-after` is two small Mermaid diagrams
+(the old flow next to the new; never rows of text, which only restate the summary), `timeline`
 is lanes of spans on a shared 0-100 axis with optional markers and an outcome per lane,
 and `mermaid` is a flowchart or state diagram rendered with beautiful-mermaid. Never
 model-written SVG or HTML. With Jev, `tour.summary` is sent twice: first without the

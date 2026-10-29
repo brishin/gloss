@@ -70,7 +70,12 @@ const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
   visuals: {
-    first: { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
+    first: {
+      kind: 'before-after',
+      caption: 'Who passes the check.',
+      before: 'flowchart TD\n  A[Any user] --> B[Pass]',
+      after: 'flowchart TD\n  A[Admin] --> B[Pass]',
+    },
     second: {
       kind: 'timeline',
       caption: 'When a session loses access.',
