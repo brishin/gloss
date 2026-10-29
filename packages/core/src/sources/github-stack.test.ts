@@ -1,26 +1,26 @@
-import type { PullState, StackMember } from '@gloss/protocol';
+import type { PullState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { MAX_STACK, type StackLookup, walkStack } from './github-stack.ts';
+import { MAX_STACK, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
 
-const pr = (number: number, baseRef: string, headRef: string, state: PullState = 'open'): StackMember => ({
-  number,
-  title: `PR ${number}`,
-  state,
-  baseRef,
-  headRef,
-});
+const pr = (
+  number: number,
+  baseRef: string,
+  headRef: string,
+  state: PullState = 'open',
+  headInRepo = true,
+): StackPull => ({ number, title: `PR ${number}`, state, baseRef, headRef, headInRepo });
 
 /** A fake repo: `byHead` sees every state, `byBase` only open and draft PRs, as the gh lookup does. */
-function lookup(pulls: StackMember[]): StackLookup {
+function lookup(pulls: StackPull[]): StackLookup {
   return {
     pull: async (number) => pulls.find((pull) => pull.number === number)!,
-    byHead: async (branch) => pulls.filter((pull) => pull.headRef === branch),
+    byHead: async (branch) => pulls.filter((pull) => pull.headInRepo && pull.headRef === branch),
     byBase: async (branch) =>
       pulls.filter((pull) => pull.baseRef === branch && (pull.state === 'open' || pull.state === 'draft')),
   };
 }
 
-const numbers = async (start: number, pulls: StackMember[]) =>
+const numbers = async (start: number, pulls: StackPull[]) =>
   (await walkStack(start, lookup(pulls))).map((pull) => pull.number);
 
 describe('walkStack', () => {
@@ -50,6 +50,20 @@ describe('walkStack', () => {
     expect(await numbers(1, [pr(1, 'main', 'a'), pr(3, 'a', 'c'), pr(2, 'a', 'b'), pr(4, 'a', 'd', 'closed')])).toEqual(
       [1, 2],
     );
+  });
+
+  test('a fork PR from its main is not the base of PRs onto main here', async () => {
+    expect(await numbers(5, [pr(5, 'main', 'main', 'open', false), pr(6, 'main', 'other')])).toEqual([5]);
+  });
+
+  test('members carry no walk-only fields', async () => {
+    expect(Object.keys((await walkStack(1, lookup(chain)))[0]!).toSorted()).toEqual([
+      'baseRef',
+      'headRef',
+      'number',
+      'state',
+      'title',
+    ]);
   });
 
   test('stops on a cycle', async () => {
