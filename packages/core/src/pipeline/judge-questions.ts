@@ -71,8 +71,21 @@ export function groupQuestions(groups: readonly GroupDefinition[]): Record<strin
  * With pictures, Jev sees each rendered as `<image-N>` beside its spec.
  */
 export function visualQuestions(count: number, withImages: boolean): Record<string, JudgeQuestion> {
-  return Object.fromEntries(
-    Array.from({ length: count }, (_, i) => {
+  const workflow: [string, JudgeQuestion] = [
+    'workflow',
+    {
+      type: 'bool',
+      instructions:
+        'Is the main decision in `summary` and `decisions` a workflow: steps or stages run in order, with branches, retries or a loop, that a flowchart draws best?',
+      criteria: {
+        true: 'The change adds or reorders steps of a process, a pipeline or a decision tree.',
+        false: 'The change is about components and what connects them, data, timing or one rule.',
+      },
+    },
+  ];
+  return Object.fromEntries([
+    workflow,
+    ...Array.from({ length: count }, (_, i) => {
       const id = `c${i + 1}`;
       const it = withImages ? `the picture <image-${i + 1}> (\`candidates.${id}\`)` : `\`candidates.${id}\``;
       const questions: [string, JudgeQuestion][] = [
@@ -122,7 +135,7 @@ export function visualQuestions(count: number, withImages: boolean): Record<stri
       }
       return questions;
     }).flat(),
-  );
+  ]);
 }
 
 export const QUESTIONS_VERSION = hashOf({
@@ -234,15 +247,24 @@ export function visualState(
 /** Least sure a picture is accurate, and more than a list, before it can be shown. */
 export const ACCURATE = NO;
 
+/** Surest the change is a workflow before a flowchart may beat the sketch. */
+export const WORKFLOW = 0.5;
+
 /**
- * Of the candidates Jev thinks are accurate and more than a list, the one it rates highest
- * for showing the whole change and being easy to follow; model order breaks ties.
- * `undefined` hides the visual.
+ * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the
+ * change is a workflow (Brian prefers hand-drawn sketches to diagrams except for those).
+ * Otherwise the one Jev rates highest for showing the whole change and being easy to
+ * follow; model order breaks ties. `undefined` hides the visual.
  */
-export function pickVisual(count: number, answers: Record<string, JudgeAnswer>): number | undefined {
+export function pickVisual(kinds: readonly Visual['kind'][], answers: Record<string, JudgeAnswer>): number | undefined {
   const p = (i: number, question: string) => bool(answers[`c${i + 1}_${question}`]);
   const weight = (i: number) => (p(i, 'whole') ?? 1) * (p(i, 'easy') ?? 1);
-  return Array.from({ length: count }, (_, i) => i)
-    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE)
-    .sort((a, b) => weight(b) - weight(a) || a - b)[0];
+  const shown = kinds
+    .map((_, i) => i)
+    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE);
+  const sketch = shown.find((i) => kinds[i] === 'svg');
+  if (sketch !== undefined && (bool(answers.workflow) ?? 0) < WORKFLOW) {
+    return sketch;
+  }
+  return shown.sort((a, b) => weight(b) - weight(a) || a - b)[0];
 }

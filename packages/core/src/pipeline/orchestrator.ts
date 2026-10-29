@@ -326,7 +326,10 @@ const tourProgram = Effect.fnUntraced(function* (
         client.model,
       ).pipe(
         Effect.map(({ value }) => {
-          const pick = pickVisual(visuals.length, value);
+          const pick = pickVisual(
+            visuals.map((visual) => visual.kind),
+            value,
+          );
           show(pick === undefined ? undefined : visuals[pick]);
         }),
         Effect.catchTag('JudgeError', (error) =>

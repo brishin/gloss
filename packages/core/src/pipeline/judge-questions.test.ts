@@ -64,13 +64,36 @@ describe('pickVisual', () => {
         [`c${i + 1}_beyond_text`, yes(beyond)],
       ]),
     );
-    expect(pickVisual(scores.length, answers)).toBe(expected);
+    expect(pickVisual(Array(scores.length).fill('mermaid'), answers)).toBe(expected);
+  });
+
+  // Candidates: a sketch rated lower than a flowchart, as in the Flashback evals.
+  const sketchAndFlow = (workflow: number, sketchAccurate = 0.9) => ({
+    workflow: yes(workflow),
+    c1_accurate: yes(sketchAccurate),
+    c1_whole: yes(0.6),
+    c1_easy: yes(0.6),
+    c2_accurate: yes(0.9),
+    c2_whole: yes(0.9),
+    c2_easy: yes(0.9),
+  });
+  it.each([
+    ['the sketch when the change is no workflow', sketchAndFlow(0.1), 0],
+    ['the higher-rated flowchart for a workflow', sketchAndFlow(0.8), 1],
+    ['the flowchart when the sketch is wrong', sketchAndFlow(0.1, 0.1), 1],
+  ] as const)('shows %s', (_, answers, expected) => {
+    expect(pickVisual(['svg', 'mermaid'], answers)).toBe(expected);
   });
 
   it('ranks text-only answers without the picture question', () => {
-    expect(Object.keys(visualQuestions(1, false))).toEqual(['c1_accurate', 'c1_beyond_text', 'c1_whole']);
+    expect(Object.keys(visualQuestions(1, false))).toEqual(['workflow', 'c1_accurate', 'c1_beyond_text', 'c1_whole']);
     expect(
-      pickVisual(2, { c1_accurate: yes(0.9), c1_whole: yes(0.3), c2_accurate: yes(0.9), c2_whole: yes(0.7) }),
+      pickVisual(['mermaid', 'mermaid'], {
+        c1_accurate: yes(0.9),
+        c1_whole: yes(0.3),
+        c2_accurate: yes(0.9),
+        c2_whole: yes(0.7),
+      }),
     ).toBe(1);
   });
 
