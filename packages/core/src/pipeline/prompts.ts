@@ -54,7 +54,20 @@ const decisionPriority = v.pipe(
 );
 
 const prDecisions = v.pipe(
-  v.array(v.object({ text: decisionText, priority: decisionPriority })),
+  v.array(
+    v.object({
+      text: decisionText,
+      priority: decisionPriority,
+      groupKey: v.optional(
+        v.pipe(
+          v.string(),
+          v.description(
+            'Key of the group this decision is mostly about, so it shows in that group. Omit only when it is about the change as a whole.',
+          ),
+        ),
+      ),
+    }),
+  ),
   v.description(
     'Key decisions about the change as a whole: product behavior, scope, rollout, and tradeoffs that span several files. Most changes have 1-4. Leave out choices that one line or one function makes; a later pass pins those to their lines.',
   ),
@@ -172,7 +185,7 @@ Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md,
 
 Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
 
-Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
+Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does. Give each decision the key of the group it is mostly about; leave the key out only for a decision about the change as a whole.
 
 Call the submit tool once with the complete result.`;
 
@@ -193,7 +206,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

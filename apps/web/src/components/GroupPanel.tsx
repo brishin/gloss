@@ -6,8 +6,15 @@ import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, 
 import { memo, useMemo } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
-import { isGeneratedFile, orderedFileIds, RISK_SHORT, risksByFile, splitPath } from '../lib/tour-view.ts';
-import { FileView } from './FileView.tsx';
+import {
+  isGeneratedFile,
+  orderedFileIds,
+  RISK_SHORT,
+  risksByFile,
+  sectionDecisions,
+  splitPath,
+} from '../lib/tour-view.ts';
+import { DecisionCard, FileView } from './FileView.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
@@ -74,6 +81,7 @@ export const GroupPanel = memo(function GroupPanel({
     state.stages.notes.state !== 'done' &&
     state.stages.notes.state !== 'failed';
   const riskNotes = notes?.riskNotes ?? [];
+  const decisions = useMemo(() => sectionDecisions(state, group.key), [state, group.key]);
 
   return (
     <div className="page">
@@ -100,6 +108,14 @@ export const GroupPanel = memo(function GroupPanel({
         ) : group.phase === 'provisional' ? (
           <span className="muted">Grouped by path while the model reads the change…</span>
         ) : null}
+        {/* Decisions about the group as a whole; ones in code sit on their files and lines below. */}
+        {decisions.length > 0 && (
+          <div className="section-decisions">
+            {decisions.map((decision, index) => (
+              <DecisionCard key={index} decision={decision} />
+            ))}
+          </div>
+        )}
         {/* Where the risk is, read right after what the group does: a list under the summary, not an alert. */}
         {riskNotes.length > 0 && (
           <ul className="risk-list" aria-label="Risk flags">
