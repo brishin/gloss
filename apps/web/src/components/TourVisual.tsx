@@ -19,6 +19,13 @@ export function TourVisual({ visual }: { visual: Visual }) {
         </Suspense>
       ) : visual.kind === 'timeline' ? (
         <TimelineVisual timeline={visual} />
+      ) : visual.kind === 'svg' ? (
+        // An image, not inline markup: nothing in a model-drawn SVG can run or link.
+        <img
+          className="visual-svg"
+          alt={visual.caption ?? ''}
+          src={`data:image/svg+xml,${encodeURIComponent(visual.svg)}`}
+        />
       ) : (
         <Suspense fallback={null}>
           <MermaidVisual source={visual.source} />

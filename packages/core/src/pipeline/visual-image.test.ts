@@ -16,6 +16,10 @@ const visuals: Visual[] = [
       { label: 'Before', spans: [{ from: 0, to: 40, text: 'idle' }], outcome: { at: 40, text: 'lost', tone: 'bad' } },
     ],
   },
+  {
+    kind: 'svg',
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200"><rect x="20" y="20" width="200" height="60" fill="#cfc8f5"/><text x="30" y="55" font-size="14">Old path</text></svg>',
+  },
   { kind: 'mermaid', source: 'flowchart TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]' },
 ];
 

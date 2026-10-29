@@ -168,7 +168,9 @@ export function visualPng(visual: Visual): Uint8Array | undefined {
         ? beforeAfterSvg(visual)
         : visual.kind === 'timeline'
           ? timelineSvg(visual)
-          : mermaidSvg(visual.source);
+          : visual.kind === 'svg'
+            ? visual.svg.replace(/^<svg/, `<svg ${FONT}`)
+            : mermaidSvg(visual.source);
     const natural = new Resvg(source);
     // The web app never draws a diagram wider than its natural size.
     const width = visual.kind === 'mermaid' ? Math.min(WIDTH, natural.width) : WIDTH;

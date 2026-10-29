@@ -202,7 +202,7 @@ export const TimelineLaneSchema = v.object({
 /**
  * One picture of the change's main decision, drawn by the client so every tour looks
  * the same: the old flow next to the new one (two small Mermaid diagrams), lanes over
- * time, or one small Mermaid flowchart or state diagram. Never a text list: the
+ * time, one small Mermaid flowchart or state diagram, or a hand-drawn sanitized SVG. Never a text list: the
  * overview's prose already says that. `caption` is one sentence under it.
  */
 export const VisualSchema = v.variant('kind', [
@@ -221,6 +221,8 @@ export const VisualSchema = v.variant('kind', [
     lanes: v.array(TimelineLaneSchema),
   }),
   v.object({ kind: v.literal('mermaid'), caption: v.optional(v.string()), source: v.string() }),
+  /** A hand-drawn picture, already sanitized to plain shapes and text; shown only as an image. */
+  v.object({ kind: v.literal('svg'), caption: v.optional(v.string()), svg: v.string() }),
 ]);
 export type Visual = v.InferOutput<typeof VisualSchema>;
 

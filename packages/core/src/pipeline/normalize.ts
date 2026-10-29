@@ -1,6 +1,7 @@
 import type { FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
 import type * as v from 'valibot';
 import type { DefineSchema, NotesSchema } from './prompts.ts';
+import { sanitizeSvg } from './svg-sanitize.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
 function visibleLines(hunk: FileChange['hunks'][number]): { additions: Set<number>; deletions: Set<number> } {
@@ -198,6 +199,10 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
     return lanes.length
       ? { visual: { kind: 'timeline', caption, markers, lanes }, warnings: [] }
       : drop('no lane has anything on it');
+  }
+  if (raw.kind === 'svg') {
+    const svg = sanitizeSvg(raw.svg ?? '');
+    return typeof svg === 'string' ? { visual: { kind: 'svg', caption, svg }, warnings: [] } : drop(svg.why);
   }
   const source = mermaidSource(raw.mermaid);
   if (typeof source !== 'string') {
