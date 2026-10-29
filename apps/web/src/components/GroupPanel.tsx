@@ -4,25 +4,10 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
-import type {
-  Decision,
-  DiffPayload,
-  FileChange,
-  FileNote,
-  FileSummary,
-  GroupView,
-  LineNote,
-  TourState,
-} from '@gloss/protocol';
+import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, TourState } from '@gloss/protocol';
 import { useMemo } from 'react';
-import {
-  defaultExpanded,
-  isGeneratedFile,
-  orderedFileIds,
-  RISK_SHORT,
-  risksByFile,
-  splitPath,
-} from '../lib/tour-view.ts';
+import { isFileExpanded } from '../lib/tour-model.ts';
+import { isGeneratedFile, orderedFileIds, RISK_SHORT, risksByFile, splitPath } from '../lib/tour-view.ts';
 import { FileView } from './FileView.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
@@ -31,22 +16,11 @@ const NO_DECISIONS: Decision[] = [];
 const NO_RISKS: never[] = [];
 
 export interface FileControls {
-  expandedOverrides: Readonly<Record<string, boolean>>;
+  expanded: Readonly<Record<string, boolean>>;
   viewed: ReadonlySet<string>;
   onToggleExpanded: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   onJumpToFile: (fileId: string) => void;
-}
-
-export function isFileExpanded(
-  controls: Pick<FileControls, 'expandedOverrides' | 'viewed'>,
-  group: GroupView | undefined,
-  file: FileSummary,
-): boolean {
-  return (
-    controls.expandedOverrides[file.id] ??
-    defaultExpanded(file, isGeneratedFile(group, file), controls.viewed.has(file.id))
-  );
 }
 
 export function GroupPanel({

@@ -1,6 +1,5 @@
 import type { Decision, FileSummary, GroupView, RiskKey, RiskNote, TourState } from '@gloss/protocol';
 import { DECISION_PRIORITIES } from '@gloss/protocol';
-import { useCallback, useEffect, useState } from 'react';
 
 /** Sidebar/selection key of the tour overview (never a group key: those come from the model or are synthetic). */
 export const OVERVIEW = '__overview';
@@ -70,43 +69,4 @@ export function defaultExpanded(file: FileSummary, generated: boolean, viewed: b
 export function splitPath(path: string): { dir: string; base: string } {
   const at = path.lastIndexOf('/');
   return at === -1 ? { dir: '', base: path } : { dir: path.slice(0, at + 1), base: path.slice(at + 1) };
-}
-
-/** Files the reviewer marked viewed, per diff, kept in this browser only. */
-export function useViewed(diffId: string | undefined) {
-  const key = diffId ? `gloss.viewed.${diffId}` : undefined;
-  const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
-
-  useEffect(() => {
-    if (!key) {
-      return;
-    }
-    try {
-      setViewed(new Set(JSON.parse(localStorage.getItem(key) ?? '[]') as string[]));
-    } catch {
-      setViewed(new Set());
-    }
-  }, [key]);
-
-  const toggle = useCallback(
-    (fileId: string) => {
-      setViewed((previous) => {
-        const next = new Set(previous);
-        if (!next.delete(fileId)) {
-          next.add(fileId);
-        }
-        if (key) {
-          try {
-            localStorage.setItem(key, JSON.stringify([...next]));
-          } catch {
-            // Storage unavailable (private window): viewed state lasts for this page only.
-          }
-        }
-        return next;
-      });
-    },
-    [key],
-  );
-
-  return { viewed, toggle };
 }

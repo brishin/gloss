@@ -1,7 +1,9 @@
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import { isGithubAssetUrl, type ResolvedAsset } from '@gloss/protocol';
-import { useEffect, useState } from 'react';
-import { useGlossClient } from '../lib/client.tsx';
+import { useAtomRefresh, useAtomValue } from '@effect/atom-react';
+import { isGithubAssetUrl } from '@gloss/protocol';
+import { AsyncResult } from 'effect/reactivity';
+import { useState } from 'react';
+import { assetAtom } from '../lib/client.ts';
 
 /**
  * An image in a PR description. GitHub attachments need the viewer's login on private
@@ -16,32 +18,22 @@ export function DescriptionMedia({ src, alt }: { src: string; alt: string }) {
 }
 
 function GithubAsset({ src, alt }: { src: string; alt: string }) {
-  const client = useGlossClient();
-  const [asset, setAsset] = useState<ResolvedAsset | 'failed'>();
+  const result = useAtomValue(assetAtom(src));
+  const refresh = useAtomRefresh(assetAtom(src));
   // The signed URL lasts minutes; a video that errors later (seeking, replay) gets a fresh one, once.
-  const [attempt, setAttempt] = useState(0);
+  const [retried, setRetried] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    client
-      .asset(src)
-      .then((resolved) => live && setAsset(resolved))
-      .catch(() => live && setAsset('failed'));
-    return () => {
-      live = false;
-    };
-  }, [client, src, attempt]);
-
-  if (asset === 'failed') {
+  if (AsyncResult.isFailure(result)) {
     return (
       <a href={src} target="_blank" rel="noreferrer">
         {alt || 'Attachment'} (open on GitHub)
       </a>
     );
   }
-  if (!asset) {
+  if (!AsyncResult.isSuccess(result)) {
     return <Skeleton width={320} height={180} />;
   }
+  const asset = result.value;
   if (asset.contentType?.startsWith('video/')) {
     return (
       <video
@@ -52,7 +44,12 @@ function GithubAsset({ src, alt }: { src: string; alt: string }) {
         muted
         playsInline
         preload="metadata"
-        onError={() => attempt === 0 && setAttempt(1)}
+        onError={() => {
+          if (!retried) {
+            setRetried(true);
+            refresh();
+          }
+        }}
       />
     );
   }

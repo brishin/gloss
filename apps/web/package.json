@@ -11,14 +11,17 @@
   "dependencies": {
     "@astryxdesign/core": "catalog:",
     "@astryxdesign/theme-neutral": "catalog:",
+    "@effect/atom-react": "catalog:",
     "@gloss/protocol": "workspace:*",
     "@pierre/diffs": "catalog:",
     "@stylexjs/stylex": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
+    "effect": "catalog:",
     "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "scheduler": "catalog:",
     "valibot": "catalog:"
   },
   "devDependencies": {
