@@ -74,7 +74,7 @@ const groupsAnswer = {
       kind: 'before-after',
       caption: 'Who passes the check.',
       before: 'flowchart TD\n  A[Any user] --> B[Pass]',
-      after: 'flowchart TD\n  A[Admin] --> B[Pass]',
+      after: 'flowchart TD\n  A[User] --> B{Admin?}\n  B -->|yes| C[Pass]\n  B -->|no| D[Denied]',
     },
     second: {
       kind: 'timeline',
@@ -82,7 +82,7 @@ const groupsAnswer = {
       markers: [],
       lanes: [{ label: 'After', spans: [{ from: 0, to: 60, text: 'Signed in' }] }],
     },
-    third: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B' },
+    third: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B\n  A --> C' },
   },
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },

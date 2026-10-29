@@ -1,6 +1,6 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
+import { isSinglePath, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -94,7 +94,7 @@ describe('normalizeVisual', () => {
   });
 
   it('keeps the candidates that survive, in order, and skips none without a warning', () => {
-    const rows = { kind: 'mermaid' as const, caption: 'c', mermaid: 'flowchart TD\n  A --> B' };
+    const rows = { kind: 'mermaid' as const, caption: 'c', mermaid: 'flowchart TD\n  A --> B\n  A --> C' };
     const { visuals, warnings } = normalizeVisuals({
       first: { kind: 'mermaid', caption: '1', mermaid: 'pie' },
       second: { kind: 'none', caption: '' },
@@ -117,11 +117,41 @@ describe('normalizeVisual', () => {
       normalizeVisual({
         kind: 'mermaid',
         caption: 'c',
-        mermaid: '```mermaid\nflowchart TD\n  A --> B\n  click A "javascript:x"\n  style A fill:#f00\n```',
+        mermaid: '```mermaid\nflowchart TD\n  A --> B\n  A --> C\n  click A "javascript:x"\n  style A fill:#f00\n```',
       }).visual,
-    ).toEqual({ kind: 'mermaid', caption: 'c', source: 'flowchart TD\n  A --> B' });
+    ).toEqual({ kind: 'mermaid', caption: 'c', source: 'flowchart TD\n  A --> B\n  A --> C' });
     expect(normalizeVisual({ kind: 'mermaid', caption: 'c', mermaid: 'sequenceDiagram\n A->>B: hi' }).visual).toBe(
       undefined,
+    );
+  });
+});
+
+describe('isSinglePath', () => {
+  // Shapes from real eval candidates: a straight chain is a list with arrows.
+  it.each([
+    [
+      'a five-box chain',
+      'flowchart TD\nA[Shell link] --> B[Browser asks]\nB --> C[Static route]\nC --> D[Build file]',
+      true,
+    ],
+    ['a chain written on one line', 'flowchart LR\nA --> B --> C', true],
+    ['a fork', 'flowchart TD\nA --> B\nA --> C', false],
+    ['a merge', 'flowchart TD\nA --> C\nB --> C', false],
+    ['a loop with labels', 'flowchart TD\nA[Start] --> B{Trunk?}\nB -- no --> C[Step down]\nC -->|again| B', false],
+    ['a state machine cycle', 'stateDiagram-v2\n[*] --> Idle\nIdle --> Busy: start\nBusy --> Idle: done', false],
+  ] as const)('%s', (_, source, expected) => {
+    expect(isSinglePath(source)).toBe(expected);
+  });
+
+  it('drops a diagram that is one path, and a before-after only when both sides are', () => {
+    const chain = 'flowchart TD\nA --> B\nB --> C';
+    const tree = 'flowchart TD\nA --> B\nA --> C';
+    expect(normalizeVisual({ kind: 'mermaid', caption: '', mermaid: chain }).warnings).toEqual([
+      'Dropped the mermaid visual: it is a single path, which a list says as well.',
+    ]);
+    expect(normalizeVisual({ kind: 'before-after', caption: '', before: chain, after: chain }).visual).toBe(undefined);
+    expect(normalizeVisual({ kind: 'before-after', caption: '', before: chain, after: tree }).visual?.kind).toBe(
+      'before-after',
     );
   });
 });
