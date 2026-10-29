@@ -161,3 +161,81 @@ describe('stack API', () => {
     expect(await response.json()).toEqual({ error: 'gh is not signed in' });
   });
 });
+
+describe('review API', () => {
+  const review = {
+    owner: 'o',
+    repo: 'r',
+    number: 1,
+    verdict: 'APPROVE' as const,
+    body: '',
+    comments: [{ path: 'a.ts', side: 'additions' as const, line: 3, body: 'nit' }],
+    commitId: 'abc',
+  };
+
+  it('round-trips a review through the client', async () => {
+    const sent: unknown[] = [];
+    const { client } = setup(scripted().run, {
+      submitReview: async (submitted) => {
+        sent.push(submitted);
+        return { url: 'https://github.com/o/r/pull/1#pullrequestreview-1' };
+      },
+    });
+    expect(await client.review(review)).toEqual({ url: 'https://github.com/o/r/pull/1#pullrequestreview-1' });
+    expect(sent).toEqual([review]);
+  });
+
+  it('refuses a review GitHub would refuse, without sending it', async () => {
+    const sent: unknown[] = [];
+    const { app } = setup(scripted().run, { submitReview: async (submitted) => (sent.push(submitted), { url: '' }) });
+    const response = await app.request('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...review, verdict: 'REQUEST_CHANGES' }),
+    });
+    expect(response.status).toBe(400);
+    expect(sent).toEqual([]);
+  });
+
+  it("passes GitHub's refusal through as a bad gateway", async () => {
+    const { app } = setup(scripted().run, {
+      submitReview: async () => {
+        throw new Error('Can not approve your own pull request (HTTP 422)');
+      },
+    });
+    const response = await app.request('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review),
+    });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'Can not approve your own pull request (HTTP 422)' });
+  });
+});
+
+describe('review API from other sites', () => {
+  const review = { owner: 'o', repo: 'r', number: 1, verdict: 'APPROVE', body: '', comments: [] };
+  const sent: unknown[] = [];
+  const { app } = setup(scripted().run, {
+    corsOrigins: ['http://localhost:4778'],
+    submitReview: async (submitted) => (sent.push(submitted), { url: 'u' }),
+  });
+  const post = (headers: Record<string, string>) =>
+    app.request('http://localhost:4777/api/reviews', { method: 'POST', headers, body: JSON.stringify(review) });
+
+  it.each([
+    ['a simple text/plain request', { 'Content-Type': 'text/plain' }],
+    ['JSON from another origin', { 'Content-Type': 'application/json', Origin: 'https://evil.example' }],
+  ])('refuses %s without sending it', async (_, headers) => {
+    expect((await post(headers)).status).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
+  it.each([
+    ['the same origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4777' }],
+    ['an allowed origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4778' }],
+    ['no origin (the CLI)', { 'Content-Type': 'application/json' }],
+  ])('accepts JSON from %s', async (_, headers) => {
+    expect((await post(headers)).status).toBe(200);
+  });
+});

@@ -1,5 +1,21 @@
-import type { DiffPayload, FileSummary, GroupView, SourceRef, TourEvent, TourState } from '@gloss/protocol';
-import { describeRef, groupsInOrder, initialTourState, reduceTourEvent } from '@gloss/protocol';
+import type {
+  DiffPayload,
+  FileSummary,
+  GroupView,
+  ReviewRequest,
+  ReviewVerdict,
+  SourceRef,
+  TourEvent,
+  TourState,
+} from '@gloss/protocol';
+import { describeRef, groupsInOrder, initialTourState, reduceTourEvent, reviewProblem } from '@gloss/protocol';
+import {
+  type CommentAnchor,
+  emptyReview,
+  type ReviewDraft,
+  type SavedReview,
+  toReviewComments,
+} from './review-draft.ts';
 import {
   categoryNode,
   groupNode,
@@ -54,6 +70,10 @@ export interface Model {
   navOpen: boolean;
   helpOpen: boolean;
   sidebar: SidebarState;
+  /** The GitHub review being written (PRs only). */
+  review: ReviewDraft;
+  /** The first key of a two-key shortcut (`r a`), until the second arrives. */
+  chord?: 'r';
 }
 
 export type Step = 1 | -1;
@@ -87,7 +107,32 @@ export type Msg =
   /** A click on a PR or group row: opens it, or folds it when it is already the selection. */
   | { type: 'SidebarActivated'; node: string; key: string }
   | { type: 'NestingChanged'; nesting: Nesting }
-  | { type: 'QueryChanged'; query: string };
+  | { type: 'QueryChanged'; query: string }
+  /**
+   * A key outside any text field, read against the model when it is handled: the second key
+   * of a chord can arrive before the first has reached the model the keyboard sees.
+   */
+  | { type: 'KeyPressed'; key: string }
+  | { type: 'ChordStarted'; chord: 'r' }
+  | { type: 'ChordCancelled' }
+  | { type: 'ReviewLoaded'; diffId: string; saved: SavedReview }
+  /** Opens the review panel on a verdict (`r a`, `r n`, `r c`, or the Review button). */
+  | { type: 'ReviewOpened'; verdict?: ReviewVerdict }
+  | { type: 'ReviewClosed' }
+  | { type: 'ReviewVerdictChanged'; verdict: ReviewVerdict }
+  | { type: 'ReviewBodyChanged'; body: string }
+  /** Sends the review; `verdict` sends it as that without the panel (`r y`). */
+  | { type: 'ReviewSubmitted'; verdict?: ReviewVerdict }
+  /** `diffId` is the diff the review was written on: an answer for an older one is ignored. */
+  | { type: 'ReviewSent'; diffId: string; verdict: ReviewVerdict; url: string }
+  | { type: 'ReviewFailed'; diffId: string; error: string }
+  | { type: 'ReviewNoticeDismissed' }
+  | { type: 'CommentStarted'; anchor: CommentAnchor }
+  | { type: 'CommentEdited'; id: string }
+  | { type: 'CommentBodyChanged'; body: string }
+  | { type: 'CommentCancelled' }
+  | { type: 'CommentSaved' }
+  | { type: 'CommentRemoved'; id: string };
 
 export type Cmd =
   | { type: 'StartTour'; ref: SourceRef; force: boolean }
@@ -105,7 +150,10 @@ export type Cmd =
   /** Reads the file at the reading line once the page has rendered. */
   | { type: 'MeasureActiveFile' }
   | { type: 'StepNote'; by: Step }
-  | { type: 'SetTitle'; title: string };
+  | { type: 'SetTitle'; title: string }
+  | { type: 'LoadReview'; diffId: string }
+  | { type: 'SaveReview'; diffId: string; saved: SavedReview }
+  | { type: 'SubmitReview'; diffId: string; request: ReviewRequest };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -121,6 +169,7 @@ export function initialModel(ref: SourceRef, position: Position): Model {
     navOpen: false,
     helpOpen: false,
     sidebar: initialSidebar,
+    review: emptyReview,
   };
 }
 
@@ -138,6 +187,9 @@ export function currentGroup(model: Model, groups = groupsOf(model)): GroupView 
 
 export const selectedKey = (model: Model, groups = groupsOf(model)): string =>
   currentGroup(model, groups)?.key ?? OVERVIEW;
+
+/** Reviews go to GitHub, so only a PR with its diff loaded can be reviewed. */
+export const canReview = (model: Model): boolean => model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
 
 export const isRunning = (model: Model): boolean =>
   model.tour.status === 'running' || model.connection === 'connecting';
@@ -159,13 +211,33 @@ export function isFileExpanded(
 /** Keys typed into these elements are text, not shortcuts. */
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
-/** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key to the browser. */
+/** Keys that may be shortcuts, so the browser's own use of them is held back. */
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkonp][xv?rayc');
+
+/** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
-  if (model.helpOpen && key !== '?') {
+  if ((model.helpOpen && key !== '?') || model.review.open) {
     return undefined;
+  }
+  if (model.chord === 'r') {
+    // Graphite's review chords.
+    switch (key) {
+      case 'a':
+        return { type: 'ReviewOpened', verdict: 'APPROVE' };
+      case 'y':
+        return { type: 'ReviewSubmitted', verdict: 'APPROVE' };
+      case 'n':
+        return { type: 'ReviewOpened', verdict: 'REQUEST_CHANGES' };
+      case 'c':
+        return { type: 'ReviewOpened', verdict: 'COMMENT' };
+      default:
+        return { type: 'ChordCancelled' };
+    }
   }
   const active = model.activeFileId;
   switch (key) {
+    case 'r':
+      return canReview(model) && !model.review.sending ? { type: 'ChordStarted', chord: 'r' } : undefined;
     case 'j':
       return { type: 'GroupStepped', by: 1 };
     case 'k':
@@ -292,7 +364,131 @@ function step(model: Model, msg: Msg): Next {
       return [{ ...model, sidebar: { ...model.sidebar, nesting: msg.nesting } }, []];
     case 'QueryChanged':
       return [{ ...model, sidebar: { ...model.sidebar, query: msg.query } }, []];
+    case 'KeyPressed': {
+      const action = keyToMsg(model, msg.key);
+      return action ? step(model, action) : [model, []];
+    }
+    case 'ChordStarted':
+      return [{ ...model, chord: msg.chord }, []];
+    case 'ChordCancelled':
+      return model.chord ? [{ ...model, chord: undefined }, []] : [model, []];
+    default:
+      return stepReview(model.chord ? { ...model, chord: undefined } : model, msg);
   }
+}
+
+/** The review: a panel for the verdict and summary, and line comments that wait in it until it is sent. */
+function stepReview(model: Model, msg: Msg): Next {
+  const review = model.review;
+  const set = (patch: Partial<ReviewDraft>): Model => ({ ...model, review: { ...review, ...patch } });
+  switch (msg.type) {
+    case 'ReviewLoaded':
+      return msg.diffId === model.tour.diffId
+        ? [set({ body: msg.saved.body, comments: msg.saved.comments }), []]
+        : [model, []];
+    case 'ReviewOpened':
+      return canReview(model)
+        ? [
+            set({
+              open: true,
+              verdict: msg.verdict ?? review.verdict,
+              problem: undefined,
+              error: undefined,
+              sent: undefined,
+            }),
+            [],
+          ]
+        : [model, []];
+    case 'ReviewClosed':
+      return review.open ? [set({ open: false }), []] : [model, []];
+    case 'ReviewVerdictChanged':
+      return [set({ verdict: msg.verdict, problem: undefined, error: undefined }), []];
+    case 'ReviewBodyChanged':
+      return save(set({ body: msg.body, problem: undefined }));
+    case 'ReviewSubmitted': {
+      const verdict = msg.verdict ?? review.verdict;
+      const meta = model.tour.meta;
+      const diffId = model.tour.diffId;
+      if (model.ref.kind !== 'github-pr' || !meta || !diffId || review.sending) {
+        return [model, []];
+      }
+      const request: ReviewRequest = {
+        owner: model.ref.owner,
+        repo: model.ref.repo,
+        number: model.ref.number,
+        verdict,
+        body: review.body,
+        comments: toReviewComments(review.comments),
+        commitId: meta.headSha,
+      };
+      const problem = reviewProblem(request);
+      if (problem) {
+        return [set({ open: true, verdict, problem, sent: undefined }), []];
+      }
+      const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
+      return [
+        set({ verdict, sending, problem: undefined, error: undefined, sent: undefined }),
+        [{ type: 'SubmitReview', diffId, request }],
+      ];
+    }
+    case 'ReviewSent': {
+      if (msg.diffId !== model.tour.diffId || !review.sending) {
+        return [model, []];
+      }
+      // Only what went out leaves the draft: words written while it was on its way stay.
+      const sent = review.sending;
+      return save(
+        set({
+          open: false,
+          sending: undefined,
+          body: review.body === sent?.body ? '' : review.body,
+          comments: review.comments.filter((comment) => !sent?.ids.includes(comment.id)),
+          sent: { verdict: msg.verdict, url: msg.url },
+        }),
+      );
+    }
+    case 'ReviewFailed':
+      if (msg.diffId !== model.tour.diffId || !review.sending) {
+        return [model, []];
+      }
+      return [set({ sending: undefined, open: true, error: msg.error }), []];
+    case 'ReviewNoticeDismissed':
+      return [set({ sent: undefined }), []];
+    case 'CommentStarted':
+      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '' } }), []] : [model, []];
+    case 'CommentEdited': {
+      const draft = review.comments.find((comment) => comment.id === msg.id);
+      return draft ? [set({ composing: { ...draft, editing: draft.id } }), []] : [model, []];
+    }
+    case 'CommentBodyChanged':
+      return review.composing ? [set({ composing: { ...review.composing, body: msg.body } }), []] : [model, []];
+    case 'CommentCancelled':
+      return review.composing ? [set({ composing: undefined }), []] : [model, []];
+    case 'CommentSaved': {
+      const composing = review.composing;
+      const path = composing && model.tour.files.find((file) => file.id === composing.fileId)?.path;
+      if (!composing || !path || !composing.body.trim()) {
+        return [model, []];
+      }
+      const { editing, ...anchor } = composing;
+      const draft = { ...anchor, id: editing ?? `${anchor.fileId}:${anchor.side}:${anchor.line}:${Date.now()}`, path };
+      const comments = editing
+        ? review.comments.map((comment) => (comment.id === editing ? draft : comment))
+        : [...review.comments, draft];
+      return save(set({ comments, composing: undefined }));
+    }
+    case 'CommentRemoved':
+      return save(set({ comments: review.comments.filter((comment) => comment.id !== msg.id) }));
+    default:
+      return [model, []];
+  }
+}
+
+/** Keeps the review's words in this browser, per diff, so a reload does not lose them. */
+function save(model: Model): Next {
+  const diffId = model.tour.diffId;
+  const { body, comments } = model.review;
+  return [model, diffId ? [{ type: 'SaveReview', diffId, saved: { body, comments } }] : []];
 }
 
 function select(model: Model, key: string): Next {
@@ -352,7 +548,11 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Ne
     out.push({ type: 'FetchDiff', diffId });
   }
   if (diffId && prev?.tour.diffId !== diffId) {
-    out.push({ type: 'LoadViewed', diffId });
+    out.push({ type: 'LoadViewed', diffId }, { type: 'LoadReview', diffId });
+    // A draft belongs to the lines of the diff it was written on (and stays saved under it).
+    if (prev?.tour.diffId) {
+      next = { ...next, review: { ...emptyReview, sent: next.review.sent } };
+    }
   }
 
   const selectionChanged = prevSelected !== selected;

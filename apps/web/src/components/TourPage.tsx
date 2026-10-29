@@ -19,13 +19,16 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
-import { currentGroup, isRunning } from '../lib/tour-model.ts';
+import { SENT_LABEL } from '../lib/review-draft.ts';
+import { canReview, currentGroup, isRunning } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW } from '../lib/tour-view.ts';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
 import { Overview } from './Overview.tsx';
+import type { Reviewer } from './ReviewComments.tsx';
+import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { StageRail } from './StageRail.tsx';
 
@@ -51,6 +54,22 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const running = isRunning(model);
   const select = useCallback((key: string) => dispatch({ type: 'GroupSelected', key }), [dispatch]);
   const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
+  const reviewable = canReview(model);
+  const { review } = model;
+  const reviewer = useMemo<Reviewer | undefined>(
+    () =>
+      reviewable
+        ? {
+            start: (anchor) => dispatch({ type: 'CommentStarted', anchor }),
+            edit: (id) => dispatch({ type: 'CommentEdited', id }),
+            change: (body) => dispatch({ type: 'CommentBodyChanged', body }),
+            cancel: () => dispatch({ type: 'CommentCancelled' }),
+            save: () => dispatch({ type: 'CommentSaved' }),
+            remove: (id) => dispatch({ type: 'CommentRemoved', id }),
+          }
+        : undefined,
+    [reviewable, dispatch],
+  );
   const controls: FileControls = useMemo(
     () => ({
       expanded,
@@ -58,8 +77,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       onToggleExpanded: (fileId) => dispatch({ type: 'ExpandedToggled', fileId }),
       onToggleViewed: (fileId) => dispatch({ type: 'ViewedToggled', fileId }),
       onJumpToFile: jumpToFile,
+      review,
+      reviewer,
     }),
-    [expanded, viewed, dispatch, jumpToFile],
+    [expanded, viewed, dispatch, jumpToFile, review, reviewer],
   );
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
@@ -99,6 +120,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           <StageRail stages={state.stages} />
         )}
         <div className="toolbar">
+          {reviewable && (
+            <ReviewPanel review={review} dispatch={dispatch}>
+              <Button
+                size="sm"
+                variant="primary"
+                label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
+              />
+            </ReviewPanel>
+          )}
           {running ? (
             <IconButton
               size="sm"
@@ -204,6 +234,19 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 status="error"
                 title={`Tour failed (${state.error.stage ?? 'pipeline'})`}
                 description={state.error.message}
+              />
+            )}
+            {review.sent && (
+              <Banner
+                status="success"
+                title={SENT_LABEL[review.sent.verdict]}
+                isDismissable
+                onDismiss={() => dispatch({ type: 'ReviewNoticeDismissed' })}
+                endContent={
+                  <a href={review.sent.url} target="_blank" rel="noreferrer">
+                    View on GitHub
+                  </a>
+                }
               />
             )}
             {state.status === 'aborted' && (

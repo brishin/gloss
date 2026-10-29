@@ -242,3 +242,186 @@ function aborted() {
 function diffReady(diffId: string) {
   return { seq: 2, jobId: 'j1', at: '', type: 'diff.ready', diffId, meta: undefined, files: tour().files } as never;
 }
+
+describe('review', () => {
+  const META = { title: 't', baseRef: 'main', headRef: 'f', headSha: 'head1', commits: [] };
+  const reviewable = () => model({ tour: tour({ meta: META } as Partial<TourState>) });
+  /** Presses keys as the keyboard subscription sends them. */
+  const press = (start: Model, ...keys: string[]) =>
+    run(start, ...keys.map((key): Msg => ({ type: 'KeyPressed', key })));
+  const submitted = (cmds: readonly Cmd[]) => cmds.flatMap((cmd) => (cmd.type === 'SubmitReview' ? [cmd.request] : []));
+
+  test.each([
+    ['a', 'APPROVE'],
+    ['n', 'REQUEST_CHANGES'],
+    ['c', 'COMMENT'],
+  ])('r %s opens the review on that verdict', (key, verdict) => {
+    const [next] = press(reviewable(), 'r', key);
+    expect(next.review).toMatchObject({ open: true, verdict });
+    expect(next.chord).toBeUndefined();
+  });
+
+  test('r y approves at once, with the pending comments, at the head the diff was read at', () => {
+    const [drafted] = run(
+      reviewable(),
+      { type: 'CommentStarted', anchor: { fileId: 'f2', side: 'additions', line: 4, startLine: 2 } },
+      { type: 'CommentBodyChanged', body: 'why?' },
+      { type: 'CommentSaved' },
+    );
+    const [sending, cmds] = press(drafted, 'r', 'y');
+    expect(sending.review.open).toBe(false);
+    expect(submitted(cmds)).toEqual([
+      {
+        owner: 'o',
+        repo: 'r',
+        number: 1,
+        verdict: 'APPROVE',
+        body: '',
+        comments: [{ path: 'src/f2.ts', side: 'additions', line: 4, startLine: 2, body: 'why?' }],
+        commitId: 'head1',
+      },
+    ]);
+    // A second r y while the first is in flight sends nothing.
+    expect(submitted(press(sending, 'r', 'y')[1])).toEqual([]);
+
+    const [sent, saved] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
+    expect(sent.review).toMatchObject({ comments: [], body: '', sending: undefined, sent: { verdict: 'APPROVE' } });
+    expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
+  });
+
+  test.each(['j', 'z', 'Escape'])('%s after r drops the chord and does nothing else', (key) => {
+    const [next, cmds] = press(reviewable(), 'r', key);
+    expect(next.chord).toBeUndefined();
+    expect(next.position.g).toBeUndefined();
+    expect(cmds).toEqual([]);
+    expect(press(next, 'a')[0].review.open).toBe(false);
+  });
+
+  test('a local diff, or a PR before its diff arrives, cannot be reviewed', () => {
+    expect(keyToMsg(model(), 'r')).toBeUndefined();
+    const local = { ...reviewable(), ref: { kind: 'local', repo: '/r', target: '' } as const };
+    expect(keyToMsg(local, 'r')).toBeUndefined();
+    expect(run(local, { type: 'ReviewOpened' })[0].review.open).toBe(false);
+  });
+
+  test('an answer for a review sent on an earlier diff is ignored', () => {
+    const [sending] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'old' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+      {
+        type: 'EventReceived',
+        event: { type: 'diff.ready', seq: 9, at: '', diffId: 'd2', meta: META, files: [] } as never,
+      },
+      { type: 'ReviewBodyChanged', body: 'new' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+    );
+    const [after] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
+    expect(after.review).toMatchObject({ body: 'new', sent: undefined });
+    expect(after.review.sending).toBeDefined();
+  });
+
+  test('words written while a review is on its way stay in the draft', () => {
+    const [sending] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'lgtm' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+    );
+    const [after] = run(
+      sending,
+      { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'additions', line: 2 } },
+      { type: 'CommentBodyChanged', body: 'later' },
+      { type: 'CommentSaved' },
+      { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' },
+    );
+    expect(after.review.body).toBe('');
+    expect(after.review.comments.map((comment) => comment.body)).toEqual(['later']);
+  });
+
+  test('request changes without a word opens the dialog with the reason instead of sending', () => {
+    const [next, cmds] = run(
+      reviewable(),
+      { type: 'ReviewVerdictChanged', verdict: 'REQUEST_CHANGES' },
+      {
+        type: 'ReviewSubmitted',
+      },
+    );
+    expect(submitted(cmds)).toEqual([]);
+    expect(next.review.open).toBe(true);
+    expect(next.review.problem).toBeDefined();
+  });
+
+  test('starting another review drops the last confirmation', () => {
+    const [sent] = run(
+      reviewable(),
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+      { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' },
+    );
+    expect(sent.review.sent).toBeDefined();
+    expect(run(sent, { type: 'ReviewOpened', verdict: 'REQUEST_CHANGES' })[0].review.sent).toBeUndefined();
+  });
+
+  test('shortcuts stay off while the review panel is open', () => {
+    const [open] = run(reviewable(), { type: 'ReviewOpened' });
+    expect(keyToMsg(open, 'j')).toBeUndefined();
+  });
+
+  test('a failed send keeps the words and reopens the dialog with GitHub’s reason', () => {
+    const [failed] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'lgtm' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+      { type: 'ReviewFailed', diffId: 'd1', error: 'Can not approve your own pull request' },
+    );
+    expect(failed.review).toMatchObject({
+      open: true,
+      sending: undefined,
+      body: 'lgtm',
+      error: 'Can not approve your own pull request',
+    });
+  });
+
+  test('editing a comment replaces it; an empty comment is not kept', () => {
+    const [one] = run(
+      reviewable(),
+      { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'deletions', line: 7 } },
+      { type: 'CommentSaved' },
+      { type: 'CommentBodyChanged', body: 'first' },
+      { type: 'CommentSaved' },
+    );
+    expect(one.review.comments.map((comment) => comment.body)).toEqual(['first']);
+    const id = one.review.comments[0]!.id;
+    const [edited] = run(
+      one,
+      { type: 'CommentEdited', id },
+      { type: 'CommentBodyChanged', body: 'second' },
+      { type: 'CommentSaved' },
+    );
+    expect(edited.review.comments).toMatchObject([{ id, body: 'second', side: 'deletions', line: 7 }]);
+    expect(run(edited, { type: 'CommentRemoved', id })[0].review.comments).toEqual([]);
+  });
+
+  test('a re-run on a new diff sets the old draft aside instead of sending it against new lines', () => {
+    const [drafted] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'old' },
+      { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'additions', line: 3 } },
+      { type: 'CommentBodyChanged', body: 'x' },
+      { type: 'CommentSaved' },
+    );
+    const [rerun, cmds] = run(drafted, {
+      type: 'EventReceived',
+      event: { type: 'diff.ready', seq: 9, at: '', diffId: 'd2', meta: META, files: [] } as never,
+    });
+    expect(rerun.tour.diffId).toBe('d2');
+    expect(rerun.review).toMatchObject({ body: '', comments: [] });
+    expect(cmds).toContainEqual({ type: 'LoadReview', diffId: 'd2' });
+    expect(types(cmds)).not.toContain('SaveReview');
+  });
+
+  test('a new diff loads its saved review; a stale load is ignored', () => {
+    const saved = { body: 'draft', comments: [] };
+    expect(run(reviewable(), { type: 'ReviewLoaded', diffId: 'd1', saved })[0].review.body).toBe('draft');
+    expect(run(reviewable(), { type: 'ReviewLoaded', diffId: 'old', saved })[0].review.body).toBe('');
+  });
+});

@@ -31,9 +31,9 @@ interface CommitJson {
 }
 
 /** Calls the GitHub API through the user's `gh` login, so gloss never handles a token itself. */
-async function gh(args: string[], signal?: AbortSignal): Promise<string> {
+export async function gh(args: string[], signal?: AbortSignal, input?: string): Promise<string> {
   try {
-    return await run('gh', ['api', ...args], { signal });
+    return await run('gh', ['api', ...args], { signal, input });
   } catch (error) {
     if (error instanceof CommandError && /auth login|not logged/i.test(error.stderr)) {
       throw new Error('The GitHub CLI is not signed in. Run `gh auth login`, then try again.', { cause: error });

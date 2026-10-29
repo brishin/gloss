@@ -828,6 +828,71 @@
     margin: var(--spacing-1) var(--spacing-2);
   }
 
+  /* The reviewer's own words: neutral, so they never read as gloss's. */
+  .note.draft-comment {
+    --note-ink: var(--color-text-secondary);
+    --note-wash: var(--color-background-surface);
+    border-color: var(--color-border);
+  }
+
+  .note.draft-comment .note-label {
+    display: flex;
+    gap: var(--spacing-2);
+  }
+
+  .comment-tools {
+    display: flex;
+    gap: var(--spacing-2);
+    margin-left: auto;
+    opacity: 0;
+  }
+
+  .draft-comment:hover .comment-tools,
+  .comment-tools:focus-within {
+    opacity: 1;
+  }
+
+  /* No hover on touch screens: the tools are always there. */
+  @media (hover: none) {
+    .comment-tools {
+      opacity: 1;
+    }
+  }
+
+  .comment-tools button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .comment-tools button:hover {
+    color: var(--color-text-primary);
+  }
+
+  .comment-composer {
+    display: grid;
+    gap: var(--spacing-1-5);
+    font-family: var(--font-family-body);
+  }
+
+  .comment-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-1-5);
+  }
+
+  .comment-actions .muted {
+    margin-right: auto;
+  }
+
+  .review-panel {
+    gap: var(--spacing-3);
+  }
+
   .collapsed {
     padding: var(--spacing-2) var(--spacing-3);
     color: var(--color-text-secondary);
@@ -842,6 +907,11 @@
     gap: var(--spacing-1-5) var(--spacing-4);
     align-items: center;
     font-size: 13px;
+  }
+
+  .kbd-seq {
+    display: inline-flex;
+    gap: var(--spacing-1);
   }
 
   /* Home */

@@ -4,6 +4,7 @@ export * from './codec.ts';
 export * from './diff.ts';
 export * from './events.ts';
 export * from './reducer.ts';
+export * from './review.ts';
 export * from './source-ref.ts';
 export * from './stack.ts';
 export * from './tour.ts';
