@@ -2,7 +2,7 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { useAtomRefresh, useAtomValue } from '@effect/atom-react';
 import { isGithubAssetUrl } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { assetAtom } from '../lib/client.ts';
 
 /**
@@ -12,7 +12,7 @@ import { assetAtom } from '../lib/client.ts';
  */
 export function DescriptionMedia({ src, alt }: { src: string; alt: string }) {
   if (!isGithubAssetUrl(src)) {
-    return <img className="description-media" src={src} alt={alt} />;
+    return <ZoomableImage src={src} alt={alt} />;
   }
   return <GithubAsset src={src} alt={alt} />;
 }
@@ -53,5 +53,27 @@ function GithubAsset({ src, alt }: { src: string; alt: string }) {
       />
     );
   }
-  return <img className="description-media" src={asset.url} alt={alt} />;
+  return <ZoomableImage src={asset.url} alt={alt} />;
+}
+
+/** Click to see the image at full size; a click anywhere or Esc closes it. */
+function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return (
+    <>
+      <button type="button" className="description-zoom" onClick={() => dialog.current?.showModal()}>
+        <img className="description-media" src={src} alt={alt} />
+      </button>
+      {/* Keys stay inside, so tour shortcuts don't move the page behind it. */}
+      <dialog
+        ref={dialog}
+        className="lightbox"
+        aria-label={alt || 'Image'}
+        onClick={() => dialog.current?.close()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <img src={src} alt={alt} />
+      </dialog>
+    </>
+  );
 }

@@ -659,6 +659,36 @@
     border-radius: var(--radius-element);
   }
 
+  .description-zoom {
+    all: unset;
+    cursor: zoom-in;
+  }
+
+  .description-zoom:focus-visible .description-media {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .lightbox {
+    max-width: 100vw;
+    max-height: 100vh;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-out;
+  }
+
+  .lightbox::backdrop {
+    background: rgb(0 0 0 / 0.8);
+  }
+
+  .lightbox img {
+    display: block;
+    max-width: 95vw;
+    max-height: 95vh;
+    border-radius: var(--radius-element);
+  }
+
   .commit {
     display: flex;
     gap: var(--spacing-2);
