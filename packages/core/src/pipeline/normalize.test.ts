@@ -201,6 +201,11 @@ describe('looseEnds', () => {
       `${box(0, 0)}<circle cx="300" cy="20" r="20"/><polyline points="50,40 50,80 300,80 300,40" ${to}/>`,
       0,
     ],
+    [
+      'into and out of a decision diamond',
+      `${box(0, 0)}<polygon points="200,0 240,20 200,40 160,20"/>${box(320, 0)}<line x1="100" y1="20" x2="160" y2="20" ${to}/><line x1="240" y1="20" x2="320" y2="20" ${to}/>`,
+      0,
+    ],
     ['a path with two hops', `${box(0, 0)}${box(160, 0)}${box(320, 0)}<path d="M100 20H158M260 20H318" ${to}/>`, 0],
     ['a path whose second hop ends nowhere', `${box(0, 0)}${box(160, 0)}<path d="M100 20H158M260 20H400" ${to}/>`, 1],
     ['a curve (not checked)', `${box(0, 0)}<path d="M100 20C300 0 500 0 600 300" ${to}/>`, 0],
