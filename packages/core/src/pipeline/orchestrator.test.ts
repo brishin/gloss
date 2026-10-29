@@ -124,7 +124,11 @@ function fakeModel() {
 
 const fakeJudge = () =>
   createFakeJudgeClient((state, id): JudgeAnswer => {
-    // The mermaid candidate is wrong and the sketch shows one detail, so the timeline wins.
+    // A workflow, so the candidates compete: the mermaid one is wrong and the sketch shows
+    // one detail, so the timeline wins.
+    if (id === 'workflow') {
+      return { type: 'bool', probability: 0.8 };
+    }
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
