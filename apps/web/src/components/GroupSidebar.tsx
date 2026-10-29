@@ -3,10 +3,12 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
-import type { FileSummary, GroupView, RecentTour, SourceRef, Stack } from '@gloss/protocol';
+import { useAtomValue } from '@effect/atom-react';
+import type { FileSummary, GroupView, SourceRef } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
-import { Fragment, type KeyboardEvent, useCallback, useEffect, useState } from 'react';
-import { useGlossClient } from '../lib/client.tsx';
+import { AsyncResult } from 'effect/reactivity';
+import { Fragment, type KeyboardEvent } from 'react';
+import { recentToursAtom, stackAtom } from '../lib/client.ts';
 import {
   byCategory,
   CATEGORY_LABEL,
@@ -14,11 +16,14 @@ import {
   countViewed,
   filterGroups,
   groupNode,
+  isNodeOpen,
   type Nesting,
   PR_NODE,
+  type SidebarState,
   STACK_NODE,
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
+import type { Msg } from '../lib/tour-model.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
@@ -38,8 +43,8 @@ export function GroupSidebar({
   activeFileId,
   viewed,
   loading,
-  onSelect,
-  onSelectFile,
+  sidebar,
+  dispatch,
 }: {
   sourceRef: SourceRef;
   title: string | undefined;
@@ -49,15 +54,14 @@ export function GroupSidebar({
   activeFileId: string | undefined;
   viewed: ReadonlySet<string>;
   loading: boolean;
-  onSelect: (key: string) => void;
-  onSelectFile: (fileId: string) => void;
+  sidebar: SidebarState;
+  dispatch: (msg: Msg) => void;
 }) {
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-  const [nesting, setNesting] = useState<Nesting>('tour');
-  const [query, setQuery] = useState('');
-  const recent = useRecentTours(sourceRef);
-  const fetchedStack = useStack(sourceRef);
+  const { nesting, query } = sidebar;
+  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []).filter(
+    (tour) => serializeRef(tour.ref) !== serializeRef(sourceRef),
+  );
+  const fetchedStack = AsyncResult.getOrElse(useAtomValue(stackAtom(sourceRef)), () => undefined);
   // Only a chain of two or more is worth its own row.
   const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   const currentMember =
@@ -72,60 +76,10 @@ export function GroupSidebar({
   const navigateToRef = useNavigateToRef();
 
   const kept = filterGroups(groups, files, query);
-  // PR and categories start open, groups start folded; a filter opens everything it keeps.
-  const isOpen = (id: string) =>
-    kept !== undefined || (id.startsWith('group:') ? opened.has(id) && !folded.has(id) : !folded.has(id));
-
-  const setOpen = useCallback((ids: string[], open: boolean) => {
-    setOpened((previous) => {
-      const next = new Set(previous);
-      ids.forEach((id) => (open ? next.add(id) : next.delete(id)));
-      return next;
-    });
-    setFolded((previous) => {
-      const next = new Set(previous);
-      ids.forEach((id) => (open ? next.delete(id) : next.add(id)));
-      return next;
-    });
-  }, []);
-
-  // Selecting a group (click, j/k, a link in the panel) unfolds the path to it.
-  const selectedCategory = groups.find((group) => group.key === selection)?.category;
-  useEffect(() => {
-    setOpen(
-      selectedCategory
-        ? [STACK_NODE, PR_NODE, categoryNode(selectedCategory), groupNode(selection)]
-        : [STACK_NODE, PR_NODE],
-      true,
-    );
-  }, [selection, selectedCategory, setOpen]);
-
-  const toggle = (id: string, deep: boolean) => {
-    const open = !isOpen(id);
-    const allBelowPr = [
-      ...groups.map((group) => groupNode(group.key)),
-      ...groups.map((group) => categoryNode(group.category)),
-    ];
-    const below =
-      id === STACK_NODE
-        ? [PR_NODE, ...allBelowPr]
-        : id === PR_NODE
-          ? allBelowPr
-          : id.startsWith('category:')
-            ? groups.filter((group) => categoryNode(group.category) === id).map((group) => groupNode(group.key))
-            : [];
-    setOpen(deep ? [id, ...below] : [id], open);
-  };
-
-  /** Opens a row, or folds it when it is already the selection. */
-  const activate = (id: string, key: string) => {
-    if (selection === key && isOpen(id)) {
-      setOpen([id], false);
-    } else {
-      onSelect(key);
-      setOpen([id], true);
-    }
-  };
+  const isOpen = (id: string) => isNodeOpen(sidebar, id);
+  const toggle = (id: string, deep: boolean) => dispatch({ type: 'SidebarToggled', node: id, deep });
+  const activate = (id: string, key: string) => dispatch({ type: 'SidebarActivated', node: id, key });
+  const onSelect = (key: string) => dispatch({ type: 'GroupSelected', key });
 
   const onTreeKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-node]')];
@@ -215,12 +169,7 @@ export function GroupSidebar({
             files={files}
             activeFileId={selected ? activeFileId : undefined}
             viewed={viewed}
-            onSelectFile={(fileId) => {
-              if (!selected) {
-                onSelect(group.key);
-              }
-              onSelectFile(fileId);
-            }}
+            onSelectFile={(fileId) => dispatch({ type: 'FileJumped', fileId, groupKey: group.key })}
           />
         )}
       </div>
@@ -326,13 +275,13 @@ export function GroupSidebar({
           isLabelHidden
           placeholder="Filter groups and files"
           value={query}
-          onChange={setQuery}
+          onChange={(value) => dispatch({ type: 'QueryChanged', query: value })}
         />
         <SegmentedControl
           label="Group order"
           size="sm"
           value={nesting}
-          onChange={(value) => setNesting(value as Nesting)}
+          onChange={(value) => dispatch({ type: 'NestingChanged', nesting: value as Nesting })}
         >
           <SegmentedControlItem value="tour" label="Tour" />
           <SegmentedControlItem value="category" label="Category" />
@@ -432,45 +381,6 @@ function RefLabel({ sourceRef, title }: { sourceRef: SourceRef; title: string | 
       {title ?? describeRef(sourceRef)}
     </span>
   );
-}
-
-/** The stack a GitHub PR sits in, once the backend has walked it; undefined for local diffs or on failure. */
-function useStack(sourceRef: SourceRef): Stack | undefined {
-  const client = useGlossClient();
-  const [stack, setStack] = useState<Stack>();
-  const github = sourceRef.kind === 'github-pr' ? sourceRef : undefined;
-  const owner = github?.owner;
-  const repo = github?.repo;
-  const number = github?.number;
-  useEffect(() => {
-    setStack(undefined);
-    if (owner === undefined || repo === undefined || number === undefined) {
-      return;
-    }
-    let live = true;
-    client
-      .stack({ kind: 'github-pr', owner, repo, number })
-      .then((found) => live && setStack(found))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [client, owner, repo, number]);
-  return stack;
-}
-
-/** Recent tours other than this one, newest first. */
-function useRecentTours(sourceRef: SourceRef): RecentTour[] {
-  const client = useGlossClient();
-  const [recent, setRecent] = useState<RecentTour[]>([]);
-  const current = serializeRef(sourceRef);
-  useEffect(() => {
-    client
-      .recent()
-      .then((tours) => setRecent(tours.filter((tour) => serializeRef(tour.ref) !== current)))
-      .catch(() => setRecent([]));
-  }, [client, current]);
-  return recent;
 }
 
 /** An open group's files, risk-flagged first (the panel's order), with scroll-spy highlighting. */

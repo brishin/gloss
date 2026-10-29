@@ -17,6 +17,7 @@
     "@gloss/protocol": "workspace:*",
     "@gloss/server": "workspace:*",
     "@hono/node-server": "catalog:",
+    "effect": "catalog:",
     "hono": "catalog:"
   }
 }

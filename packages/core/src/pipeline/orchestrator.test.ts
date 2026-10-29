@@ -2,12 +2,14 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { TourEventBody } from '@gloss/protocol';
+import type { SourceRef, Tour, TourEventBody } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
+import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { createMemoryCacheStore } from '../cache/store.ts';
-import { createLocalSource } from '../sources/local.ts';
+import { JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
+import { DiffSources } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
 
 let repo: string;
@@ -43,9 +45,25 @@ beforeAll(() => {
 
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
-function collect() {
-  const events: TourEventBody[] = [];
-  return { events, emit: (event: TourEventBody) => events.push(event) };
+/** Runs one tour against the fixture repo and returns its events and finished tour. */
+async function tour(options: {
+  model: ModelClient['Service'];
+  judge?: JudgeClient['Service'];
+  cache?: CacheStore;
+}): Promise<{ events: TourEventBody[]; tour: Tour }> {
+  const ref: SourceRef = { kind: 'local', repo, target: '' };
+  const layer = Layer.mergeAll(
+    Layer.succeed(ModelClient, options.model),
+    Layer.succeed(TourCache, options.cache ?? createMemoryCacheStore()),
+    DiffSources.layer,
+    options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
+  );
+  const events = [...(await Effect.runPromise(Stream.runCollect(runTour({ ref })).pipe(Effect.provide(layer))))];
+  const last = events.at(-1);
+  if (last?.type !== 'tour.complete') {
+    throw new Error(`The tour ended with ${last?.type}`);
+  }
+  return { events, tour: last.tour };
 }
 
 const groupsAnswer = {
@@ -104,18 +122,8 @@ const fakeJudge = () =>
 describe('runTour', () => {
   it('streams a complete tour whose replayed state equals tour.complete, then replays it from cache', async () => {
     const cache = createMemoryCacheStore();
-    const ref = { kind: 'local' as const, repo, target: '' };
-    const { events, emit } = collect();
     const model = fakeModel();
-    const tour = await runTour({
-      ref,
-      source: createLocalSource(ref),
-      cache,
-      model,
-      judge: fakeJudge(),
-      emit,
-      signal: new AbortController().signal,
-    });
+    const { events, tour: finished } = await tour({ model, judge: fakeJudge(), cache });
 
     const types = events.map((event) => event.type);
     const index = (type: string) => types.indexOf(type as never);
@@ -131,44 +139,37 @@ describe('runTour', () => {
     expect(tourFromState(state)).toEqual(complete.tour);
 
     // Every file is in exactly one group.
-    const placed = tour.groups.flatMap((group) => group.fileIds);
-    expect(placed.toSorted()).toEqual(tour.files.map((file) => file.id).toSorted());
+    const placed = finished.groups.flatMap((group) => group.fileIds);
+    expect(placed.toSorted()).toEqual(finished.files.map((file) => file.id).toSorted());
 
-    const byPath = Object.fromEntries(tour.files.map((file) => [file.path, tour.placements[file.id]?.groupKey]));
+    const byPath = Object.fromEntries(
+      finished.files.map((file) => [file.path, finished.placements[file.id]?.groupKey]),
+    );
     expect(byPath).toEqual({
       'README.md': 'docs',
       'api/client.gen.ts': 'generated',
       'src/auth.test.ts': 'tests',
       'src/auth.ts': 'auth',
     });
-    expect(tour.placements[tour.files.find((file) => file.path === 'src/auth.ts')!.id]?.reason).toBe('llm-followup');
-    expect(tour.groups.find((group) => group.key === 'auth')?.critical).toBe(true);
-    expect(tour.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
-    expect(tour.notes.auth?.lineNotes).toHaveLength(1);
-    expect(tour.decisions).toEqual(groupsAnswer.decisions);
-    expect(tour.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
+    expect(finished.placements[finished.files.find((file) => file.path === 'src/auth.ts')!.id]?.reason).toBe(
+      'llm-followup',
+    );
+    expect(finished.groups.find((group) => group.key === 'auth')?.critical).toBe(true);
+    expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
+    expect(finished.notes.auth?.lineNotes).toHaveLength(1);
+    expect(finished.decisions).toEqual(groupsAnswer.decisions);
+    expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
 
     // Second run: a finished tour for the same head replays as two events, with no model calls.
     const calls = model.calls.length;
-    const second = collect();
-    await runTour({
-      ref,
-      source: createLocalSource(ref),
-      cache,
-      model,
-      judge: fakeJudge(),
-      emit: second.emit,
-      signal: new AbortController().signal,
-    });
+    const second = await tour({ model, judge: fakeJudge(), cache });
     expect(second.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
     expect(model.calls.length).toBe(calls);
   });
 
   it('without a judge, the LLM lists files and nothing is dropped', async () => {
-    const ref = { kind: 'local' as const, repo, target: '' };
-    const { events, emit } = collect();
     const model = createFakeModelClient({
       answers: {
         define: (request) => {
@@ -179,18 +180,40 @@ describe('runTour', () => {
         notes: { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] },
       },
     });
-    const tour = await runTour({
-      ref,
-      source: createLocalSource(ref),
-      cache: createMemoryCacheStore(),
-      model,
-      emit,
-      signal: new AbortController().signal,
-    });
+    const { events, tour: finished } = await tour({ model });
     expect(
       events.some((event) => event.type === 'stage.status' && event.stage === 'judge' && event.state === 'skipped'),
     ).toBe(true);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('f-hallucinated'))).toBe(true);
-    expect(tour.groups.flatMap((group) => group.fileIds)).toHaveLength(tour.files.length);
+    expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
+  });
+
+  it('reports a failed Jev file as a warning and still places it', async () => {
+    const judge = fakeJudge();
+    const failing: JudgeClient['Service'] = {
+      model: judge.model,
+      judge: (request) =>
+        (request.state.file as { path: string }).path === 'README.md'
+          ? Effect.fail(new JudgeError({ message: 'overloaded' }))
+          : judge.judge(request),
+    };
+    const { events, tour: finished } = await tour({ model: fakeModel(), judge: failing });
+    expect(events.some((event) => event.type === 'job.warning' && event.message.includes('README.md'))).toBe(true);
+    expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
+  });
+
+  it('ends with a pipeline error when the model cannot define groups', async () => {
+    const exit = await Effect.runPromiseExit(
+      Stream.runCollect(runTour({ ref: { kind: 'local', repo, target: '' } })).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
+            TourCache.memory,
+            DiffSources.layer,
+          ),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain('Defining groups failed');
   });
 });

@@ -1,29 +1,22 @@
 import { Button } from '@astryxdesign/core/Button';
 import { Heading } from '@astryxdesign/core/Heading';
 import { Text } from '@astryxdesign/core/Text';
-import type { RecentTour } from '@gloss/protocol';
+import { useAtomValue } from '@effect/atom-react';
 import { describeRef } from '@gloss/protocol';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { AsyncResult } from 'effect/reactivity';
+import { useState } from 'react';
 import { Logo } from '../components/Logo.tsx';
-import { useGlossClient } from '../lib/client.tsx';
+import { recentToursAtom } from '../lib/client.ts';
 import { parseInput, RefLink, useNavigateToRef } from '../lib/source-routes.tsx';
 
 export const Route = createFileRoute('/')({ component: Home });
 
 function Home() {
-  const client = useGlossClient();
+  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []);
   const navigateToRef = useNavigateToRef();
   const [input, setInput] = useState('');
   const [error, setError] = useState<string>();
-  const [recent, setRecent] = useState<RecentTour[]>([]);
-
-  useEffect(() => {
-    client
-      .recent()
-      .then(setRecent)
-      .catch(() => {});
-  }, [client]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

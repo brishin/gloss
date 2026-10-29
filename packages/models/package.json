@@ -12,6 +12,7 @@
     "@flue/runtime": "catalog:",
     "@gloss/core": "workspace:*",
     "@gloss/protocol": "workspace:*",
+    "effect": "catalog:",
     "valibot": "catalog:"
   }
 }

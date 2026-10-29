@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createApp, JobManager } from '@gloss/server';
+import { createApp, Jobs } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import type { Backend } from './backend.ts';
+import { Effect, Layer, ManagedRuntime } from 'effect';
+import { BackendInfo, BackendLayer } from './backend.ts';
 
 export const DEFAULT_PORT = 4777;
 
@@ -54,15 +55,19 @@ function shellHtml(): string | undefined {
   return undefined;
 }
 
-export function startServer(
-  backend: Backend,
+/** Serves the API and the web app; closing it aborts every running tour and closes the cache. */
+export async function startServer(
   options: ServeOptions,
-): Promise<{ url: string; close: () => Promise<void> }> {
-  const jobs = new JobManager({ cache: backend.cache, model: backend.model, judge: backend.judge });
+): Promise<{ url: string; judge?: string; close: () => Promise<void> }> {
+  const runtime = ManagedRuntime.make(Jobs.layer().pipe(Layer.provideMerge(BackendLayer)));
+  const info = await runtime.runPromise(
+    Effect.gen(function* () {
+      return yield* BackendInfo;
+    }),
+  );
   const app = createApp({
-    jobs,
-    cache: backend.cache,
-    health: backend.health,
+    runtime,
+    health: () => info.health(),
     token: options.token,
     corsOrigins: options.corsOrigins,
   });
@@ -81,14 +86,14 @@ export function startServer(
   }
 
   return new Promise((resolve, reject) => {
-    const server = serve({ fetch: app.fetch, port: options.port, hostname: options.host }, (info) => {
+    const server = serve({ fetch: app.fetch, port: options.port, hostname: options.host }, (address) => {
       resolve({
-        url: `http://${options.host === '0.0.0.0' ? '127.0.0.1' : options.host}:${info.port}`,
-        close: () =>
-          new Promise((done) => {
-            jobs.abortAll();
-            server.close(() => done());
-          }),
+        url: `http://${options.host === '0.0.0.0' ? '127.0.0.1' : options.host}:${address.port}`,
+        judge: info.judge,
+        close: async () => {
+          await runtime.dispose();
+          await new Promise((done) => server.close(done));
+        },
       });
     });
     server.on('error', reject);

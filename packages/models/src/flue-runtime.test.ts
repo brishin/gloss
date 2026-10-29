@@ -1,4 +1,5 @@
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
+import { Effect } from 'effect';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { createFlueModelClient } from './flue-runtime.ts';
@@ -12,11 +13,12 @@ const client = createFlueModelClient({
   providers: [faux.provider],
 });
 const Schema = v.object({ answer: v.string() });
+const run = (request: Parameters<typeof client.prompt<typeof Schema>>[0]) => Effect.runPromise(client.prompt(request));
 
 describe('FlueModelClient', () => {
   it('returns the validated input of the submit tool call', async () => {
     faux.setResponses([fauxAssistantMessage([fauxToolCall('submit', { answer: 'yes' })], { stopReason: 'toolUse' })]);
-    const result = await client.prompt({
+    const result = await run({
       tier: 'define',
       system: 'sys',
       prompt: 'q',
@@ -31,7 +33,7 @@ describe('FlueModelClient', () => {
       fauxAssistantMessage(fauxText('Here is my answer in prose.')),
       fauxAssistantMessage([fauxToolCall('submit', { answer: 'late' })], { stopReason: 'toolUse' }),
     ]);
-    const result = await client.prompt({
+    const result = await run({
       tier: 'notes',
       system: 'sys',
       prompt: 'q',
@@ -46,7 +48,7 @@ describe('FlueModelClient', () => {
       fauxAssistantMessage([fauxToolCall('submit', { wrong: true })], { stopReason: 'toolUse' }),
       fauxAssistantMessage([fauxToolCall('submit', { answer: 'fixed' })], { stopReason: 'toolUse' }),
     ]);
-    const result = await client.prompt({
+    const result = await run({
       tier: 'notes',
       system: 'sys',
       prompt: 'q',

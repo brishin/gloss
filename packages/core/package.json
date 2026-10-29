@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@gloss/protocol": "workspace:*",
+    "effect": "catalog:",
     "valibot": "catalog:"
   }
 }

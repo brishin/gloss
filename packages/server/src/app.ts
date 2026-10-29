@@ -1,17 +1,17 @@
-import type { CacheStore } from '@gloss/core';
-import { resolveGithubAsset, resolveGithubStack } from '@gloss/core';
+import { resolveGithubAsset, resolveGithubStack, TourCache } from '@gloss/core';
 import type { DiffPayload, Health, ResolvedAsset, SourceRef, Stack, TourEvent } from '@gloss/protocol';
-import { encodeNdjson, isTerminal, SourceRefSchema } from '@gloss/protocol';
+import { encodeNdjson, SourceRefSchema } from '@gloss/protocol';
+import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
 import { cors } from 'hono/cors';
 import { stream, streamSSE } from 'hono/streaming';
 import * as v from 'valibot';
-import type { JobManager } from './jobs.ts';
+import { Jobs } from './jobs.ts';
 
 export interface AppOptions {
-  jobs: JobManager;
-  cache: CacheStore;
+  /** Runs handlers' effects: the jobs and the cache, with the pipeline's services behind them. */
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
@@ -29,8 +29,7 @@ const PING_MS = 15_000;
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
 export function createApp({
-  jobs,
-  cache,
+  runtime,
   health,
   token,
   corsOrigins = [],
@@ -38,6 +37,8 @@ export function createApp({
   resolveStack = resolveGithubStack,
 }: AppOptions): Hono {
   const app = new Hono();
+  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
+    runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
   }
@@ -47,107 +48,76 @@ export function createApp({
 
   app.get('/api/health', async (c) => c.json(await health()));
 
-  app.get('/api/recent', (c) => c.json(cache.listRecent(20)));
+  app.get('/api/recent', async (c) =>
+    c.json(await run(TourCache.use((cache) => Effect.sync(() => cache.listRecent(20))))),
+  );
 
   app.post('/api/tours', async (c) => {
     const parsed = v.safeParse(StartBodySchema, await c.req.json().catch(() => undefined));
     if (!parsed.success) {
       return c.json({ error: 'Invalid request', issues: v.flatten(parsed.issues) }, 400);
     }
-    const job = jobs.start(parsed.output.ref, parsed.output.force);
+    const { ref, force } = parsed.output;
+    const job = await run(Jobs.use((jobs) => jobs.start(ref, force)));
     return c.json({ jobId: job.id, state: job.state, lastSeq: job.log.length }, 202);
   });
 
-  app.get('/api/tours/:id/events', (c) => {
-    const job = jobs.get(c.req.param('id'));
+  app.get('/api/tours/:id/events', async (c) => {
+    const id = c.req.param('id');
+    const job = await run(Jobs.use((jobs) => Effect.sync(() => jobs.get(id))));
     if (!job) {
       return c.json({ error: 'Unknown or expired job' }, 404);
     }
     const after = Number(c.req.header('Last-Event-ID') ?? c.req.query('after') ?? 0) || 0;
 
-    const pump = async (
-      write: (event: TourEvent) => Promise<void>,
-      ping: () => Promise<void>,
-      signal: { aborted: boolean; onAbort(fn: () => void): void },
+    /** Writes the job's events until its terminal one, with a ping every 15 s so proxies keep the stream open. */
+    const pump = (
+      out: { onAbort(fn: () => void): void },
+      write: (event: TourEvent) => Promise<unknown>,
+      ping: () => Promise<unknown>,
     ) => {
-      const queue: TourEvent[] = [];
-      let wake: (() => void) | undefined;
-      let closed = false;
-      const unsubscribe = jobs.subscribe(job, after, (event) => {
-        queue.push(event);
-        wake?.();
-      });
-      signal.onAbort(() => {
-        closed = true;
-        unsubscribe();
-        wake?.();
-      });
-      try {
-        while (!closed) {
-          while (queue.length) {
-            const event = queue.shift()!;
-            await write(event);
-            if (isTerminal(event)) {
-              return;
-            }
-          }
-          if (job.state !== 'running' && queue.length === 0) {
-            return;
-          }
-          const timer = new Promise<'ping'>((resolve) => setTimeout(() => resolve('ping'), PING_MS));
-          const woke = new Promise<'event'>((resolve) => {
-            wake = () => resolve('event');
-          });
-          if ((await Promise.race([timer, woke])) === 'ping') {
-            await ping();
-          }
-          wake = undefined;
-        }
-      } finally {
-        unsubscribe();
-      }
+      const controller = new AbortController();
+      out.onAbort(() => controller.abort());
+      const events = Jobs.use((jobs) =>
+        Stream.runForEach(jobs.events(job, after), (event) => Effect.promise(() => write(event))),
+      );
+      const pings = Effect.promise(ping).pipe(Effect.delay(PING_MS), Effect.repeat(Schedule.forever));
+      return run(Effect.raceFirst(events, Effect.asVoid(pings)), controller.signal).catch(() => {});
     };
 
     if (c.req.header('Accept')?.includes('application/x-ndjson')) {
       c.header('Content-Type', 'application/x-ndjson');
       return stream(c, (out) =>
         pump(
-          (event) => out.write(encodeNdjson(event)).then(() => {}),
-          () => out.write('\n').then(() => {}),
-          {
-            get aborted() {
-              return out.aborted;
-            },
-            onAbort: (fn) => out.onAbort(fn),
-          },
+          out,
+          (event) => out.write(encodeNdjson(event)),
+          () => out.write('\n'),
         ),
       );
     }
     return streamSSE(c, (out) =>
       pump(
+        out,
         (event) => out.writeSSE({ id: String(event.seq), event: event.type, data: JSON.stringify(event) }),
-        () => out.write(': ping\n\n').then(() => {}),
-        {
-          get aborted() {
-            return out.aborted;
-          },
-          onAbort: (fn) => out.onAbort(fn),
-        },
+        () => out.write(': ping\n\n'),
       ),
     );
   });
 
-  app.post('/api/tours/:id/abort', (c) => {
-    const job = jobs.get(c.req.param('id'));
-    if (!job) {
-      return c.json({ error: 'Unknown or expired job' }, 404);
-    }
-    jobs.abort(job);
-    return c.body(null, 204);
+  app.post('/api/tours/:id/abort', async (c) => {
+    const id = c.req.param('id');
+    const found = await run(
+      Jobs.use((jobs) => {
+        const job = jobs.get(id);
+        return job ? Effect.as(jobs.abort(job), true) : Effect.succeed(false);
+      }),
+    );
+    return found ? c.body(null, 204) : c.json({ error: 'Unknown or expired job' }, 404);
   });
 
-  app.get('/api/diffs/:id', (c) => {
-    const diff = cache.get<DiffPayload>(c.req.param('id'));
+  app.get('/api/diffs/:id', async (c) => {
+    const id = c.req.param('id');
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(id))));
     return diff ? c.json(diff) : c.json({ error: 'Unknown diff' }, 404);
   });
 

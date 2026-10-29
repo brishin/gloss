@@ -1,4 +1,6 @@
 import type { RecentTour, SourceRef } from '@gloss/protocol';
+import { Context, Effect, Layer } from 'effect';
+import { createSqliteCacheStore } from './sqlite.ts';
 
 export type CacheKind = 'diff' | 'define' | 'judge-file' | 'judge-group' | 'followup' | 'notes' | 'tour';
 
@@ -44,4 +46,20 @@ export function createMemoryCacheStore(): CacheStore {
     },
     close: () => {},
   };
+}
+
+/** The cache as a service. Its methods stay synchronous: `node:sqlite` is, and so is the memory store. */
+export class TourCache extends Context.Service<TourCache, CacheStore>()('@gloss/core/TourCache') {
+  static readonly memory = Layer.sync(TourCache, createMemoryCacheStore);
+
+  /** One sqlite file, closed when the layer's scope closes. */
+  static sqlite(path: string) {
+    return Layer.effect(
+      TourCache,
+      Effect.acquireRelease(
+        Effect.sync(() => createSqliteCacheStore(path)),
+        (store) => Effect.sync(() => store.close()),
+      ),
+    );
+  }
 }

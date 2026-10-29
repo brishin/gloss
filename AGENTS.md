@@ -7,11 +7,11 @@ events; the web app renders them as they land. Source and tests win over these d
 ## Map
 
 - `packages/protocol`: wire contract (valibot schemas, `TourEvent`, `reduceTourEvent`, SSE codec, HTTP `GlossClient`). Browser + Node.
-- `packages/core`: diff sources (`gh`, local git), heuristics, Jev questions, prompts, truth table, normalizer, orchestrator (`runTour`), cache. Node only, no SDK imports.
+- `packages/core`: diff sources (`gh`, local git), heuristics, Jev questions, prompts, truth table, normalizer, orchestrator (`runTour`, an Effect `Stream`), cache. Node only, Effect but no model SDK imports.
 - `packages/models`: the only pi-ai/Flue importer: OAuth credential store, provider registry, `GlossStage` Flue agent, `FlueModelClient`, Jev client, config.
-- `packages/server`: Hono API + `JobManager` (dedupe, replay log, abort).
+- `packages/server`: Hono API + `Jobs` service (dedupe, replay log, abort; each job is a fiber).
 - `packages/cli`: `gloss` bin: serves API + built web app, `tour`, `login`, `status`.
-- `apps/web`: TanStack Start (SPA mode) + Astryx (prebuilt CSS) + `@pierre/diffs`.
+- `apps/web`: TanStack Start (SPA mode) + Astryx (prebuilt CSS) + `@pierre/diffs`. The tour page is an Elm program on Effect Atom (`lib/tour-model.ts` pure update, `lib/tour-program.ts` commands, `lib/tea.ts` runtime).
 - `.agents/`: goal, architecture, protocol, pipeline and model notes. Read the relevant one before changing an area.
 
 ## Invariants
@@ -21,7 +21,9 @@ events; the web app renders them as they land. Source and tests win over these d
 - MUST: every file ends in exactly one group at every stage (`place.ts`, `groupsInOrder`). Never drop a file.
 - MUST: only fetched diffs and model/Jev output are cached; never heuristics or errors. Cache keys hash the exact request (prompt text, model, `PROMPTS_VERSION`/`QUESTIONS_VERSION`/`PIPELINE_VERSION`).
 - MUST: model output is untrusted. It references `fileId`/`hunkId`; `normalize.ts` validates lines and demotes invalid line notes to file notes.
-- MUST: `packages/core` stays SDK-free; model access goes through `ModelClient`/`JudgeClient` (fakes in `adapters/fake.ts`).
+- MUST: `packages/core` stays free of pi-ai/Flue; model access goes through the `ModelClient`/`JudgeClient` services (fakes in `adapters/fake.ts`).
+- MUST: business logic is Effect: services via `Context.Service` + layers, cancellation by interruption (no `AbortSignal` plumbing), concurrency via `Effect.forEach`/`Semaphore`.
+- MUST: the tour page's state changes only in `update` (`tour-model.ts`); side effects (backend, URL, scrolling, storage, title) are `Cmd`s. Other backend reads are plain `AsyncResult` atoms in `lib/client.ts`.
 - SHOULD: source is TypeScript run directly by Node 24 (type stripping): erasable syntax only, relative imports end in `.ts`.
 - SHOULD: tests sit next to the code (`foo.test.ts`) and are high-signal: truth tables, invariants, protocol round-trips. No component snapshot tests.
 
