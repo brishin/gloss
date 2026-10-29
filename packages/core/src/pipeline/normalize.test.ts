@@ -94,7 +94,7 @@ describe('normalizeVisual', () => {
   });
 
   it('keeps the candidates that survive, in order, and skips none without a warning', () => {
-    const rows = { kind: 'before-after' as const, caption: 'c', before: ['a'], after: ['b'] };
+    const rows = { kind: 'mermaid' as const, caption: 'c', mermaid: 'flowchart TD\n  A --> B' };
     const { visuals, warnings } = normalizeVisuals({
       first: { kind: 'mermaid', caption: '1', mermaid: 'pie' },
       second: { kind: 'none', caption: '' },
@@ -104,9 +104,11 @@ describe('normalizeVisual', () => {
     expect(warnings).toEqual(['Dropped the mermaid visual: only flowcharts and state diagrams are drawn.']);
   });
 
-  it('needs rows on both sides of a before-after', () => {
-    expect(normalizeVisual({ kind: 'before-after', caption: 'x', before: ['a'], after: ['  '] })).toEqual({
-      warnings: ['Dropped the before-after visual: it needs rows on both sides.'],
+  it('needs a diagram on both sides of a before-after', () => {
+    expect(
+      normalizeVisual({ kind: 'before-after', caption: 'x', before: 'flowchart LR\n  A --> B', after: '- a list' }),
+    ).toEqual({
+      warnings: ['Dropped the before-after visual: only flowcharts and state diagrams are drawn.'],
     });
   });
 

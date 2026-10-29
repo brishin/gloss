@@ -41,9 +41,10 @@ lanes, keeps only flowchart and state Mermaid without styling or click lines, an
 shown. With Jev, `visual-image.ts` draws each candidate to a PNG at tour width (resvg; Mermaid
 via beautiful-mermaid with its CSS vars resolved), shrunk or padded so every side is
 400-1200 px, since Jev rejects a side outside about 280-1568 px, and one `judge-visual` call sends the pictures as `<image-N>` beside their specs. Jev answers
-focused yes/no questions per candidate (`accurate`, `whole`, and with pictures `easy`); a
+focused yes/no questions per candidate (`accurate`, `beyond_text`: more than a list would
+say, `whole`, and with pictures `easy`); a
 single "which is best" choice favored any flowchart, even a muddled or partial one. The
-accurate candidate with the highest `whole` x `easy` is shown, or none (`pickVisual`).
+accurate candidate that is more than a list, with the highest `whole` x `easy`, is shown, or none (`pickVisual`).
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 

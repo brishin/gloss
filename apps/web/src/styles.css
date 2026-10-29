@@ -853,20 +853,6 @@
     background: var(--gloss-wash);
   }
 
-  .visual-column ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .visual-column code {
-    font-family: var(--font-family-code);
-    font-size: 12px;
-  }
-
   .visual-timeline {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -954,6 +940,7 @@
 
   .visual-mermaid svg {
     display: block;
+    margin-inline: auto;
     height: auto;
     max-height: 420px;
   }

@@ -201,15 +201,18 @@ export const TimelineLaneSchema = v.object({
 
 /**
  * One picture of the change's main decision, drawn by the client so every tour looks
- * the same: rows before and after, lanes over time, or a small Mermaid flowchart or
- * state diagram. `caption` is one sentence under it.
+ * the same: the old flow next to the new one (two small Mermaid diagrams), lanes over
+ * time, or one small Mermaid flowchart or state diagram. Never a text list: the
+ * overview's prose already says that. `caption` is one sentence under it.
  */
 export const VisualSchema = v.variant('kind', [
   v.object({
     kind: v.literal('before-after'),
     caption: v.optional(v.string()),
-    before: v.array(v.string()),
-    after: v.array(v.string()),
+    /** Mermaid source of the old flow. */
+    before: v.string(),
+    /** Mermaid source of the new flow, laid out like `before` so the difference shows. */
+    after: v.string(),
   }),
   v.object({
     kind: v.literal('timeline'),

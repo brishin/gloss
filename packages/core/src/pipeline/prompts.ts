@@ -72,17 +72,26 @@ const visual = v.pipe(
     kind: v.pipe(
       v.picklist(['before-after', 'timeline', 'mermaid', 'none']),
       v.description(
-        'none: no picture in this slot. before-after: the change replaces one shape or flow with another (a data model, an API, a hot path). timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine.',
+        'none: no picture in this slot. before-after: the change replaces one flow or structure with another (a data path, a state machine, a component tree), drawn as two small diagrams. timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine. Never a list of points: the summary already says them.',
       ),
     ),
     caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
     before: v.optional(
       v.pipe(
-        v.array(v.string()),
-        v.description('before-after only: 1-5 short rows, under 60 characters each. Wrap code names in backticks.'),
+        v.string(),
+        v.description(
+          'before-after only: the old flow as "flowchart TD" or "stateDiagram-v2" source, 2-6 nodes, labels under 30 characters, no styling.',
+        ),
       ),
     ),
-    after: v.optional(v.pipe(v.array(v.string()), v.description('before-after only: 1-5 short rows, same style.'))),
+    after: v.optional(
+      v.pipe(
+        v.string(),
+        v.description(
+          'before-after only: the new flow in the same style, reusing the node names that did not change so the difference stands out.',
+        ),
+      ),
+    ),
     markers: v.optional(
       v.pipe(
         v.array(v.object({ at, text: short('2-4 words.') })),
@@ -261,7 +270,7 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
-Then propose three candidate visuals of the main decision (first, second, third), best first; only one will be shown. Make them differ in kind or angle so there is a real choice, and fill every slot you can. Add them whenever the change has any of these: a design replaced by another (before-after: the old shape, flow, data model or behavior next to the new one), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. Use kind "none" in a slot only when you have nothing different to draw, and in all three only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+Then propose three candidate visuals of the main decision (first, second, third), best first; only one will be shown. Make them differ in kind or angle so there is a real choice, and fill every slot you can. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in all three only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
 
 Call the submit tool once with the complete result.`;
 
@@ -282,7 +291,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

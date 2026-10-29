@@ -14,8 +14,8 @@ export function TourVisual({ visual }: { visual: Visual }) {
     <figure className="visual">
       {visual.kind === 'before-after' ? (
         <div className="visual-before-after">
-          <VisualColumn label="Before" rows={visual.before} />
-          <VisualColumn label="After" rows={visual.after} />
+          <VisualColumn label="Before" source={visual.before} />
+          <VisualColumn label="After" source={visual.after} />
         </div>
       ) : visual.kind === 'timeline' ? (
         <TimelineVisual timeline={visual} />
@@ -29,32 +29,15 @@ export function TourVisual({ visual }: { visual: Visual }) {
   );
 }
 
-function VisualColumn({ label, rows }: { label: string; rows: readonly string[] }) {
+function VisualColumn({ label, source }: { label: string; source: string }) {
   return (
     <div className="visual-column">
       <div className="visual-label">{label}</div>
-      <ul>
-        {rows.map((row, index) => (
-          <li key={index}>
-            <InlineCode text={row} />
-          </li>
-        ))}
-      </ul>
+      <Suspense fallback={null}>
+        <MermaidVisual source={source} />
+      </Suspense>
     </div>
   );
-}
-
-/** Backtick spans as code; everything else as plain text. */
-function InlineCode({ text }: { text: string }) {
-  return text
-    .split(/(`[^`]+`)/)
-    .map((part, index) =>
-      part.startsWith('`') && part.endsWith('`') && part.length > 2 ? (
-        <code key={index}>{part.slice(1, -1)}</code>
-      ) : (
-        part
-      ),
-    );
 }
 
 function TimelineVisual({ timeline }: { timeline: Timeline }) {

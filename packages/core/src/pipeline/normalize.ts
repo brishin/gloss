@@ -103,18 +103,29 @@ const clip = (text: string, max: number) => {
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 };
 const clamp = (at: number) => (Number.isFinite(at) ? Math.min(100, Math.max(0, at)) : 0);
-const rows = (list: readonly string[] | undefined) =>
-  (list ?? [])
-    .map((row) => clip(row, 90))
-    .filter(Boolean)
-    .slice(0, 6);
 
 /** Mermaid diagram types the client draws; anything else (sequence, gantt, pie...) is dropped. */
 const MERMAID_HEADER = /^(?:flowchart|graph)\s+(?:TD|TB|BT|LR|RL)\b|^stateDiagram(?:-v2)?\s*$/;
 
+/** A flowchart or state diagram without fences, styling, init blocks or click handlers. */
+function mermaidSource(raw: string | undefined): string | { why: string } {
+  const lines = (raw ?? '')
+    .replace(/^\s*```(?:mermaid)?\s*\n?|\n?\s*```\s*$/g, '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() && !/^\s*(?:%%|click\b|style\b|classDef\b|class\b|linkStyle\b)/.test(line));
+  if (!MERMAID_HEADER.test(lines[0]?.trim() ?? '')) {
+    return { why: 'only flowcharts and state diagrams are drawn' };
+  }
+  if (lines.length > 30) {
+    return { why: 'it is too large to read in the overview' };
+  }
+  return lines.join('\n');
+}
+
 /**
  * The trust boundary for the tour's visual. It keeps only what the client can draw
- * legibly: a few short rows, a few lanes on a 0-100 axis, or a small flowchart or
+ * legibly: two small diagrams side by side, a few lanes on a 0-100 axis, or a small flowchart or
  * state diagram without styling, init blocks or click handlers. Anything that does not
  * survive is dropped with a warning; a tour never fails over its picture.
  */
@@ -125,11 +136,12 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
   const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
   const drop = (why: string) => ({ warnings: [`Dropped the ${raw.kind} visual: ${why}.`] });
   if (raw.kind === 'before-after') {
-    const before = rows(raw.before);
-    const after = rows(raw.after);
-    return before.length && after.length
-      ? { visual: { kind: 'before-after', caption, before, after }, warnings: [] }
-      : drop('it needs rows on both sides');
+    const before = mermaidSource(raw.before);
+    const after = mermaidSource(raw.after);
+    const why = typeof before === 'string' ? (typeof after === 'string' ? undefined : after.why) : before.why;
+    return why
+      ? drop(why)
+      : { visual: { kind: 'before-after', caption, before: before as string, after: after as string }, warnings: [] };
   }
   if (raw.kind === 'timeline') {
     const lanes = (raw.lanes ?? []).slice(0, 4).flatMap((lane) => {
@@ -154,18 +166,8 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
       ? { visual: { kind: 'timeline', caption, markers, lanes }, warnings: [] }
       : drop('no lane has anything on it');
   }
-  const lines = (raw.mermaid ?? '')
-    .replace(/^\s*```(?:mermaid)?\s*\n?|\n?\s*```\s*$/g, '')
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim() && !/^\s*(?:%%|click\b|style\b|classDef\b|class\b|linkStyle\b)/.test(line));
-  if (!MERMAID_HEADER.test(lines[0]?.trim() ?? '')) {
-    return drop('only flowcharts and state diagrams are drawn');
-  }
-  if (lines.length > 30) {
-    return drop('it is too large to read in the overview');
-  }
-  return { visual: { kind: 'mermaid', caption, source: lines.join('\n') }, warnings: [] };
+  const source = mermaidSource(raw.mermaid);
+  return typeof source === 'string' ? { visual: { kind: 'mermaid', caption, source }, warnings: [] } : drop(source.why);
 }
 
 /** Candidates that survive, in the model's order. */
