@@ -9,6 +9,7 @@ import type { TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient, describeRef, RISK_LABELS, RISK_KEYS } from '@gloss/protocol';
 import { Effect, Fiber, ManagedRuntime, Stream } from 'effect';
 import { BackendInfo, BackendLayer, VERSION } from './backend.ts';
+import { startDetached, stopServer } from './daemon.ts';
 import { EXTENSION_DIR, installExtension, uninstallExtension } from './extension.ts';
 import { DEFAULT_PORT, startServer } from './serve.ts';
 import { resolveTarget, webPath } from './target.ts';
@@ -18,6 +19,7 @@ const HELP = `gloss ${VERSION} — streaming review tours for pull requests and 
 Usage
   gloss [target]              Open a tour in the browser (starts the local server)
   gloss serve                 Run the local server only
+  gloss restart               Restart the server in the background on this checkout's code
   gloss tour <target>         Print a tour in the terminal (--json for the full tour)
   gloss login claude|chatgpt  Sign in with a Claude or ChatGPT subscription
   gloss logout claude|chatgpt
@@ -132,6 +134,15 @@ async function main() {
         );
       }
       await runtime.dispose();
+      return;
+    }
+
+    case 'restart': {
+      const stopped = await stopServer(port);
+      if (stopped.length > 0) console.error(`Stopped ${stopped.join(', ')}`);
+      const result = await startDetached(port);
+      if ('error' in result) throw new Error(result.error);
+      console.log(`gloss server on ${result.url} (logs: ${glossPath('serve.log')})`);
       return;
     }
 

@@ -22,6 +22,9 @@ mode, Load unpacked), then run `gloss extension install` so the button can start
 `gloss serve` itself when nothing is running (logs in `~/.gloss/serve.log`). Without that,
 it shows how to start the server and opens the PR once it is up.
 
+`pnpm gloss:update` pulls, installs, rebuilds the web app and restarts the server in the
+background on the new code (`gloss restart` does only the last step).
+
 ## Models and keys
 
 - **LLM** (group definitions, follow-up placement, notes) runs through a [Flue](https://flueframework.com) agent on the backend. Defaults: Claude Haiku 5.5 for the fast tiers, Sonnet 5.5 for notes. Set `"profile": "openai"` in `~/.gloss/config.json` for GPT.
