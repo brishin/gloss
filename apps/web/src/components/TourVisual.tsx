@@ -2,6 +2,7 @@ import type { Visual } from '@gloss/protocol';
 import { lazy, Suspense } from 'react';
 
 const MermaidVisual = lazy(() => import('./MermaidVisual.tsx'));
+const BeforeAfterVisual = lazy(() => import('./BeforeAfterVisual.tsx'));
 
 type Timeline = Extract<Visual, { kind: 'timeline' }>;
 
@@ -13,10 +14,9 @@ export function TourVisual({ visual }: { visual: Visual }) {
   return (
     <figure className="visual">
       {visual.kind === 'before-after' ? (
-        <div className="visual-before-after">
-          <VisualColumn label="Before" source={visual.before} />
-          <VisualColumn label="After" source={visual.after} />
-        </div>
+        <Suspense fallback={null}>
+          <BeforeAfterVisual before={visual.before} after={visual.after} />
+        </Suspense>
       ) : visual.kind === 'timeline' ? (
         <TimelineVisual timeline={visual} />
       ) : (
@@ -26,17 +26,6 @@ export function TourVisual({ visual }: { visual: Visual }) {
       )}
       {visual.caption && <figcaption className="muted">{visual.caption}</figcaption>}
     </figure>
-  );
-}
-
-function VisualColumn({ label, source }: { label: string; source: string }) {
-  return (
-    <div className="visual-column">
-      <div className="visual-label">{label}</div>
-      <Suspense fallback={null}>
-        <MermaidVisual source={source} />
-      </Suspense>
-    </div>
   );
 }
 
