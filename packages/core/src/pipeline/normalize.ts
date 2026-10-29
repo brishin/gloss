@@ -140,8 +140,8 @@ export function isSinglePath(source: string): boolean {
         .replace(/--\s[^-]*?\s*-->/g, '-->'),
     )
     .flatMap((line) => line.split(';'));
-  // "A --> B & C" fans out; not parsed, so never called a path.
-  if (lines.some((line) => line.includes('&'))) {
+  // "A --> B & C" fans out and "A <--> B" goes both ways; not parsed, so never called a path.
+  if (lines.some((line) => line.includes('&') || /<[-=.]/.test(line))) {
     return false;
   }
   const edges = lines

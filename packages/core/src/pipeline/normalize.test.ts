@@ -163,6 +163,7 @@ describe('isSinglePath', () => {
     ['a loop with labels', 'flowchart TD\nA[Start] --> B{Trunk?}\nB -- no --> C[Step down]\nC -->|again| B', false],
     ['a fork written on one line', 'flowchart TD\nA --> B; A --> C', false],
     ['a fork to grouped ends', 'flowchart TD\nA --> B & C', false],
+    ['a two-way edge', 'flowchart TD\nA <--> B\nB --> C', false],
     ['a chain with ; and & inside node text', 'flowchart TD\nA[Read; parse] --> B["Save & exit"]', true],
     ['a state machine cycle', 'stateDiagram-v2\n[*] --> Idle\nIdle --> Busy: start\nBusy --> Idle: done', false],
   ] as const)('%s', (_, source, expected) => {
