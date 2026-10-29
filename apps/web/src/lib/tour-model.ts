@@ -123,8 +123,9 @@ export type Msg =
   | { type: 'ReviewBodyChanged'; body: string }
   /** Sends the review; `verdict` sends it as that without the panel (`r y`). */
   | { type: 'ReviewSubmitted'; verdict?: ReviewVerdict }
-  | { type: 'ReviewSent'; verdict: ReviewVerdict; url: string }
-  | { type: 'ReviewFailed'; error: string }
+  /** `diffId` is the diff the review was written on: an answer for an older one is ignored. */
+  | { type: 'ReviewSent'; diffId: string; verdict: ReviewVerdict; url: string }
+  | { type: 'ReviewFailed'; diffId: string; error: string }
   | { type: 'ReviewNoticeDismissed' }
   | { type: 'CommentStarted'; anchor: CommentAnchor }
   | { type: 'CommentEdited'; id: string }
@@ -152,7 +153,7 @@ export type Cmd =
   | { type: 'SetTitle'; title: string }
   | { type: 'LoadReview'; diffId: string }
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
-  | { type: 'SubmitReview'; request: ReviewRequest };
+  | { type: 'SubmitReview'; diffId: string; request: ReviewRequest };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -407,7 +408,8 @@ function stepReview(model: Model, msg: Msg): Next {
     case 'ReviewSubmitted': {
       const verdict = msg.verdict ?? review.verdict;
       const meta = model.tour.meta;
-      if (model.ref.kind !== 'github-pr' || !meta || review.sending) {
+      const diffId = model.tour.diffId;
+      if (model.ref.kind !== 'github-pr' || !meta || !diffId || review.sending) {
         return [model, []];
       }
       const request: ReviewRequest = {
@@ -426,10 +428,13 @@ function stepReview(model: Model, msg: Msg): Next {
       const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
       return [
         set({ verdict, sending, problem: undefined, error: undefined, sent: undefined }),
-        [{ type: 'SubmitReview', request }],
+        [{ type: 'SubmitReview', diffId, request }],
       ];
     }
     case 'ReviewSent': {
+      if (msg.diffId !== model.tour.diffId || !review.sending) {
+        return [model, []];
+      }
       // Only what went out leaves the draft: words written while it was on its way stay.
       const sent = review.sending;
       return save(
@@ -443,6 +448,9 @@ function stepReview(model: Model, msg: Msg): Next {
       );
     }
     case 'ReviewFailed':
+      if (msg.diffId !== model.tour.diffId || !review.sending) {
+        return [model, []];
+      }
       return [set({ sending: undefined, open: true, error: msg.error }), []];
     case 'ReviewNoticeDismissed':
       return [set({ sent: undefined }), []];

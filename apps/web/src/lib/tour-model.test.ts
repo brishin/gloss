@@ -284,7 +284,7 @@ describe('review', () => {
     // A second r y while the first is in flight sends nothing.
     expect(submitted(press(sending, 'r', 'y')[1])).toEqual([]);
 
-    const [sent, saved] = run(sending, { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' });
+    const [sent, saved] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
     expect(sent.review).toMatchObject({ comments: [], body: '', sending: undefined, sent: { verdict: 'APPROVE' } });
     expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
   });
@@ -304,6 +304,23 @@ describe('review', () => {
     expect(run(local, { type: 'ReviewOpened' })[0].review.open).toBe(false);
   });
 
+  test('an answer for a review sent on an earlier diff is ignored', () => {
+    const [sending] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'old' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+      {
+        type: 'EventReceived',
+        event: { type: 'diff.ready', seq: 9, at: '', diffId: 'd2', meta: META, files: [] } as never,
+      },
+      { type: 'ReviewBodyChanged', body: 'new' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+    );
+    const [after] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
+    expect(after.review).toMatchObject({ body: 'new', sent: undefined });
+    expect(after.review.sending).toBeDefined();
+  });
+
   test('words written while a review is on its way stay in the draft', () => {
     const [sending] = run(
       reviewable(),
@@ -315,7 +332,7 @@ describe('review', () => {
       { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'additions', line: 2 } },
       { type: 'CommentBodyChanged', body: 'later' },
       { type: 'CommentSaved' },
-      { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' },
+      { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' },
     );
     expect(after.review.body).toBe('');
     expect(after.review.comments.map((comment) => comment.body)).toEqual(['later']);
@@ -338,7 +355,7 @@ describe('review', () => {
     const [sent] = run(
       reviewable(),
       { type: 'ReviewSubmitted', verdict: 'APPROVE' },
-      { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' },
+      { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' },
     );
     expect(sent.review.sent).toBeDefined();
     expect(run(sent, { type: 'ReviewOpened', verdict: 'REQUEST_CHANGES' })[0].review.sent).toBeUndefined();
@@ -354,7 +371,7 @@ describe('review', () => {
       reviewable(),
       { type: 'ReviewBodyChanged', body: 'lgtm' },
       { type: 'ReviewSubmitted', verdict: 'APPROVE' },
-      { type: 'ReviewFailed', error: 'Can not approve your own pull request' },
+      { type: 'ReviewFailed', diffId: 'd1', error: 'Can not approve your own pull request' },
     );
     expect(failed.review).toMatchObject({
       open: true,

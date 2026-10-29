@@ -109,8 +109,13 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return Stream.fromEffect(
         request((client) => client.review(cmd.request)).pipe(
           Effect.match({
-            onSuccess: ({ url }): Msg => ({ type: 'ReviewSent', verdict: cmd.request.verdict, url }),
-            onFailure: ({ cause }): Msg => ({ type: 'ReviewFailed', error: reviewError(cause) }),
+            onSuccess: ({ url }): Msg => ({
+              type: 'ReviewSent',
+              diffId: cmd.diffId,
+              verdict: cmd.request.verdict,
+              url,
+            }),
+            onFailure: ({ cause }): Msg => ({ type: 'ReviewFailed', diffId: cmd.diffId, error: reviewError(cause) }),
           }),
         ),
       );
