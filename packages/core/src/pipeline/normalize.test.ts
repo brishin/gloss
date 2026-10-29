@@ -1,6 +1,6 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { isSinglePath, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
+import { isSinglePath, looseEnds, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -171,5 +171,42 @@ describe('isSinglePath', () => {
     expect(normalizeVisual({ kind: 'before-after', caption: '', before: chain, after: tree }).visual?.kind).toBe(
       'before-after',
     );
+  });
+});
+
+describe('looseEnds', () => {
+  const box = (x: number, y: number) => `<rect x="${x}" y="${y}" width="100" height="40"/>`;
+  // Shapes from round-6 eval sketches: connectors drawn into empty space never close the flow.
+  it.each([
+    ['box edge to box edge', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="198" y2="20"/>`, 0],
+    ['an arrowhead a few units short', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="194" y2="20"/>`, 0],
+    [
+      'a loop back that stops short of the box',
+      `${box(0, 50)}${box(300, 50)}<line x1="350" y1="50" x2="100" y2="30"/>`,
+      1,
+    ],
+    ['a line floating above both boxes', `${box(0, 50)}${box(200, 50)}<line x1="100" y1="30" x2="200" y2="30"/>`, 2],
+    [
+      'a polyline around to a circle',
+      `${box(0, 0)}<circle cx="300" cy="20" r="20"/><polyline points="50,40 50,80 300,80 300,40"/>`,
+      0,
+    ],
+    [
+      'anything transformed (not checked)',
+      `<g transform="translate(5 0)">${box(0, 0)}</g><line x1="500" y1="500" x2="600" y2="600"/>`,
+      0,
+    ],
+  ] as const)('%s', (_, body, expected) => {
+    expect(looseEnds(`<svg viewBox="0 0 760 200">${body}</svg>`)).toBe(expected);
+  });
+
+  it('drops a sketch with a loose connector', () => {
+    const none = { kind: 'none', caption: '' } as const;
+    const svg =
+      '<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90"/></svg>';
+    expect(normalizeVisuals({ sketch: { caption: 's', svg }, first: none, second: none })).toEqual({
+      visuals: [],
+      warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
+    });
   });
 });

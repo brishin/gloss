@@ -146,7 +146,7 @@ const sketch = v.pipe(
     svg: v.pipe(
       v.string(),
       v.description(
-        'One <svg> you draw by hand, or "" when nothing is worth drawing. viewBox about 760 wide and 160-460 tall, used edge to edge. Draw the mechanism the decision changes (old path next to new with arrows, the order of events on a time axis, the shape of the data), not the UI outline or the file list. Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, script, image, links or CSS; attribute values in double quotes. Colors: text #1f2328, secondary #59636e, lines #d1d9e0, accent #5b4cc4, accent fill #cfc8f5, bad #cf222e, good #1a7f37, on white. 12-14px text, few words per label, nothing overlapping.',
+        'One <svg> you draw by hand, or "" when nothing is worth drawing. viewBox about 760 wide and 160-460 tall, used edge to edge. Draw the mechanism the decision changes (old path next to new with arrows, the order of events on a time axis, the shape of the data), not the UI outline or the file list. Every part is a box (rect, circle or ellipse) with its label inside; every connector is a line, polyline or path from one box edge to another with an arrowhead (define one <marker id="a"> in <defs> and set marker-end="url(#a)"), and a loop is drawn as a connector back to where it starts. A connector that ends in empty space drops the sketch. No transform. Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, script, image, links or CSS; attribute values in double quotes. Colors: text #1f2328, secondary #59636e, lines #d1d9e0, accent #5b4cc4, accent fill #cfc8f5, bad #cf222e, good #1a7f37, on white. 12-14px text, few words per label, nothing overlapping.',
       ),
     ),
   }),
@@ -305,7 +305,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

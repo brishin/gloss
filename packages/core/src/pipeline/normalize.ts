@@ -226,15 +226,72 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
 }
 
 /** The hand-drawn candidate, through the SVG allowlist. */
+/** How near a box a connector's end must be to count as touching it, in viewBox units. */
+const TOUCH = 8;
+
+/**
+ * Ends of straight connectors (`line`, `polyline`) that touch no box, circle or ellipse. A
+ * connector into empty space is the commonest failure of a model-drawn sketch: the loop or
+ * flow it was meant to show never closes. Skipped (0) when anything is transformed, since
+ * coordinates are then not comparable.
+ */
+export function looseEnds(svg: string): number {
+  if (/\stransform="/.test(svg)) {
+    return 0;
+  }
+  const attrs = (tag: string) =>
+    Object.fromEntries([...tag.matchAll(/\s([\w-]+)="([^"]*)"/g)].map(([, k, value]) => [k!, Number(value)]));
+  const tags = (name: string) => [...svg.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => attrs(tag));
+  const near = (a: number, b: number) => Math.abs(a - b) <= TOUCH;
+  const within = (value: number, from: number, to: number) => value >= from - TOUCH && value <= to + TOUCH;
+  const shapes: ((x: number, y: number) => boolean)[] = [
+    ...tags('rect').map(
+      ({ x = 0, y = 0, width = 0, height = 0 }) =>
+        (px: number, py: number) =>
+          (within(px, x, x + width) && (near(py, y) || near(py, y + height))) ||
+          (within(py, y, y + height) && (near(px, x) || near(px, x + width))),
+    ),
+    ...[...tags('circle'), ...tags('ellipse')].map(
+      ({ cx = 0, cy = 0, r, rx = r ?? 0, ry = r ?? 0 }) =>
+        (px: number, py: number) =>
+          Math.abs(Math.hypot((px - cx) / Math.max(rx, 1), (py - cy) / Math.max(ry, 1)) - 1) * Math.min(rx, ry) <=
+          TOUCH,
+    ),
+  ];
+  const ends = [
+    ...tags('line').flatMap(({ x1 = 0, y1 = 0, x2 = 0, y2 = 0 }) => [
+      [x1, y1],
+      [x2, y2],
+    ]),
+    ...[...svg.matchAll(/<polyline\s[^>]*\bpoints="([^"]*)"/g)].flatMap(([, points]) => {
+      const n = points!
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+      return n.length >= 4
+        ? [
+            [n[0]!, n[1]!],
+            [n.at(-2)!, n.at(-1)!],
+          ]
+        : [];
+    }),
+  ];
+  return ends.filter(([x, y]) => !shapes.some((touches) => touches(x!, y!))).length;
+}
+
 function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings: string[] } {
   if (!raw.svg.trim()) {
     return { warnings: [] };
   }
   const svg = sanitizeSvg(raw.svg);
   const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
-  return typeof svg === 'string'
-    ? { visual: { kind: 'svg', caption, svg }, warnings: [] }
-    : { warnings: [`Dropped the svg visual: ${svg.why}.`] };
+  if (typeof svg !== 'string') {
+    return { warnings: [`Dropped the svg visual: ${svg.why}.`] };
+  }
+  const loose = looseEnds(svg);
+  return loose
+    ? { warnings: [`Dropped the svg visual: ${loose} connector end${loose > 1 ? 's touch' : ' touches'} no box.`] }
+    : { visual: { kind: 'svg', caption, svg }, warnings: [] };
 }
 
 /** Candidates that survive, in the model's order: the sketch, then the two drawn from data. */
