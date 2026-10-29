@@ -7,7 +7,7 @@ import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protoco
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import { DiffSources } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
@@ -69,7 +69,16 @@ async function tour(options: {
 const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
-  visual: { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
+  visuals: [
+    { kind: 'before-after', caption: 'Who passes the check.', before: ['Any user'], after: ['Admins only'] },
+    {
+      kind: 'timeline',
+      caption: 'When a session loses access.',
+      markers: [],
+      lanes: [{ label: 'After', spans: [{ from: 0, to: 60, text: 'Signed in' }] }],
+    },
+    { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B' },
+  ],
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
@@ -101,7 +110,14 @@ function fakeModel() {
 }
 
 const fakeJudge = () =>
-  createFakeJudgeClient((state, id) => {
+  createFakeJudgeClient((state, id): JudgeAnswer => {
+    // Jev prefers the mermaid candidate, but only the timeline explains the change.
+    if (id === 'best') {
+      return { type: 'choice', choice: 'c3', confidence: 0.6, probabilities: { c1: 0.1, c2: 0.3, c3: 0.6 } };
+    }
+    if (id.endsWith('_explains')) {
+      return { type: 'bool', probability: id === 'c2_explains' ? 0.8 : 0.2 };
+    }
     const path = (state.file as { path: string }).path;
     if (id === 'group') {
       return path.endsWith('.md')
@@ -159,7 +175,7 @@ describe('runTour', () => {
     expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
     expect(finished.decisions).toEqual(groupsAnswer.decisions);
-    expect(finished.visual).toEqual(groupsAnswer.visual);
+    expect(finished.visual).toEqual(groupsAnswer.visuals[1]);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
@@ -188,6 +204,26 @@ describe('runTour', () => {
     ).toBe(true);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('f-hallucinated'))).toBe(true);
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
+    expect(finished.visual).toEqual(groupsAnswer.visuals[0]);
+  });
+
+  it('shows Jev the candidates as pictures and falls back to the first when it fails', async () => {
+    const judge = fakeJudge();
+    const sent: number[] = [];
+    const failing: JudgeClient['Service'] = {
+      model: judge.model,
+      judge: (request) => {
+        if (!request.state.candidates) {
+          return judge.judge(request);
+        }
+        sent.push(...(request.images ?? []).map((image) => Buffer.from(image.data, 'base64').readUInt32BE(0)));
+        return Effect.fail(new JudgeError({ message: 'overloaded' }));
+      },
+    };
+    const { events, tour: finished } = await tour({ model: fakeModel(), judge: failing });
+    expect(sent).toEqual([0x89504e47, 0x89504e47, 0x89504e47]);
+    expect(events.some((event) => event.type === 'job.warning' && event.message.includes('pick a visual'))).toBe(true);
+    expect(finished.visual).toEqual(groupsAnswer.visuals[0]);
   });
 
   it('reports a failed Jev file as a warning and still places it', async () => {
@@ -195,7 +231,7 @@ describe('runTour', () => {
     const failing: JudgeClient['Service'] = {
       model: judge.model,
       judge: (request) =>
-        (request.state.file as { path: string }).path === 'README.md'
+        (request.state.file as { path: string } | undefined)?.path === 'README.md'
           ? Effect.fail(new JudgeError({ message: 'overloaded' }))
           : judge.judge(request),
     };

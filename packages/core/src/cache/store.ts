@@ -2,7 +2,15 @@ import type { RecentTour, SourceRef } from '@gloss/protocol';
 import { Context, Effect, Layer } from 'effect';
 import { createSqliteCacheStore } from './sqlite.ts';
 
-export type CacheKind = 'diff' | 'define' | 'judge-file' | 'judge-group' | 'followup' | 'notes' | 'tour';
+export type CacheKind =
+  | 'diff'
+  | 'define'
+  | 'judge-file'
+  | 'judge-group'
+  | 'judge-visual'
+  | 'followup'
+  | 'notes'
+  | 'tour';
 
 /**
  * Content-addressed storage. Keys come from `cache/keys.ts`; values are JSON.

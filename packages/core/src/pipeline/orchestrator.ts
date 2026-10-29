@@ -10,6 +10,7 @@ import type {
   StageState,
   Tour,
   TourEventBody,
+  Visual,
 } from '@gloss/protocol';
 import {
   initialTourState,
@@ -33,9 +34,12 @@ import {
   groupQuestions,
   judgmentFromFileAnswers,
   judgmentFromGroupAnswers,
+  pickVisual,
   QUESTIONS_VERSION,
+  visualQuestions,
+  visualState,
 } from './judge-questions.ts';
-import { normalizeNotes, normalizeVisual } from './normalize.ts';
+import { normalizeNotes, normalizeVisuals } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
   buildDefinePrompt,
@@ -50,6 +54,7 @@ import {
   NotesSchema,
   PROMPTS_VERSION,
 } from './prompts.ts';
+import { visualPng } from './visual-image.ts';
 
 export interface RunTourOptions {
   ref: SourceRef;
@@ -215,15 +220,60 @@ const tourProgram = Effect.fnUntraced(function* (
       const { key, label, summary, category } = group;
       send({ type: 'group.defined', group: { key, label, summary, category } });
     }
-    const { visual, warnings } = normalizeVisual(definition.visual);
+    const { visuals, warnings } = normalizeVisuals(definition.visuals);
     for (const message of warnings) {
       warn('define', message);
     }
-    send({ type: 'tour.summary', overallSummary: definition.overallSummary, decisions: definition.decisions, visual });
+    // With Jev, the picture waits for its pick; without, the model's first choice is shown.
+    send({
+      type: 'tour.summary',
+      overallSummary: definition.overallSummary,
+      decisions: definition.decisions,
+      visual: judge && visuals.length ? undefined : visuals[0],
+    });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
-    return definition;
+    return { ...definition, visuals };
   });
+
+  /**
+   * Jev looks at each candidate drawn as a PNG (or reads its spec when one fails to draw)
+   * and picks the one to show, or none. A failed call falls back to the model's first.
+   */
+  const chooseVisual = (
+    client: JudgeClient['Service'],
+    definition: { overallSummary: string; decisions: NonNullable<Tour['decisions']>; visuals: readonly Visual[] },
+  ) =>
+    Effect.suspend(() => {
+      const { overallSummary, decisions, visuals } = definition;
+      if (visuals.length === 0) {
+        return Effect.void;
+      }
+      const pngs = visuals.map(visualPng);
+      const images = pngs.every((png) => png)
+        ? pngs.map((png) => ({ data: Buffer.from(png!).toString('base64'), mimeType: 'image/png' as const }))
+        : undefined;
+      const judgeState = visualState(meta.title, overallSummary, decisions, visuals, !!images);
+      const questions = visualQuestions(visuals.length, !!images);
+      const show = (visual: Visual | undefined) => send({ type: 'tour.summary', overallSummary, decisions, visual });
+      return cached(
+        'judge-visual',
+        { QUESTIONS_VERSION, model: client.model, state: judgeState, questions, images: images && hashOf(images) },
+        client.judge({ state: judgeState, questions, ...(images ? { images } : {}) }),
+        client.model,
+      ).pipe(
+        Effect.map(({ value }) => {
+          const pick = pickVisual(visuals.length, value);
+          show(pick === undefined ? undefined : visuals[pick]);
+        }),
+        Effect.catchTag('JudgeError', (error) =>
+          Effect.sync(() => {
+            warn('judge', `Jev could not pick a visual: ${error.message}`);
+            show(visuals[0]);
+          }),
+        ),
+      );
+    });
 
   /** Asks Jev about every file; a failed file is a warning, never the end of the tour. */
   const judgeEach = (
@@ -378,7 +428,16 @@ const tourProgram = Effect.fnUntraced(function* (
   }
   const [definition] = yield* Effect.all(
     [
-      judge ? defineGroups.pipe(Effect.tap((defined) => judgeGroupChoice(judge, defined.groups))) : defineGroups,
+      judge
+        ? defineGroups.pipe(
+            Effect.tap((defined) =>
+              Effect.all([judgeGroupChoice(judge, defined.groups), chooseVisual(judge, defined)], {
+                concurrency: 'unbounded',
+                discard: true,
+              }),
+            ),
+          )
+        : defineGroups,
       judge ? judgeFiles(judge) : Effect.void,
     ],
     { concurrency: 'unbounded' },

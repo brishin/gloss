@@ -50,6 +50,9 @@ export async function createJevClient(specifier: string | null): Promise<JudgeCl
           {
             state: request.state as never,
             questions: request.questions as unknown as Record<string, ClassifierQuestion>,
+            ...(request.images?.length
+              ? { images: request.images.map((image) => ({ type: 'image' as const, ...image })) }
+              : {}),
           },
           { signal },
         ),
