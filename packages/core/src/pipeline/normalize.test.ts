@@ -277,10 +277,11 @@ describe('sketchGap', () => {
     ],
     [
       'a heading is not a label',
-      '<text x="16" y="24">AFTER</text>' + box(0, 'A') + arrow(100) + box(160, 'B'),
+      '<text x="16" y="24" font-weight="600">AFTER</text>' + box(0, 'A') + arrow(100) + box(160, 'B'),
       'A, B',
       'its arrow has no label',
     ],
+    ['a capital protocol name is a label', box(0, 'A') + arrow(100, 'HTTP') + box(160, 'B'), 'A, B', undefined],
     [
       'a before it never draws',
       '<text x="16" y="24">AFTER</text>' + box(0, 'A') + arrow(100, 'calls') + box(160, 'B'),

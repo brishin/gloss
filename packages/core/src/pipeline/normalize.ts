@@ -367,7 +367,7 @@ export function normalizeSketch(raw: Omit<v.InferOutput<typeof SketchSchema>, 'f
 /**
  * What a sketch promises but does not draw, checked in code because the model skips these
  * rules often (eval rounds 9-10): a caption that compares a before with no BEFORE band, or most
- * arrows without a label. Labels are texts outside every box (regions around boxes do not count), other than capitalised headings.
+ * arrows without a label. Labels are texts outside every box (regions around boxes do not count), other than bold capitalised headings.
  */
 export function sketchGap(svg: string, caption: string): string | undefined {
   // "Before, ..." or "Before: ..." compares old and new; "checks the cache before the query" is order.
@@ -393,7 +393,9 @@ export function sketchGap(svg: string, caption: string): string | undefined {
   const labels = [...body.matchAll(/(<text\s[^>]*>)([^<]*)/g)].filter(([, tag, words]) => {
     const [x, y] = [attr(tag!, 'x'), attr(tag!, 'y')];
     const inside = boxes.some(([left, top, right, bottom]) => x >= left! && x <= right! && y >= top! && y <= bottom!);
-    return !inside && !/^[A-Z\s]+$/.test(words!.trim());
+    // A heading is bold capitals ("BEFORE", "SERVER"); a capital arrow label ("HTTP") is not bold.
+    const heading = /^[A-Z\s]+$/.test(words!.trim()) && /\sfont-weight="(?:[6-9]00|bold)"/.test(tag!);
+    return !inside && !heading;
   }).length;
   return labels * 2 >= arrows
     ? undefined
