@@ -30,7 +30,8 @@ The tour's visual rides on `tour.summary` (and `Tour.visual`): at most one pictu
 main decision, as data the client draws. `before-after` is rows on each side, `timeline`
 is lanes of spans on a shared 0-100 axis with optional markers and an outcome per lane,
 and `mermaid` is a flowchart or state diagram rendered with beautiful-mermaid. Never
-model-written SVG or HTML.
+model-written SVG or HTML. With Jev, `tour.summary` is sent twice: first without the
+visual, then with Jev's pick (or none); the reducer keeps the later one.
 
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump

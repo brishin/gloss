@@ -65,17 +65,17 @@ const at = v.pipe(v.number(), v.description('Position on the time axis, 0 (start
 
 /**
  * Lenient on purpose: `normalizeVisual` enforces the limits and drops what it can't draw.
- * Required, with an explicit "none", because models skip an optional field almost always.
+ * Required, because models skip an optional field almost always; an empty list is the "none".
  */
 const visual = v.pipe(
   v.object({
     kind: v.pipe(
-      v.picklist(['before-after', 'timeline', 'mermaid', 'none']),
+      v.picklist(['before-after', 'timeline', 'mermaid']),
       v.description(
-        'none: only for a rename, a styling tweak, a dependency bump or a docs-only change. before-after: the change replaces one shape or flow with another (a data model, an API, a hot path). timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine.',
+        'before-after: the change replaces one shape or flow with another (a data model, an API, a hot path). timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine.',
       ),
     ),
-    caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
+    caption: short('One sentence under 25 words saying what the picture shows. No Markdown.'),
     before: v.optional(
       v.pipe(
         v.array(v.string()),
@@ -126,11 +126,19 @@ const visual = v.pipe(
   ),
 );
 
+/** Overgenerated on purpose: a judge (or, without one, the order) picks the one shown. */
+const visuals = v.pipe(
+  v.array(visual),
+  v.description(
+    '2-3 candidate pictures of the main decision, each a different kind or a different angle, best first. Empty only for a rename, a styling tweak, a dependency bump or a docs-only change.',
+  ),
+);
+
 /** With Jev, the LLM only defines groups; Jev and code place the files. */
 export const DefineSchema = v.object({
   overallSummary,
   decisions: prDecisions,
-  visual,
+  visuals,
   groups: groupsField(GroupSchema),
 });
 
@@ -138,7 +146,7 @@ export const DefineSchema = v.object({
 export const DefineWithFilesSchema = v.object({
   overallSummary,
   decisions: prDecisions,
-  visual,
+  visuals,
   groups: groupsField(
     v.object({
       ...GroupSchema.entries,
@@ -246,7 +254,7 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
-Then decide on one visual of the main decision. Add one whenever the change has any of these: a design replaced by another (before-after: the old shape, flow, data model or behavior next to the new one), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. Use kind "none" only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+Then propose 2-3 candidate visuals of the main decision, best first; only one will be shown. Make them differ in kind or angle so there is a real choice. Add them whenever the change has any of these: a design replaced by another (before-after: the old shape, flow, data model or behavior next to the new one), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. Leave the list empty only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
 
 Call the submit tool once with the complete result.`;
 
@@ -267,7 +275,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

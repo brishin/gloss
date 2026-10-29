@@ -1,6 +1,6 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { normalizeNotes, normalizeVisual } from './normalize.ts';
+import { normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -93,8 +93,17 @@ describe('normalizeVisual', () => {
     });
   });
 
-  it('treats kind none as no visual, without a warning', () => {
-    expect(normalizeVisual({ kind: 'none', caption: '' })).toEqual({ warnings: [] });
+  it('keeps the candidates that survive, in order, and at most three', () => {
+    const rows = { kind: 'before-after' as const, caption: 'c', before: ['a'], after: ['b'] };
+    const { visuals, warnings } = normalizeVisuals([
+      { ...rows, caption: '1' },
+      { kind: 'mermaid', caption: '2', mermaid: 'pie' },
+      { ...rows, caption: '3' },
+      { ...rows, caption: '4' },
+    ]);
+    expect(visuals.map((visual) => visual.caption)).toEqual(['1', '3']);
+    expect(warnings).toHaveLength(1);
+    expect(normalizeVisuals([])).toEqual({ visuals: [], warnings: [] });
   });
 
   it('needs rows on both sides of a before-after', () => {

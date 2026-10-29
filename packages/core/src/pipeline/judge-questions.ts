@@ -1,4 +1,4 @@
-import type { FileChange, FileJudgment, GroupDefinition } from '@gloss/protocol';
+import type { FileChange, FileJudgment, GroupDefinition, Visual } from '@gloss/protocol';
 import type { JudgeAnswer, JudgeQuestion } from '../adapters/types.ts';
 import { hashOf } from '../hash.ts';
 
@@ -64,7 +64,49 @@ export function groupQuestions(groups: readonly GroupDefinition[]): Record<strin
   };
 }
 
-export const QUESTIONS_VERSION = hashOf({ FILE_QUESTIONS, group: groupQuestions([]), YES, NO }).slice(0, 12);
+/**
+ * Which candidate picture to show, if any. The model proposes 2-3; Jev ranks them with
+ * `best` and filters each with `cN_explains`, so a tour never shows a picture that
+ * misleads. With pictures, Jev sees each rendered as `<image-N>` beside its spec.
+ */
+export function visualQuestions(count: number, withImages: boolean): Record<string, JudgeQuestion> {
+  const ids = Array.from({ length: count }, (_, i) => `c${i + 1}`);
+  const picture = (id: string, i: number) =>
+    withImages ? `picture <image-${i + 1}> (\`candidates.${id}\`)` : `\`candidates.${id}\``;
+  const explains = Object.fromEntries(
+    ids.map((id, i) => [
+      `${id}_explains`,
+      {
+        type: 'bool',
+        instructions: `Does ${picture(id, i)} show the main decision of the change in \`summary\` accurately, and can a reviewer read it at a glance?`,
+        criteria: {
+          true: 'It matches what the change does, draws a choice the change makes rather than a file list or call graph, and its labels and layout are legible.',
+          false:
+            'It contradicts or overstates the change, only restates the file list, or is cluttered, cut off or hard to follow.',
+        },
+      } satisfies JudgeQuestion,
+    ]),
+  );
+  if (count < 2) {
+    return explains;
+  }
+  return {
+    best: {
+      type: 'choice',
+      instructions: `Which candidate in \`candidates\` best explains the main decision in \`summary\` to a reviewer who has not seen the change?${withImages ? ' Each one is drawn in the picture its `picture` field names.' : ''}`,
+      criteria: Object.fromEntries(ids.map((id) => [id, `The ${id} picture.`])),
+    },
+    ...explains,
+  };
+}
+
+export const QUESTIONS_VERSION = hashOf({
+  FILE_QUESTIONS,
+  group: groupQuestions([]),
+  visual: [visualQuestions(2, true), visualQuestions(2, false)],
+  YES,
+  NO,
+}).slice(0, 12);
 
 /** ~12k tokens; keeps state + questions well under Jev's per-question context. */
 export const DIFF_CHAR_CAP = 40_000;
@@ -141,4 +183,39 @@ export function judgmentFromGroupAnswers(answers: Record<string, JudgeAnswer>): 
         : undefined,
     fitsAnyGroup: bool(answers.fits_any_group),
   };
+}
+
+/** Without pictures, Jev reads each candidate's spec instead. */
+export function visualState(
+  prTitle: string,
+  summary: string,
+  decisions: readonly { text: string }[],
+  candidates: readonly Visual[],
+  withImages: boolean,
+): Record<string, unknown> {
+  return {
+    pr_title: prTitle,
+    summary,
+    decisions: decisions.map((decision) => decision.text),
+    candidates: Object.fromEntries(
+      candidates.map((visual, i) => [
+        `c${i + 1}`,
+        { ...(withImages ? { picture: `<image-${i + 1}>` } : {}), ...visual },
+      ]),
+    ),
+  };
+}
+
+/** Least sure a picture explains the change before it is shown. */
+export const EXPLAINS = 0.5;
+
+/**
+ * Candidates ranked by `best` (model order breaks ties and stands in when there is one),
+ * then the first that Jev thinks explains the change. `undefined` hides the visual.
+ */
+export function pickVisual(count: number, answers: Record<string, JudgeAnswer>): number | undefined {
+  const best = answers.best;
+  const weight = (i: number) => (best?.type === 'choice' ? (best.probabilities[`c${i + 1}`] ?? 0) : 0);
+  const order = Array.from({ length: count }, (_, i) => i).sort((a, b) => weight(b) - weight(a) || a - b);
+  return order.find((i) => (bool(answers[`c${i + 1}_explains`]) ?? 0) >= EXPLAINS);
 }
