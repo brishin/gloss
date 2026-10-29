@@ -225,13 +225,14 @@ describe('looseEnds', () => {
     expect(looseEnds(`<svg viewBox="0 0 760 200">${body}</svg>`)).toBe(expected);
   });
 
-  it('drops a sketch with a loose arrow, and keeps the prompt example', () => {
+  it('drops a sketch with a loose arrow, and keeps the prompt examples', () => {
     const svg = `<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90" ${to}/></svg>`;
     expect(normalizeSketch({ caption: 's', svg })).toEqual({
       warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
     });
-    const example = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/)![0];
-    expect(normalizeSketch({ caption: 'e', svg: example }).visual?.kind).toBe('svg');
+    const examples = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/g)!;
+    expect(examples).toHaveLength(2);
+    for (const svg of examples) expect(normalizeSketch({ caption: 'e', svg })).toMatchObject({ warnings: [] });
   });
 });
 
