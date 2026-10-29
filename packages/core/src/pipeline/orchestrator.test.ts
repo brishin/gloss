@@ -70,10 +70,6 @@ const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
   visuals: {
-    sketch: {
-      caption: 'Who passes the check.',
-      svg: '<svg viewBox="0 0 760 200"><rect x="10" y="10" width="200" height="40" fill="#cfc8f5"/><text x="20" y="35">Admins only</text></svg>',
-    },
     first: {
       kind: 'timeline',
       caption: 'When a session loses access.',
@@ -88,17 +84,23 @@ const groupsAnswer = {
   ],
 };
 
+/** What the sketch call draws. */
+const sketchAnswer = {
+  caption: 'Who passes the check.',
+  svg: '<svg viewBox="0 0 760 200"><rect x="10" y="10" width="200" height="40" fill="#cfc8f5"/><text x="20" y="35">Admins only</text></svg>',
+};
+
 /** The sketch as the normalizer passes it on: sanitized, with its namespace. */
 const sketch = {
   kind: 'svg',
-  caption: groupsAnswer.visuals.sketch.caption,
-  svg: groupsAnswer.visuals.sketch.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
+  caption: sketchAnswer.caption,
+  svg: sketchAnswer.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
 };
 
 function fakeModel() {
   return createFakeModelClient({
     answers: {
-      define: groupsAnswer,
+      define: (request) => (request.resultName === 'sketch' ? sketchAnswer : groupsAnswer),
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -186,6 +188,10 @@ describe('runTour', () => {
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
+    // The sketch is its own call on the define model, after define, told what the tour says.
+    const sketchCall = model.calls.find((call) => call.resultName === 'sketch');
+    expect(sketchCall?.tier).toBe('define');
+    expect(sketchCall?.prompt).toContain(groupsAnswer.overallSummary);
 
     // Second run: a finished tour for the same head replays as two events, with no model calls.
     const calls = model.calls.length;
@@ -198,6 +204,9 @@ describe('runTour', () => {
     const model = createFakeModelClient({
       answers: {
         define: (request) => {
+          if (request.resultName === 'sketch') {
+            return sketchAnswer;
+          }
           const ids = [...request.prompt.matchAll(/^(f[0-9a-f]+) /gm)].map((match) => match[1]!);
           return { ...groupsAnswer, groups: [{ ...groupsAnswer.groups[0], fileIds: [ids[0], 'f-hallucinated'] }] };
         },

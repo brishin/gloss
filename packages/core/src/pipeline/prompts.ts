@@ -136,31 +136,33 @@ const visual = v.pipe(
 );
 
 /**
- * Overgenerated on purpose: a judge (or, without one, the order) picks the one shown.
- * Three required slots, because asked for a list of 2-3 the model returned one every time.
+ * The hand-drawn candidate, from its own call: as one slot of the define call it was drawn
+ * as a shallow overview that left out parts its own caption named (eval rounds 6-10).
  */
-/** Its own required slot: asked for "at least one svg" among the kinds, the model drew one in five PRs. */
-const sketch = v.pipe(
+export const SketchSchema = v.pipe(
   v.object({
     caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
     svg: v.pipe(
       v.string(),
       v.description(
-        'One <svg> you draw by hand, drawn as "Drawing the sketch" says, or "" only when every visual is none (a rename, a styling tweak, a dependency bump or docs only). Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, class, script, image, links, CSS or transform; attribute values in double quotes.',
+        'One <svg> drawn as "Drawing the sketch" says, or "" only for a rename, a styling tweak, a dependency bump or a docs-only change. Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, class, script, image, links, CSS or transform; attribute values in double quotes.',
       ),
     ),
   }),
   v.description('A hand-drawn explainer figure of the main decision, like one in a design doc.'),
 );
 
+/**
+ * Overgenerated on purpose: a judge (or, without one, the order) picks the one shown.
+ * Required slots, because asked for a list of 2-3 the model returned one every time.
+ */
 const visuals = v.pipe(
   v.object({
-    sketch,
     first: visual,
     second: v.pipe(visual, v.description('Another candidate, of a different kind or angle than first, or none.')),
   }),
   v.description(
-    'Three candidate pictures of the main decision: a hand-drawn sketch and two drawn from data. Only one is shown. All empty only for a rename, a styling tweak, a dependency bump or a docs-only change.',
+    'Two candidate pictures of the main decision drawn from data; a hand-drawn one is made separately and only one is shown. Both none only for a rename, a styling tweak, a dependency bump or a docs-only change.',
   ),
 );
 
@@ -276,7 +278,7 @@ export const NotesSchema = v.object({
 
 /**
  * How to draw the sketch, from the bake-off's hand-drawn figures (the style Brian liked) and
- * the artifact diagramming guidance. In the system prompt so it is cached with it.
+ * the artifact diagramming guidance.
  */
 const SKETCH_GUIDE = `Drawing the sketch. Draw it as the engineer who has to live with the decision, like a figure in a design doc:
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step or edge the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over the request plumbing every feature shares. Write the caption first, then draw every noun it names as a box: if it says "plus recent tours", recent tours is a box, and if it says "before", there is a BEFORE band.
@@ -299,11 +301,15 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
-Then propose three candidate visuals of the main decision; only one will be shown. The sketch is an SVG you draw by hand, laid out like an explainer figure in a design doc: the old mechanism above the new, the order of events, or the shape of the data that the decision changes, labelled in the reviewer's words and using the full width. The first and second are drawn from data; make them differ in kind or angle so there is a real choice. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in all three only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+Then propose two candidate visuals of the main decision, drawn from data; only one picture will be shown. Make them differ in kind or angle so there is a real choice. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in both only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+
+Call the submit tool once with the complete result.`;
+
+export const SKETCH_SYSTEM = `You are a senior engineer drawing the one figure a reviewer sees first in a guided review tour of a code change: an explainer of its main decision, like a figure in a design doc. Read the change and the tour's summary and decisions, find the mechanism the decision changes, then draw it.
 
 ${SKETCH_GUIDE}
 
-Call the submit tool once with the complete result.`;
+Call the submit tool once with the caption and the svg.`;
 
 export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
 
@@ -322,12 +328,13 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
   FOLLOWUP_SYSTEM,
   NOTES_SYSTEM,
+  SKETCH_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
   SCHEMA_VERSION,
@@ -446,6 +453,21 @@ export function renderNumberedHunk(hunk: FileChange['hunks'][number]): string {
 
 export function flaggedRisks(judgment: FileJudgment | undefined): (typeof RISK_KEYS)[number][] {
   return RISK_KEYS.filter((key) => (judgment?.[key] ?? 0) >= YES);
+}
+
+/** The define prompt (header and diff) plus what the tour already says about the change. */
+export function buildSketchPrompt(
+  definePrompt: string,
+  overallSummary: string,
+  decisions: readonly { text: string }[],
+): string {
+  return [
+    definePrompt,
+    '',
+    '## The tour so far',
+    overallSummary,
+    ...(decisions.length ? ['', 'Key decisions:', ...decisions.map((decision) => `- ${decision.text}`)] : []),
+  ].join('\n');
 }
 
 export function buildNotesPrompt(

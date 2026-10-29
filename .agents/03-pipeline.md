@@ -33,14 +33,16 @@ the submit tool. Budgets are 60k characters per prompt and 12k per file, and gen
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
 
-The define call overgenerates three required candidate slots: a `sketch` (an SVG the
-model draws itself, since hand-drawn pictures explained decisions best in the bake-off;
-as an optional kind it was drawn once in five PRs) and `first`/`second` from the data
+The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
-every time. `svg-sanitize.ts` parses it against an element
+every time. A third candidate, the `sketch`, is an SVG the model draws itself (hand-drawn
+pictures explained decisions best in the bake-off). It has its own call on the define model
+(`SKETCH_SYSTEM`, the define prompt plus the tour's summary and decisions), run while Jev
+judges files: as an optional kind it was drawn once in five PRs, and as a define slot it came
+out as a shallow overview. It is the first candidate. `svg-sanitize.ts` parses it against an element
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
-`<img>`. The define prompt's `SKETCH_GUIDE` gives the house style (stacked BEFORE/AFTER bands on one
+`<img>`. `SKETCH_GUIDE` gives the house style (stacked BEFORE/AFTER bands on one
 grid, neutral boxes, one accent or dashed-red step, labelled arrows) and one example figure.
 A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, arrows into
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose

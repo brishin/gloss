@@ -1,7 +1,15 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { isSinglePath, looseEnds, sketchGap, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
-import { DEFINE_SYSTEM } from './prompts.ts';
+import {
+  isSinglePath,
+  looseEnds,
+  normalizeSketch,
+  sketchGap,
+  normalizeNotes,
+  normalizeVisual,
+  normalizeVisuals,
+} from './normalize.ts';
+import { SKETCH_SYSTEM } from './prompts.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -97,7 +105,6 @@ describe('normalizeVisual', () => {
   it('keeps the candidates that survive, in order, and skips none without a warning', () => {
     const rows = { kind: 'mermaid' as const, caption: 'c', mermaid: 'flowchart TD\n  A --> B\n  A --> C' };
     const { visuals, warnings } = normalizeVisuals({
-      sketch: { caption: '', svg: '' },
       first: { kind: 'mermaid', caption: '1', mermaid: 'pie' },
       second: { ...rows, caption: '3' },
     });
@@ -105,19 +112,16 @@ describe('normalizeVisual', () => {
     expect(warnings).toEqual(['Dropped the mermaid visual: only flowcharts and state diagrams are drawn.']);
   });
 
-  it('puts a sanitized sketch first and drops an unsafe one with a warning', () => {
-    const none = { kind: 'none' as const, caption: '' };
+  it('keeps a sanitized sketch, drops an unsafe one with a warning, and an empty one silently', () => {
     const svg = '<svg viewBox="0 0 10 10"><rect width="4"/></svg>';
-    expect(normalizeVisuals({ sketch: { caption: 's', svg }, first: none, second: none }).visuals).toEqual([
-      { kind: 'svg', caption: 's', svg: svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ') },
-    ]);
-    expect(
-      normalizeVisuals({
-        sketch: { caption: 's', svg: '<svg viewBox="0 0 1 1"><script/></svg>' },
-        first: none,
-        second: none,
-      }),
-    ).toEqual({ visuals: [], warnings: ['Dropped the svg visual: it uses <script>.'] });
+    expect(normalizeSketch({ caption: 's', svg })).toEqual({
+      visual: { kind: 'svg', caption: 's', svg: svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ') },
+      warnings: [],
+    });
+    expect(normalizeSketch({ caption: 's', svg: '<svg viewBox="0 0 1 1"><script/></svg>' })).toEqual({
+      warnings: ['Dropped the svg visual: it uses <script>.'],
+    });
+    expect(normalizeSketch({ caption: '', svg: '' })).toEqual({ warnings: [] });
   });
 
   it('needs a diagram on both sides of a before-after', () => {
@@ -220,16 +224,12 @@ describe('looseEnds', () => {
   });
 
   it('drops a sketch with a loose arrow, and keeps the prompt example', () => {
-    const none = { kind: 'none', caption: '' } as const;
     const svg = `<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90" ${to}/></svg>`;
-    expect(normalizeVisuals({ sketch: { caption: 's', svg }, first: none, second: none })).toEqual({
-      visuals: [],
+    expect(normalizeSketch({ caption: 's', svg })).toEqual({
       warnings: ['Dropped the svg visual: 1 arrow end touches no box.'],
     });
-    const example = DEFINE_SYSTEM.match(/<svg[\s\S]*?<\/svg>/)![0];
-    expect(
-      normalizeVisuals({ sketch: { caption: 'e', svg: example }, first: none, second: none }).visuals,
-    ).toHaveLength(1);
+    const example = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/)![0];
+    expect(normalizeSketch({ caption: 'e', svg: example }).visual?.kind).toBe('svg');
   });
 });
 
