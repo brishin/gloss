@@ -129,10 +129,11 @@ function mermaidSource(raw: string | undefined): string | { why: string } {
  * which a numbered list says just as well. Rough on purpose: edges only, labels ignored.
  */
 export function isSinglePath(source: string): boolean {
-  const edges = source
+  const lines = source
     .split('\n')
     .slice(1)
-    .map((line) => line.replace(/\|[^|]*\|/g, '').replace(/--\s[^-]*?\s*-->/g, '-->'))
+    .map((line) => line.replace(/\|[^|]*\|/g, '').replace(/--\s[^-]*?\s*-->/g, '-->'));
+  const edges = lines
     .flatMap((line) => {
       const ids = line
         .split(/\s*(?:-{2,}>|-{3,}|-\.+->|={2,}>)\s*/)
@@ -146,7 +147,12 @@ export function isSinglePath(source: string): boolean {
     out.set(from, (out.get(from) ?? 0) + 1);
     into.set(to, (into.get(to) ?? 0) + 1);
   }
-  const nodes = new Set(edges.flat());
+  // Nodes declared on their own line count too: a standalone node is not on the path.
+  const declared = lines
+    .filter((line) => !/-{2,}>|-{3,}|-\.+->|={2,}>/.test(line))
+    .map((line) => /^\s*(\[\*\]|[\w-]+)/.exec(line)?.[1])
+    .filter((id): id is string => !!id && !/^(?:end|subgraph|direction|state|note)$/.test(id));
+  const nodes = new Set([...edges.flat(), ...declared]);
   if (![...out.values(), ...into.values()].every((n) => n <= 1) || edges.length !== nodes.size - 1) {
     return false;
   }
