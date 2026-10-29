@@ -126,7 +126,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 size="sm"
                 variant="primary"
                 label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
-                tooltip="Approve r a · Request changes r n · Comment r c"
               />
             </ReviewPanel>
           )}

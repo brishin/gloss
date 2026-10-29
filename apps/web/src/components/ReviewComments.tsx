@@ -57,14 +57,7 @@ export function CommentComposer({
       />
       <div className="comment-actions">
         <Button size="sm" variant="ghost" label="Cancel" onClick={reviewer.cancel} />
-        <Button
-          size="sm"
-          variant="primary"
-          label="Add to review"
-          tooltip="⌘↵"
-          isDisabled={!body.trim()}
-          onClick={reviewer.save}
-        />
+        <Button size="sm" variant="primary" label="Add to review" isDisabled={!body.trim()} onClick={reviewer.save} />
       </div>
     </div>
   );

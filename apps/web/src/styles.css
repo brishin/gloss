@@ -852,6 +852,13 @@
     opacity: 1;
   }
 
+  /* No hover on touch screens: the tools are always there. */
+  @media (hover: none) {
+    .comment-tools {
+      opacity: 1;
+    }
+  }
+
   .comment-tools button {
     padding: 0;
     border: 0;

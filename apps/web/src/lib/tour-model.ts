@@ -387,14 +387,23 @@ function stepReview(model: Model, msg: Msg): Next {
         : [model, []];
     case 'ReviewOpened':
       return canReview(model)
-        ? [set({ open: true, verdict: msg.verdict ?? review.verdict, error: undefined }), []]
+        ? [
+            set({
+              open: true,
+              verdict: msg.verdict ?? review.verdict,
+              problem: undefined,
+              error: undefined,
+              sent: undefined,
+            }),
+            [],
+          ]
         : [model, []];
     case 'ReviewClosed':
       return review.open ? [set({ open: false }), []] : [model, []];
     case 'ReviewVerdictChanged':
-      return [set({ verdict: msg.verdict, error: undefined }), []];
+      return [set({ verdict: msg.verdict, problem: undefined, error: undefined }), []];
     case 'ReviewBodyChanged':
-      return save(set({ body: msg.body }));
+      return save(set({ body: msg.body, problem: undefined }));
     case 'ReviewSubmitted': {
       const verdict = msg.verdict ?? review.verdict;
       const meta = model.tour.meta;
@@ -412,10 +421,13 @@ function stepReview(model: Model, msg: Msg): Next {
       };
       const problem = reviewProblem(request);
       if (problem) {
-        return [set({ open: true, verdict, error: problem }), []];
+        return [set({ open: true, verdict, problem, sent: undefined }), []];
       }
       const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
-      return [set({ verdict, sending, error: undefined }), [{ type: 'SubmitReview', request }]];
+      return [
+        set({ verdict, sending, problem: undefined, error: undefined, sent: undefined }),
+        [{ type: 'SubmitReview', request }],
+      ];
     }
     case 'ReviewSent': {
       // Only what went out leaves the draft: words written while it was on its way stay.

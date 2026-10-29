@@ -25,7 +25,6 @@ export function ReviewPanel({
   children: ReactNode;
 }) {
   const submit = () => dispatch({ type: 'ReviewSubmitted' });
-  const count = review.comments.length;
   // The summary takes the keys, whichever way the panel opened (button, `r a`, a refused send).
   const summary = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -53,20 +52,15 @@ export function ReviewPanel({
         value={review.body}
         onChange={(body) => dispatch({ type: 'ReviewBodyChanged', body })}
         rows={5}
+        status={review.problem ? { type: 'error', message: review.problem } : undefined}
       />
       {review.error && <Banner status="error" title="Not sent" description={review.error} />}
       <div className="comment-actions">
-        {count > 0 && (
-          <span className="muted">
-            With {count} line {count === 1 ? 'comment' : 'comments'}
-          </span>
-        )}
         <Button size="sm" variant="ghost" label="Cancel" onClick={() => dispatch({ type: 'ReviewClosed' })} />
         <Button
           size="sm"
           variant="primary"
           label={VERDICT_LABEL[review.verdict]}
-          tooltip="⌘↵"
           isLoading={Boolean(review.sending)}
           onClick={submit}
         />

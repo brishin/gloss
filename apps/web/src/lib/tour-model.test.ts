@@ -331,7 +331,17 @@ describe('review', () => {
     );
     expect(submitted(cmds)).toEqual([]);
     expect(next.review.open).toBe(true);
-    expect(next.review.error).toBeDefined();
+    expect(next.review.problem).toBeDefined();
+  });
+
+  test('starting another review drops the last confirmation', () => {
+    const [sent] = run(
+      reviewable(),
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+      { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' },
+    );
+    expect(sent.review.sent).toBeDefined();
+    expect(run(sent, { type: 'ReviewOpened', verdict: 'REQUEST_CHANGES' })[0].review.sent).toBeUndefined();
   });
 
   test('shortcuts stay off while the review panel is open', () => {

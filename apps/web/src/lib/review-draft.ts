@@ -25,6 +25,9 @@ export interface ReviewDraft {
   composing?: CommentAnchor & { body: string; editing?: string };
   /** What is on its way to GitHub; words written meanwhile are kept when it lands. */
   sending?: { body: string; ids: readonly string[] };
+  /** Why the review can't be sent as written: shown on the summary. */
+  problem?: string;
+  /** GitHub (or the backend) refused it. */
   error?: string;
   /** The last review sent, for the confirmation. */
   sent?: { verdict: ReviewVerdict; url: string };
