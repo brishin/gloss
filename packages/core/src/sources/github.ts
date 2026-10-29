@@ -42,11 +42,11 @@ async function gh(args: string[], signal?: AbortSignal): Promise<string> {
   }
 }
 
-async function ghJson<T>(args: string[], signal?: AbortSignal): Promise<T> {
+export async function ghJson<T>(args: string[], signal?: AbortSignal): Promise<T> {
   return JSON.parse(await gh(args, signal)) as T;
 }
 
-async function ghPaginated<T>(path: string, signal?: AbortSignal): Promise<T[]> {
+export async function ghPaginated<T>(path: string, signal?: AbortSignal): Promise<T[]> {
   const pages = await ghJson<T[][]>(['--paginate', '--slurp', path], signal);
   return pages.flat();
 }

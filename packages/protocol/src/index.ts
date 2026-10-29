@@ -5,6 +5,7 @@ export * from './diff.ts';
 export * from './events.ts';
 export * from './reducer.ts';
 export * from './source-ref.ts';
+export * from './stack.ts';
 export * from './tour.ts';
 
 /** Bump when the pipeline's output can differ for the same inputs; it is part of every cache key. */

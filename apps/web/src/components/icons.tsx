@@ -1,5 +1,5 @@
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
-import type { Category, DecisionPriority } from '@gloss/protocol';
+import type { Category, DecisionPriority, PullState } from '@gloss/protocol';
 import type { ReactNode } from 'react';
 
 /**
@@ -97,14 +97,44 @@ const PULL_REQUEST = strokeIcon(
   </>,
 );
 
+const MERGED = strokeIcon(
+  <>
+    <circle cx="4" cy="4" r="1.6" />
+    <circle cx="4" cy="12" r="1.6" />
+    <circle cx="12" cy="8" r="1.6" />
+    <path d="M4 5.6v4.8M4.5 5.5C5.5 7.5 7.5 8 10.4 8" />
+  </>,
+);
+
+const DRAFT = strokeIcon(
+  <>
+    <circle cx="4" cy="4" r="1.6" />
+    <circle cx="4" cy="12" r="1.6" />
+    <circle cx="12" cy="12" r="1.6" />
+    <path d="M4 5.6v4.8M12 4v.01M12 7.5v.01" />
+  </>,
+);
+
+const STACK = strokeIcon(
+  <>
+    <path d="M8 2l6 3-6 3-6-3z" />
+    <path d="M2 8l6 3 6-3M2 11l6 3 6-3" />
+  </>,
+);
+
 const FOLDER = strokeIcon(<path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z" />);
 
 export function CategoryIcon({ category }: { category: Category }) {
   return <Icon icon={CATEGORY_ICONS[category]} size="sm" color="inherit" />;
 }
 
-export function RefIcon({ kind }: { kind: 'github-pr' | 'local' }) {
-  return <Icon icon={kind === 'github-pr' ? PULL_REQUEST : FOLDER} size="sm" color="inherit" />;
+export function RefIcon({ kind, state }: { kind: 'github-pr' | 'local'; state?: PullState }) {
+  const icon = kind === 'local' ? FOLDER : state === 'merged' ? MERGED : state === 'draft' ? DRAFT : PULL_REQUEST;
+  return <Icon icon={icon} size="sm" color="inherit" />;
+}
+
+export function StackIcon() {
+  return <Icon icon={STACK} size="sm" color="inherit" />;
 }
 
 export function ChevronIcon() {

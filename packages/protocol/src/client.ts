@@ -6,6 +6,7 @@ import { DiffPayloadSchema } from './diff.ts';
 import { isTerminal, type TourEvent } from './events.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
+import { type Stack, StackSchema } from './stack.ts';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:4777';
 
@@ -46,6 +47,8 @@ export interface GlossClient {
   recent(): Promise<RecentTour[]>;
   /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
   asset(url: string): Promise<ResolvedAsset>;
+  /** The stack a GitHub PR sits in (a stack of one when it has no neighbours). */
+  stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<Stack>;
 }
 
 export interface HttpGlossClientOptions {
@@ -132,5 +135,10 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     health: () => json(HealthSchema, '/api/health'),
     recent: () => json(v.array(RecentTourSchema), '/api/recent'),
     asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),
+    stack: (ref) =>
+      json(
+        StackSchema,
+        `/api/stack?${new URLSearchParams({ owner: ref.owner, repo: ref.repo, number: String(ref.number) })}`,
+      ),
   };
 }
