@@ -943,9 +943,11 @@
     color: var(--color-text-red);
   }
 
+  /* viewBox-only SVGs have no intrinsic size: draw them at the width Jev judged (760px). */
   .visual-svg {
     display: block;
-    max-width: 100%;
+    width: 100%;
+    max-width: 760px;
     height: auto;
     margin-inline: auto;
     border-radius: var(--radius-2, 6px);
