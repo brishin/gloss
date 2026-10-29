@@ -13,6 +13,7 @@ export function createSource(ref: SourceRef): DiffSource {
 }
 
 export { createGithubSource, resolveGithubAsset } from './github.ts';
+export { MAX_STACK, resolveGithubStack, type StackLookup, walkStack } from './github-stack.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';

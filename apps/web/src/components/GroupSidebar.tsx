@@ -3,9 +3,9 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
-import type { FileSummary, GroupView, RecentTour, SourceRef } from '@gloss/protocol';
+import type { FileSummary, GroupView, RecentTour, SourceRef, Stack } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
-import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
+import { Fragment, type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { useGlossClient } from '../lib/client.tsx';
 import {
   byCategory,
@@ -16,10 +16,11 @@ import {
   groupNode,
   type Nesting,
   PR_NODE,
+  STACK_NODE,
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath } from '../lib/tour-view.ts';
-import { CategoryIcon, CheckIcon, RefIcon } from './icons.tsx';
+import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
 
 /**
@@ -56,6 +57,18 @@ export function GroupSidebar({
   const [nesting, setNesting] = useState<Nesting>('tour');
   const [query, setQuery] = useState('');
   const recent = useRecentTours(sourceRef);
+  const fetchedStack = useStack(sourceRef);
+  // Only a chain of two or more is worth its own row.
+  const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
+  const currentMember =
+    sourceRef.kind === 'github-pr'
+      ? fetchedStack?.members.find((member) => member.number === sourceRef.number)
+      : undefined;
+  const stackRefs = new Set(
+    (stack?.members ?? []).map((member) =>
+      serializeRef({ kind: 'github-pr', owner: stack!.owner, repo: stack!.repo, number: member.number }),
+    ),
+  );
   const navigateToRef = useNavigateToRef();
 
   const kept = filterGroups(groups, files, query);
@@ -79,17 +92,28 @@ export function GroupSidebar({
   // Selecting a group (click, j/k, a link in the panel) unfolds the path to it.
   const selectedCategory = groups.find((group) => group.key === selection)?.category;
   useEffect(() => {
-    setOpen(selectedCategory ? [PR_NODE, categoryNode(selectedCategory), groupNode(selection)] : [PR_NODE], true);
+    setOpen(
+      selectedCategory
+        ? [STACK_NODE, PR_NODE, categoryNode(selectedCategory), groupNode(selection)]
+        : [STACK_NODE, PR_NODE],
+      true,
+    );
   }, [selection, selectedCategory, setOpen]);
 
   const toggle = (id: string, deep: boolean) => {
     const open = !isOpen(id);
+    const allBelowPr = [
+      ...groups.map((group) => groupNode(group.key)),
+      ...groups.map((group) => categoryNode(group.category)),
+    ];
     const below =
-      id === PR_NODE
-        ? [...groups.map((group) => groupNode(group.key)), ...groups.map((group) => categoryNode(group.category))]
-        : id.startsWith('category:')
-          ? groups.filter((group) => categoryNode(group.category) === id).map((group) => groupNode(group.key))
-          : [];
+      id === STACK_NODE
+        ? [PR_NODE, ...allBelowPr]
+        : id === PR_NODE
+          ? allBelowPr
+          : id.startsWith('category:')
+            ? groups.filter((group) => categoryNode(group.category) === id).map((group) => groupNode(group.key))
+            : [];
     setOpen(deep ? [id, ...below] : [id], open);
   };
 
@@ -135,6 +159,7 @@ export function GroupSidebar({
   const allFileIds = groups.flatMap((group) => group.fileIds);
   const critical = groups.filter((group) => group.critical).length;
   const prOpen = isOpen(PR_NODE);
+  const stackOpen = isOpen(STACK_NODE);
 
   const renderGroup = (group: GroupView, index: number, parent: string) => {
     const fileIds = kept ? kept.get(group.key) : group.fileIds;
@@ -243,6 +268,56 @@ export function GroupSidebar({
           );
         });
 
+  const prNode = (
+    <div className="tree-node">
+      <TreeRow
+        id={PR_NODE}
+        parent={stack ? STACK_NODE : ''}
+        tabbable={!stack}
+        current={false}
+        expanded={prOpen}
+        label={title ?? describeRef(sourceRef)}
+        sticky
+        onToggle={(deep) => toggle(PR_NODE, deep)}
+        onClick={() => activate(PR_NODE, OVERVIEW)}
+      >
+        <span className="tree-lead">
+          <RefIcon kind={sourceRef.kind} state={currentMember?.state} />
+        </span>
+        <RefLabel sourceRef={sourceRef} title={title} />
+        {!prOpen && critical > 0 && (
+          <span className="tree-critical" aria-label={`${critical} critical groups`}>
+            <span className="marker marker-critical" />
+            {critical}
+          </span>
+        )}
+        {loading ? (
+          <Spinner size="sm" shade="subtle" aria-label="Tour running" />
+        ) : (
+          <Progress seen={countViewed(allFileIds, viewed)} total={allFileIds.length} />
+        )}
+      </TreeRow>
+      {prOpen && (
+        <div className="tree-kids" role="group">
+          <TreeRow
+            id="overview"
+            parent={PR_NODE}
+            current={selection === OVERVIEW}
+            label="Overview"
+            onClick={() => onSelect(OVERVIEW)}
+          >
+            <span className="nav-index" />
+            <span className="nav-label">Overview</span>
+            <span className="nav-count">{files.size || ''}</span>
+          </TreeRow>
+          {groups.length === 0 && loading
+            ? [0, 1, 2].map((index) => <Skeleton key={index} index={index} height={28} />)
+            : groupRows}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <nav className="sidebar" aria-label="Review queue">
       <div className="side-tools">
@@ -265,68 +340,86 @@ export function GroupSidebar({
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
         <div className="tree-section">Review queue</div>
-        <div className="tree-node">
-          <TreeRow
-            id={PR_NODE}
-            parent=""
-            tabbable
-            current={false}
-            expanded={prOpen}
-            label={title ?? describeRef(sourceRef)}
-            sticky
-            onToggle={(deep) => toggle(PR_NODE, deep)}
-            onClick={() => activate(PR_NODE, OVERVIEW)}
-          >
-            <span className="tree-lead">
-              <RefIcon kind={sourceRef.kind} />
-            </span>
-            <RefLabel sourceRef={sourceRef} title={title} />
-            {!prOpen && critical > 0 && (
-              <span className="tree-critical" aria-label={`${critical} critical groups`}>
-                <span className="marker marker-critical" />
-                {critical}
+        {stack ? (
+          <div className="tree-node">
+            <TreeRow
+              id={STACK_NODE}
+              parent=""
+              tabbable
+              current={false}
+              expanded={stackOpen}
+              label={`Stack of ${stack.members.length} PRs onto ${stack.base}`}
+              onToggle={(deep) => toggle(STACK_NODE, deep)}
+              onClick={() => toggle(STACK_NODE, false)}
+            >
+              <span className="tree-lead">
+                <StackIcon />
               </span>
+              <span className="nav-label">
+                Stack onto <code className="tree-branch">{stack.base}</code>
+              </span>
+              {!stackOpen && critical > 0 && (
+                <span className="tree-critical" aria-label={`${critical} critical groups`}>
+                  <span className="marker marker-critical" />
+                  {critical}
+                </span>
+              )}
+              <span className="nav-count">{stack.members.length} PRs</span>
+            </TreeRow>
+            {stackOpen && (
+              <div className="tree-kids" role="group">
+                {stack.members.map((member) =>
+                  member === currentMember ? (
+                    <Fragment key={member.number}>{prNode}</Fragment>
+                  ) : (
+                    <TreeRow
+                      key={member.number}
+                      id={`member:${member.number}`}
+                      parent={STACK_NODE}
+                      current={false}
+                      label={`#${member.number} ${member.title} (${member.state})`}
+                      onClick={() =>
+                        void navigateToRef({
+                          kind: 'github-pr',
+                          owner: stack.owner,
+                          repo: stack.repo,
+                          number: member.number,
+                        })
+                      }
+                    >
+                      <span className="tree-lead">
+                        <RefIcon kind="github-pr" state={member.state} />
+                      </span>
+                      <span className="nav-label" data-done={member.state === 'merged' || member.state === 'closed'}>
+                        <span className="tree-number">#{member.number}</span>
+                        {member.title}
+                      </span>
+                    </TreeRow>
+                  ),
+                )}
+              </div>
             )}
-            {loading ? (
-              <Spinner size="sm" shade="subtle" aria-label="Tour running" />
-            ) : (
-              <Progress seen={countViewed(allFileIds, viewed)} total={allFileIds.length} />
-            )}
-          </TreeRow>
-          {prOpen && (
-            <div className="tree-kids" role="group">
-              <TreeRow
-                id="overview"
-                parent={PR_NODE}
-                current={selection === OVERVIEW}
-                label="Overview"
-                onClick={() => onSelect(OVERVIEW)}
-              >
-                <span className="nav-index" />
-                <span className="nav-label">Overview</span>
-                <span className="nav-count">{files.size || ''}</span>
-              </TreeRow>
-              {groups.length === 0 && loading
-                ? [0, 1, 2].map((index) => <Skeleton key={index} index={index} height={28} />)
-                : groupRows}
-            </div>
-          )}
-        </div>
-        {recent.map((item) => (
-          <TreeRow
-            key={serializeRef(item.ref)}
-            id={`recent:${serializeRef(item.ref)}`}
-            parent=""
-            current={false}
-            label={`${item.title} · ${describeRef(item.ref)}`}
-            onClick={() => void navigateToRef(item.ref)}
-          >
-            <span className="tree-lead">
-              <RefIcon kind={item.ref.kind} />
-            </span>
-            <RefLabel sourceRef={item.ref} title={item.title} />
-          </TreeRow>
-        ))}
+          </div>
+        ) : (
+          prNode
+        )}
+        {recent
+          .filter((item) => !stackRefs.has(serializeRef(item.ref)))
+          .map((item) => (
+            <TreeRow
+              key={serializeRef(item.ref)}
+              id={`recent:${serializeRef(item.ref)}`}
+              parent=""
+              current={false}
+              label={`${item.title} · ${describeRef(item.ref)}`}
+              onClick={() => void navigateToRef(item.ref)}
+            >
+              <span className="tree-lead">
+                <RefIcon kind={item.ref.kind} />
+              </span>
+              <RefLabel sourceRef={item.ref} title={item.title} />
+            </TreeRow>
+          ))}
       </div>
     </nav>
   );
@@ -339,6 +432,31 @@ function RefLabel({ sourceRef, title }: { sourceRef: SourceRef; title: string | 
       {title ?? describeRef(sourceRef)}
     </span>
   );
+}
+
+/** The stack a GitHub PR sits in, once the backend has walked it; undefined for local diffs or on failure. */
+function useStack(sourceRef: SourceRef): Stack | undefined {
+  const client = useGlossClient();
+  const [stack, setStack] = useState<Stack>();
+  const github = sourceRef.kind === 'github-pr' ? sourceRef : undefined;
+  const owner = github?.owner;
+  const repo = github?.repo;
+  const number = github?.number;
+  useEffect(() => {
+    setStack(undefined);
+    if (owner === undefined || repo === undefined || number === undefined) {
+      return;
+    }
+    let live = true;
+    client
+      .stack({ kind: 'github-pr', owner, repo, number })
+      .then((found) => live && setStack(found))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [client, owner, repo, number]);
+  return stack;
 }
 
 /** Recent tours other than this one, newest first. */

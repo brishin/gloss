@@ -1,6 +1,7 @@
 import type { Category, FileSummary, GroupView } from '@gloss/protocol';
 
-/** Sidebar tree node ids: the toured PR, its categories (category nesting only) and its groups. */
+/** Sidebar tree node ids: the PR's stack, the toured PR, its categories (category nesting only) and its groups. */
+export const STACK_NODE = 'stack';
 export const PR_NODE = 'pr';
 export const groupNode = (key: string) => `group:${key}`;
 export const categoryNode = (category: Category) => `category:${category}`;

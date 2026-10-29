@@ -42,10 +42,10 @@ function scripted() {
   return { run, release, runs: () => runs };
 }
 
-function setup(run: ReturnType<typeof scripted>['run']) {
+function setup(run: ReturnType<typeof scripted>['run'], options: Partial<Parameters<typeof createApp>[0]> = {}) {
   const cache = createMemoryCacheStore();
   const jobs = new JobManager({ cache, model: createFakeModelClient({ answers: {} }), run });
-  const app = createApp({ jobs, cache, health: async () => ({}) as never });
+  const app = createApp({ jobs, cache, health: async () => ({}) as never, ...options });
   const client = createHttpGlossClient({
     baseUrl: 'http://gloss.test',
     fetch: async (input, init) =>
@@ -111,5 +111,42 @@ describe('tour API', () => {
       body: JSON.stringify({ ref: { kind: 'github-pr', owner: 'o' } }),
     });
     expect(response.status).toBe(400);
+  });
+});
+
+describe('stack API', () => {
+  const stack = {
+    owner: 'o',
+    repo: 'r',
+    base: 'main',
+    members: [{ number: 1, title: 't', state: 'open' as const, baseRef: 'main', headRef: 'feature' }],
+  };
+
+  it('round-trips a stack through the client', async () => {
+    const asked: unknown[] = [];
+    const { client } = setup(scripted().run, {
+      resolveStack: async (stackRef) => {
+        asked.push(stackRef);
+        return stack;
+      },
+    });
+    expect(await client.stack(ref)).toEqual(stack);
+    expect(asked).toEqual([ref]);
+  });
+
+  it('rejects a request without a PR number', async () => {
+    const { app } = setup(scripted().run, { resolveStack: async () => stack });
+    expect((await app.request('/api/stack?owner=o&repo=r')).status).toBe(400);
+  });
+
+  it('reports a failed lookup as a bad gateway', async () => {
+    const { app } = setup(scripted().run, {
+      resolveStack: async () => {
+        throw new Error('gh is not signed in');
+      },
+    });
+    const response = await app.request('/api/stack?owner=o&repo=r&number=1');
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'gh is not signed in' });
   });
 });

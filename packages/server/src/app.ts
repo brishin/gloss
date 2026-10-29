@@ -1,6 +1,6 @@
 import type { CacheStore } from '@gloss/core';
-import { resolveGithubAsset } from '@gloss/core';
-import type { DiffPayload, Health, ResolvedAsset, TourEvent } from '@gloss/protocol';
+import { resolveGithubAsset, resolveGithubStack } from '@gloss/core';
+import type { DiffPayload, Health, ResolvedAsset, SourceRef, Stack, TourEvent } from '@gloss/protocol';
 import { encodeNdjson, isTerminal, SourceRefSchema } from '@gloss/protocol';
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
@@ -19,6 +19,8 @@ export interface AppOptions {
   corsOrigins?: string[];
   /** Resolves a PR body attachment to a URL the browser can load; defaults to the `gh` login. */
   resolveAsset?: (url: string, signal?: AbortSignal) => Promise<ResolvedAsset | undefined>;
+  /** Finds the stack a PR sits in; defaults to walking branches through the `gh` login. */
+  resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -33,6 +35,7 @@ export function createApp({
   token,
   corsOrigins = [],
   resolveAsset = resolveGithubAsset,
+  resolveStack = resolveGithubStack,
 }: AppOptions): Hono {
   const app = new Hono();
   if (corsOrigins.length) {
@@ -153,6 +156,24 @@ export function createApp({
     // Signed URLs expire within minutes, so neither side may cache the answer.
     c.header('Cache-Control', 'no-store');
     return asset ? c.json(asset) : c.json({ error: 'Unknown asset' }, 404);
+  });
+
+  app.get('/api/stack', async (c) => {
+    const parsed = v.safeParse(SourceRefSchema, {
+      kind: 'github-pr',
+      owner: c.req.query('owner'),
+      repo: c.req.query('repo'),
+      number: Number(c.req.query('number')),
+    });
+    if (!parsed.success || parsed.output.kind !== 'github-pr') {
+      return c.json({ error: 'Expected owner, repo and number' }, 400);
+    }
+    try {
+      // Not cached: stacks change as PRs merge and retarget.
+      return c.json(await resolveStack(parsed.output, c.req.raw.signal));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : 'Stack lookup failed' }, 502);
+    }
   });
 
   return app;

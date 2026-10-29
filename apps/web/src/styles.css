@@ -234,6 +234,15 @@
     color: var(--color-text-disabled);
   }
 
+  .tree-branch {
+    font-family: var(--font-family-code);
+    font-size: var(--font-size-xs);
+  }
+
+  .nav-label[data-done='true'] {
+    color: var(--color-text-secondary);
+  }
+
   .tree-number {
     margin-right: var(--spacing-1);
     color: var(--color-text-secondary);
