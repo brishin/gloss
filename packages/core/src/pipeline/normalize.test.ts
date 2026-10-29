@@ -258,6 +258,17 @@ describe('sketchGap', () => {
       undefined,
     ],
     [
+      'labelled arrows inside a region',
+      '<rect x="0" y="0" width="760" height="120"/>' +
+        box(0, 'A') +
+        arrow(100, 'calls') +
+        box(160, 'B') +
+        arrow(260, 'writes') +
+        box(320, 'C'),
+      'A to C',
+      undefined,
+    ],
+    [
       'no arrow labelled',
       box(0, 'A') + arrow(100) + box(160, 'B') + arrow(260) + box(320, 'C'),
       'A to C',
