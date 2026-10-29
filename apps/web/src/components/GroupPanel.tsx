@@ -3,7 +3,7 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, TourState } from '@gloss/protocol';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
 import { isGeneratedFile, orderedFileIds, RISK_SHORT, risksByFile, splitPath } from '../lib/tour-view.ts';
@@ -26,7 +26,7 @@ export interface FileControls {
   reviewer: Reviewer | undefined;
 }
 
-export function GroupPanel({
+export const GroupPanel = memo(function GroupPanel({
   group,
   state,
   diff,
@@ -157,4 +157,4 @@ export function GroupPanel({
       </div>
     </div>
   );
-}
+});

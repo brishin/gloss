@@ -2,7 +2,7 @@ import type { DiffPayload, FileSummary, TourState } from '@gloss/protocol';
 import { initialTourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import { groupNode, isNodeOpen } from './sidebar-tree.ts';
-import { type Cmd, init, initialModel, keyToMsg, type Model, type Msg, update } from './tour-model.ts';
+import { type Cmd, init, initialModel, keyToMsg, type Model, type Msg, type Spied, update } from './tour-model.ts';
 import { OVERVIEW } from './tour-view.ts';
 
 const REF = { kind: 'github-pr', owner: 'o', repo: 'r', number: 1 } as const;
@@ -54,23 +54,35 @@ function run(start: Model, ...msgs: Msg[]): [Model, Cmd[]] {
 const types = (cmds: readonly Cmd[]) => cmds.map((cmd) => cmd.type);
 
 describe('init', () => {
-  test('starts the tour and holds the file from the URL until it can be shown', () => {
+  test('starts the tour and holds the position from the URL until it can be shown', () => {
     const [start, cmds] = init(REF, { g: 'a', f: 'f2' });
     expect(cmds[0]).toEqual({ type: 'StartTour', ref: REF, force: false });
     expect(types(cmds)).toContain('SetTitle');
-    expect(start.restoring).toBe('f2');
+    expect(start.restoring).toEqual({ g: 'a', f: 'f2' });
     expect(start.connection).toBe('connecting');
+    expect(init(REF, {})[0].restoring).toBeUndefined();
   });
 });
 
-describe('selection', () => {
-  test('a group change pushes history, starts at the top and unfolds the sidebar to it', () => {
+const scrolled = (spied: Spied): Msg => ({ type: 'Scrolled', spied });
+
+describe('jumping', () => {
+  test('a group jump pushes history, scrolls to the group and unfolds the sidebar to it', () => {
     const [next, cmds] = run(model({ activeFileId: 'f1' }), { type: 'GroupSelected', key: 'b' });
     expect(next.position).toEqual({ g: 'b', f: undefined });
     expect(next.activeFileId).toBeUndefined();
-    expect(cmds).toContainEqual({ type: 'Navigate', position: { g: 'b', f: undefined }, replace: false });
-    expect(types(cmds)).toEqual(expect.arrayContaining(['ScrollToTop', 'MeasureActiveFile', 'SetTitle']));
+    expect(cmds.filter((cmd) => cmd.type === 'Navigate')).toEqual([
+      { type: 'Navigate', position: { g: 'b', f: undefined }, replace: false },
+    ]);
+    expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: 'b' });
     expect(isNodeOpen(next.sidebar, groupNode('b'))).toBe(true);
+    expect(run(next, { type: 'GroupSelected', key: OVERVIEW })[1]).toContainEqual({ type: 'ScrollToTop' });
+  });
+
+  test('jumping to where the reader already is scrolls there without a new history entry', () => {
+    const [, cmds] = run(model({ position: { g: 'a' } }), { type: 'GroupSelected', key: 'a' });
+    expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: 'a' });
+    expect(types(cmds)).not.toContain('Navigate');
   });
 
   test('j and k walk overview → groups and stop at the ends', () => {
@@ -82,13 +94,28 @@ describe('selection', () => {
     expect(back.position.g).toBeUndefined();
   });
 
-  test('a file under another group opens that group at the file, not at its top', () => {
-    const [next, cmds] = run(model({ position: { g: 'a' } }), { type: 'FileJumped', fileId: 'f3', groupKey: 'b' });
+  test('a file in another group moves there at the file, with one history entry', () => {
+    const [next, cmds] = run(model({ position: { g: 'a' } }), { type: 'FileJumped', fileId: 'f3' });
     expect(next.position.g).toBe('b');
     expect(next.activeFileId).toBe('f3');
     expect(types(cmds)).toContain('ScrollToFile');
-    expect(types(cmds)).not.toContain('ScrollToTop');
-    expect(types(cmds)).not.toContain('MeasureActiveFile');
+    expect(types(cmds)).not.toContain('ScrollToGroup');
+    expect(cmds.filter((cmd) => cmd.type === 'Navigate')).toEqual([
+      { type: 'Navigate', position: { g: 'b', f: undefined }, replace: false },
+    ]);
+  });
+
+  test('n and p walk every file down the page, across groups', () => {
+    const [atF2] = run(model({ position: { g: 'a' }, activeFileId: 'f1' }), { type: 'FileStepped', by: 1 });
+    expect(atF2.activeFileId).toBe('f2');
+    const [atF3, cmds] = run(atF2, { type: 'FileStepped', by: 1 });
+    expect(atF3.activeFileId).toBe('f3');
+    expect(atF3.position.g).toBe('b');
+    expect(cmds.filter((cmd) => cmd.type === 'Navigate').every((cmd) => cmd.type === 'Navigate' && cmd.replace)).toBe(
+      true,
+    );
+    expect(run(atF3, { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f3');
+    expect(run(model(), { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f1');
   });
 
   test('a vanished group falls back to the overview', () => {
@@ -97,21 +124,39 @@ describe('selection', () => {
   });
 });
 
-describe('URL', () => {
-  test('the file in view replaces the URL entry; the first file of a group is left out', () => {
-    const start = model({ position: { g: 'a' } });
-    const [second, cmds] = run(start, { type: 'ActiveFileChanged', fileId: 'f2' });
-    expect(second.position).toEqual({ g: 'a', f: 'f2' });
-    expect(cmds).toContainEqual({ type: 'Navigate', position: { f: 'f2' }, replace: true });
-    const [first, more] = run(second, { type: 'ActiveFileChanged', fileId: 'f1' });
-    expect(first.position.f).toBeUndefined();
-    expect(more).toContainEqual({ type: 'Navigate', position: { f: undefined }, replace: true });
+describe('scrolling', () => {
+  test('the position follows the page and replaces the URL entry; a group starts at its first file', () => {
+    const [inA, cmds] = run(model(), scrolled({ groupKey: 'a' }));
+    expect(inA.position).toEqual({ g: 'a', f: undefined });
+    expect(inA.activeFileId).toBe('f1');
+    expect(cmds).toContainEqual({ type: 'Navigate', position: { g: 'a', f: undefined }, replace: true });
+    expect(types(cmds)).not.toContain('ScrollToGroup');
+    const [atF2, more] = run(inA, scrolled({ groupKey: 'a', fileId: 'f2' }));
+    expect(atF2.position).toEqual({ g: 'a', f: 'f2' });
+    expect(more).toContainEqual({ type: 'Navigate', position: { g: 'a', f: 'f2' }, replace: true });
+    const [top] = run(atF2, scrolled({}));
+    expect(top.position).toEqual({ g: undefined, f: undefined });
+    expect(top.activeFileId).toBeUndefined();
   });
 
-  test("a file from the last group doesn't write the URL", () => {
-    const [next, cmds] = run(model({ position: { g: 'a' } }), { type: 'ActiveFileChanged', fileId: 'f3' });
-    expect(next.position.f).toBeUndefined();
-    expect(types(cmds)).not.toContain('Navigate');
+  test('a file still above the next group header is not that group’s current file', () => {
+    const [next] = run(model({ position: { g: 'a' } }), scrolled({ groupKey: 'b', fileId: 'f2' }));
+    expect(next.position.g).toBe('b');
+    expect(next.activeFileId).toBe('f3');
+  });
+
+  test('at the bottom of the page, a stop just jumped to stays current while it is on screen', () => {
+    const [jumped] = run(model(), { type: 'GroupSelected', key: 'a' });
+    const bottom = { groupKeys: ['a', 'b'], fileIds: ['f2', 'f3'] };
+    const [kept] = run(jumped, scrolled({ visible: bottom }));
+    expect(kept.position.g).toBe('a');
+    const [last] = run(model({ position: { g: 'gone' } }), scrolled({ visible: bottom }));
+    expect(last.position.g).toBe('b');
+    const [file] = run(
+      model({ position: { g: 'a' }, activeFileId: 'f2' }),
+      scrolled({ groupKey: 'a', visible: bottom }),
+    );
+    expect(file.activeFileId).toBe('f2');
   });
 
   test('back/forward to another file restores it', () => {
@@ -119,6 +164,14 @@ describe('URL', () => {
     expect(next.restoring).toBeUndefined();
     expect(next.activeFileId).toBe('f2');
     expect(cmds).toContainEqual({ type: 'RestoreFile', fileId: 'f2' });
+    expect(types(cmds)).not.toContain('Navigate');
+  });
+
+  test('back/forward to another group or the overview scrolls there', () => {
+    const [inB, cmds] = run(model({ position: { g: 'a' } }), { type: 'UrlChanged', position: { g: 'b' } });
+    expect(inB.position.g).toBe('b');
+    expect(cmds).toContainEqual({ type: 'RestoreGroup', key: 'b' });
+    expect(run(inB, { type: 'UrlChanged', position: {} })[1]).toContainEqual({ type: 'ScrollToTop' });
   });
 
   test('the position the page wrote itself is a no-op', () => {
@@ -129,24 +182,32 @@ describe('URL', () => {
   });
 });
 
-describe('restoring a file', () => {
-  test('waits for the diff, then scrolls to the file and opens it', () => {
-    const start = model({ position: { g: 'a', f: 'f2' }, restoring: 'f2', diff: undefined });
-    const [waiting, none] = run(start, { type: 'NavClosed' }, { type: 'ActiveFileChanged', fileId: 'f1' });
-    expect(waiting.restoring).toBe('f2');
+describe('restoring', () => {
+  test('waits for the diff, then scrolls to the file and opens it; scrolling meanwhile does not move it', () => {
+    const start = model({ position: { g: 'a', f: 'f2' }, restoring: { g: 'a', f: 'f2' }, diff: undefined });
+    const [waiting, none] = run(start, { type: 'NavClosed' }, scrolled({}));
+    expect(waiting.restoring).toEqual({ g: 'a', f: 'f2' });
+    expect(waiting.position).toEqual({ g: 'a', f: 'f2' });
     expect(types(none)).not.toContain('Navigate');
     const [restored, cmds] = run(waiting, { type: 'DiffLoaded', diff: DIFF });
     expect(restored.restoring).toBeUndefined();
     expect(restored.activeFileId).toBe('f2');
     expect(restored.expanded.f2).toBe(true);
     expect(cmds).toContainEqual({ type: 'RestoreFile', fileId: 'f2' });
-    expect(types(cmds)).not.toContain('MeasureActiveFile');
+    expect(types(cmds)).not.toContain('MeasurePosition');
+  });
+
+  test('a group waits for the diff too', () => {
+    const start = model({ position: { g: 'b' }, restoring: { g: 'b' }, diff: undefined });
+    const [restored, cmds] = run(start, { type: 'DiffLoaded', diff: DIFF });
+    expect(restored.restoring).toBeUndefined();
+    expect(cmds).toContainEqual({ type: 'RestoreGroup', key: 'b' });
   });
 
   test('gives up once a finished tour turns out not to have it', () => {
-    const start = model({ position: { g: 'a', f: 'gone' }, restoring: 'gone' });
+    const start = model({ position: { g: 'a', f: 'gone' }, restoring: { g: 'a', f: 'gone' } });
     const [running] = run(start, { type: 'NavToggled' });
-    expect(running.restoring).toBe('gone');
+    expect(running.restoring).toEqual({ g: 'a', f: 'gone' });
     const [done] = run(running, { type: 'EventReceived', event: aborted() });
     expect(done.restoring).toBeUndefined();
   });
@@ -219,14 +280,12 @@ describe('keyToMsg', () => {
 });
 
 describe('sidebar', () => {
-  test('clicking the open selected group folds it; clicking again reopens it', () => {
+  test('clicking a group row jumps to it, even when it is the current one', () => {
     const [start] = run(model(), { type: 'GroupSelected', key: 'a' });
     expect(isNodeOpen(start.sidebar, groupNode('a'))).toBe(true);
-    const [selected] = run(start, { type: 'SidebarActivated', node: groupNode('a'), key: 'a' });
-    expect(isNodeOpen(selected.sidebar, groupNode('a'))).toBe(false);
-    const [reopened, cmds] = run(selected, { type: 'SidebarActivated', node: groupNode('a'), key: 'a' });
-    expect(isNodeOpen(reopened.sidebar, groupNode('a'))).toBe(true);
-    expect(types(cmds)).toContain('Navigate');
+    const [again, cmds] = run(start, { type: 'SidebarActivated', node: groupNode('a'), key: 'a' });
+    expect(isNodeOpen(again.sidebar, groupNode('a'))).toBe(true);
+    expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: 'a' });
   });
 
   test('a filter opens every node', () => {

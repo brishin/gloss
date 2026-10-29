@@ -9,15 +9,7 @@ import { useAtomMount, useAtomSet, useAtomValue } from '@effect/atom-react';
 import type { SourceRef } from '@gloss/protocol';
 import { describeRef, groupsInOrder } from '@gloss/protocol';
 import { Link, useRouter } from '@tanstack/react-router';
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  KeyboardIcon,
-  RotateCwIcon,
-  SquareIcon,
-} from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
 import { canReview, currentGroup, isRunning } from '../lib/tour-model.ts';
@@ -33,9 +25,10 @@ import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { StageRail } from './StageRail.tsx';
 
 /**
- * Tour mode: an overview, then one review group at a time. Everything renders from the
- * tour program's model (`tour-model.ts`), which fills in as stages stream in. Keyboard
- * first: see `SHORTCUTS`.
+ * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,
+ * the sub-bar and the keyboard jump between them; scrolling moves the current position.
+ * Everything renders from the tour program's model (`tour-model.ts`), which fills in as
+ * stages stream in. Keyboard first: see `SHORTCUTS`.
  */
 export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const router = useRouter();
@@ -52,7 +45,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const prev = index > 0 ? groups[index - 1] : undefined;
   const next = groups[index + 1];
   const running = isRunning(model);
-  const select = useCallback((key: string) => dispatch({ type: 'GroupSelected', key }), [dispatch]);
+  const select = (key: string) => dispatch({ type: 'GroupSelected', key });
   const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
   const reviewable = canReview(model);
   const { review } = model;
@@ -253,32 +246,18 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               <Banner status="warning" title="Tour stopped" description="Re-run to start it again." />
             )}
 
-            {current ? (
-              <>
-                <GroupPanel key={current.key} group={current} state={state} diff={diff} controls={controls} />
-                <div className="group-nav">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    label={prev ? prev.label : 'Overview'}
-                    icon={<Icon icon={ArrowLeftIcon} />}
-                    onClick={() => select(prev ? prev.key : OVERVIEW)}
-                  />
-                  {/* The tour ends where it began: the last group leads back to the overview and its decisions. */}
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    label={next ? next.label : 'Overview'}
-                    endContent={<Icon icon={ArrowRightIcon} />}
-                    onClick={() => select(next ? next.key : OVERVIEW)}
-                  />
-                </div>
-              </>
-            ) : state.meta || !running ? (
-              <Overview state={state} groups={groups} running={running} onSelect={select} onJumpToFile={jumpToFile} />
-            ) : (
-              <Skeleton height={160} />
-            )}
+            <section className="stop" id={`group-${OVERVIEW}`} data-group-key={OVERVIEW}>
+              {state.meta || !running ? (
+                <Overview state={state} groups={groups} running={running} onJumpToFile={jumpToFile} />
+              ) : (
+                <Skeleton height={160} />
+              )}
+            </section>
+            {groups.map((group) => (
+              <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
+                <GroupPanel group={group} state={state} diff={diff} controls={controls} />
+              </section>
+            ))}
           </div>
         </main>
       </div>

@@ -2,27 +2,26 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type { GroupView, TourState } from '@gloss/protocol';
+import { memo } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
-import { CATEGORY_LABEL } from '../lib/sidebar-tree.ts';
 import { decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { PriorityIcon } from './icons.tsx';
 
 /**
- * The tour's first stop: what the change is, how it is split, and where the risk is.
- * Shown once, instead of a summary card repeated above every group.
+ * The top of the page: what the change is and where the risk is. Shown once, instead of a
+ * summary card repeated above every group. The groups themselves are listed in the sidebar
+ * and follow below.
  */
-export function Overview({
+export const Overview = memo(function Overview({
   state,
   groups,
   running,
-  onSelect,
   onJumpToFile,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
-  onSelect: (key: string) => void;
   onJumpToFile: (fileId: string) => void;
 }) {
   const files = new Map(state.files.map((file) => [file.id, file]));
@@ -105,7 +104,6 @@ export function Overview({
                           title={path}
                           onClick={(event) => {
                             event.preventDefault();
-                            onSelect(groupKey);
                             onJumpToFile(decision.fileId!);
                           }}
                         >
@@ -113,47 +111,6 @@ export function Overview({
                           {decision.line !== undefined && `:${decision.line}`}
                         </a>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {groups.length > 0 && (
-        <section className="section">
-          <Heading level={2}>Groups</Heading>
-          <table className="overview-table groups">
-            <tbody>
-              {groups.map((group, index) => {
-                const { adds, dels } = totals(group.fileIds);
-                return (
-                  <tr key={group.key} onClick={() => onSelect(group.key)}>
-                    <td className="nav-index">{index + 1}</td>
-                    <td>
-                      <span className="group-cell">
-                        <button type="button" className="row-link" onClick={() => onSelect(group.key)}>
-                          {group.label}
-                        </button>
-                        {group.critical && (
-                          <span className="tree-critical">
-                            <span className="marker marker-critical" />
-                            critical
-                          </span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="stat cat muted">{CATEGORY_LABEL[group.category]}</td>
-                    <td className="stat muted">
-                      {group.fileIds.length} {plural(group.fileIds.length, 'file')}
-                    </td>
-                    <td className="stat">
-                      <span className="adds">+{adds}</span> <span className="dels">−{dels}</span>
-                    </td>
-                    <td className="stat muted">
-                      {group.notes ? `${noteCount(group)} ${plural(noteCount(group), 'note')}` : ''}
                     </td>
                   </tr>
                 );
@@ -190,7 +147,7 @@ export function Overview({
       )}
     </div>
   );
-}
+});
 
 const plural = (count: number, word: string) => (count === 1 ? word : `${word}s`);
 
