@@ -129,10 +129,21 @@ function mermaidSource(raw: string | undefined): string | { why: string } {
  * which a numbered list says just as well. Rough on purpose: edges only, labels ignored.
  */
 export function isSinglePath(source: string): boolean {
+  // Node text is dropped first, so a ";" or "&" left over is syntax: one statement per ";".
   const lines = source
     .split('\n')
     .slice(1)
-    .map((line) => line.replace(/\|[^|]*\|/g, '').replace(/--\s[^-]*?\s*-->/g, '-->'));
+    .map((line) =>
+      line
+        .replace(/\[(?!\*\])[^\]]*\]|\([^)]*\)|\{[^}]*\}|"[^"]*"/g, '')
+        .replace(/\|[^|]*\|/g, '')
+        .replace(/--\s[^-]*?\s*-->/g, '-->'),
+    )
+    .flatMap((line) => line.split(';'));
+  // "A --> B & C" fans out; not parsed, so never called a path.
+  if (lines.some((line) => line.includes('&'))) {
+    return false;
+  }
   const edges = lines
     .flatMap((line) => {
       const ids = line
