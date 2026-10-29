@@ -232,7 +232,7 @@ describe('looseEnds', () => {
       warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
     });
     const examples = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/g)!;
-    expect(examples).toHaveLength(2);
+    expect(examples).toHaveLength(3);
     for (const svg of examples) expect(normalizeSketch({ caption: 'e', svg })).toMatchObject({ warnings: [] });
   });
 });
