@@ -1,6 +1,6 @@
 import type { Visual } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { visualPng, wrap } from './visual-image.ts';
+import { fit, visualPng, wrap } from './visual-image.ts';
 
 const visuals: Visual[] = [
   { kind: 'before-after', caption: 'c', before: ['`a` row'], after: ['b row'] },
@@ -39,4 +39,10 @@ it('wraps a long before-after row inside its column instead of running into the 
   expect(lines.length).toBe(2);
   expect(lines.every((line) => line.length <= 50)).toBe(true);
   expect(lines.join(' ')).toBe(row);
+});
+
+it('cuts a timeline label to its span with an ellipsis', () => {
+  expect(fit('idle timer', 200)).toBe('idle timer');
+  expect(fit('a long label that cannot fit', 62)).toBe('a long la…');
+  expect(fit('anything', 8)).toBe('');
 });
