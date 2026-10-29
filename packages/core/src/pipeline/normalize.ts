@@ -353,9 +353,40 @@ function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings
     return { warnings: [`Dropped the svg visual: ${svg.why}.`] };
   }
   const loose = looseEnds(svg);
-  return loose
-    ? { warnings: [`Dropped the svg visual: ${loose} arrow end${loose > 1 ? 's touch' : ' touches'} no box.`] }
+  const gap = loose ? `${loose} arrow end${loose > 1 ? 's touch' : ' touches'} no box` : sketchGap(svg, caption ?? '');
+  return gap
+    ? { warnings: [`Dropped the svg visual: ${gap}.`] }
     : { visual: { kind: 'svg', caption, svg }, warnings: [] };
+}
+
+/**
+ * What a sketch promises but does not draw, checked in code because the model skips these
+ * rules often (eval rounds 9-10): a caption about "before" with no BEFORE band, or most
+ * arrows without a label. Labels are texts outside every box, other than capitalised headings.
+ */
+export function sketchGap(svg: string, caption: string): string | undefined {
+  if (/\bbefore\b/i.test(caption) && !/>\s*BEFORE\s*</i.test(svg)) {
+    return 'its caption describes a before it does not draw';
+  }
+  const body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+  const arrows = [...body.matchAll(/<(?:line|polyline|path)\s[^>]*\smarker-(?:start|end)="/g)].length;
+  const attr = (tag: string, key: string) => Number(tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1] ?? 0);
+  const boxes = [...body.matchAll(/<rect\s[^>]*>/g)].map(([tag]) => [
+    attr(tag, 'x'),
+    attr(tag, 'y'),
+    attr(tag, 'x') + attr(tag, 'width'),
+    attr(tag, 'y') + attr(tag, 'height'),
+  ]);
+  const labels = [...body.matchAll(/(<text\s[^>]*>)([^<]*)/g)].filter(([, tag, words]) => {
+    const [x, y] = [attr(tag!, 'x'), attr(tag!, 'y')];
+    const inside = boxes.some(([left, top, right, bottom]) => x >= left! && x <= right! && y >= top! && y <= bottom!);
+    return !inside && !/^[A-Z\s]+$/.test(words!.trim());
+  }).length;
+  return labels * 2 >= arrows
+    ? undefined
+    : arrows === 1
+      ? 'its arrow has no label'
+      : `${arrows - labels} of its ${arrows} arrows have no label`;
 }
 
 /** Candidates that survive, in the model's order: the sketch, then the two drawn from data. */

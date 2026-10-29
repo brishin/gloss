@@ -43,7 +43,9 @@ external `url()`), rejects anything else whole, and the web app shows it only as
 `<img>`. The define prompt's `SKETCH_GUIDE` gives the house style (stacked BEFORE/AFTER bands on one
 grid, neutral boxes, one accent or dashed-red step, labelled arrows) and one example figure.
 A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, arrows into
-empty space were how sketches failed to close a loop.
+empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
+caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
+rules alone did not hold.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
