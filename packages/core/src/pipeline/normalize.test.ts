@@ -1,6 +1,6 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { isSinglePath, looseEnds, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
+import { isSinglePath, looseEnds, sketchGap, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
 import { DEFINE_SYSTEM } from './prompts.ts';
 
 const file: FileChange = {
@@ -230,5 +230,55 @@ describe('looseEnds', () => {
     expect(
       normalizeVisuals({ sketch: { caption: 'e', svg: example }, first: none, second: none }).visuals,
     ).toHaveLength(1);
+  });
+});
+
+describe('sketchGap', () => {
+  const box = (x: number, label: string) =>
+    `<rect x="${x}" y="40" width="100" height="40"/><text x="${x + 50}" y="65">${label}</text>`;
+  const arrow = (x: number, label = '') =>
+    `<path d="M${x} 60H${x + 60}" marker-end="url(#a)"/>${label && `<text x="${x + 30}" y="54">${label}</text>`}`;
+  const svg = (body: string) =>
+    `<svg viewBox="0 0 760 200"><defs><marker id="a"><path d="M0 0L1 1"/></marker></defs>${body}</svg>`;
+  // Shapes from round 9-10 eval sketches.
+  it.each([
+    [
+      'labelled arrows',
+      box(0, 'A') + arrow(100, 'calls') + box(160, 'B') + arrow(260, 'writes') + box(320, 'C'),
+      'A to C',
+      undefined,
+    ],
+    [
+      'half the arrows labelled',
+      box(0, 'A') + arrow(100, 'calls') + box(160, 'B') + arrow(260) + box(320, 'C'),
+      'A to C',
+      undefined,
+    ],
+    [
+      'no arrow labelled',
+      box(0, 'A') + arrow(100) + box(160, 'B') + arrow(260) + box(320, 'C'),
+      'A to C',
+      '2 of its 2 arrows have no label',
+    ],
+    [
+      'a heading is not a label',
+      '<text x="16" y="24">AFTER</text>' + box(0, 'A') + arrow(100) + box(160, 'B'),
+      'A, B',
+      'its arrow has no label',
+    ],
+    [
+      'a before it never draws',
+      '<text x="16" y="24">AFTER</text>' + box(0, 'A') + arrow(100, 'calls') + box(160, 'B'),
+      'Before: X. After: A calls B.',
+      'its caption describes a before it does not draw',
+    ],
+    [
+      'a before band',
+      '<text x="16" y="24">BEFORE</text>' + box(0, 'A') + arrow(100, 'calls') + box(160, 'B'),
+      'Before and after',
+      undefined,
+    ],
+  ] as const)('%s', (_, body, caption, expected) => {
+    expect(sketchGap(svg(body), caption)).toBe(expected);
   });
 });
