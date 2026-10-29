@@ -1,6 +1,6 @@
 import type { FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
 import type * as v from 'valibot';
-import type { DefineSchema, NotesSchema } from './prompts.ts';
+import type { DefineSchema, NotesSchema, SketchSchema } from './prompts.ts';
 import { sanitizeSvg } from './svg-sanitize.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
@@ -343,7 +343,7 @@ function pathEnds(d: string): number[][] {
   return start ? [...ends, start, [x, y]] : [];
 }
 
-function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings: string[] } {
+export function normalizeSketch(raw: v.InferOutput<typeof SketchSchema>): { visual?: Visual; warnings: string[] } {
   if (!raw.svg.trim()) {
     return { warnings: [] };
   }
@@ -389,9 +389,9 @@ export function sketchGap(svg: string, caption: string): string | undefined {
       : `${arrows - labels} of its ${arrows} arrows have no label`;
 }
 
-/** Candidates that survive, in the model's order: the sketch, then the two drawn from data. */
+/** The define call's candidates that survive, in the model's order. */
 export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual[]; warnings: string[] } {
-  const results = raw ? [normalizeSketch(raw.sketch), normalizeVisual(raw.first), normalizeVisual(raw.second)] : [];
+  const results = raw ? [normalizeVisual(raw.first), normalizeVisual(raw.second)] : [];
   return {
     visuals: results.flatMap((result) => (result.visual ? [result.visual] : [])),
     warnings: results.flatMap((result) => result.warnings),

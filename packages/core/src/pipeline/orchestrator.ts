@@ -39,12 +39,13 @@ import {
   visualQuestions,
   visualState,
 } from './judge-questions.ts';
-import { normalizeNotes, normalizeVisuals } from './normalize.ts';
+import { normalizeNotes, normalizeSketch, normalizeVisuals } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
+  buildSketchPrompt,
   DEFINE_SYSTEM,
   DefineSchema,
   DefineWithFilesSchema,
@@ -53,6 +54,8 @@ import {
   NOTES_SYSTEM,
   NotesSchema,
   PROMPTS_VERSION,
+  SKETCH_SYSTEM,
+  SketchSchema,
 } from './prompts.ts';
 import { visualPng } from './visual-image.ts';
 
@@ -224,17 +227,77 @@ const tourProgram = Effect.fnUntraced(function* (
     for (const message of warnings) {
       warn('define', message);
     }
-    // With Jev, the picture waits for its pick; without, the model's first choice is shown.
+    // With Jev, the picture waits for its pick; without, the first data visual shows until the sketch lands.
     send({
       type: 'tour.summary',
       overallSummary: definition.overallSummary,
       decisions: definition.decisions,
-      visual: judge && visuals.length ? undefined : visuals[0],
+      visual: judge ? undefined : visuals[0],
     });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
-    return { ...definition, visuals };
+    return { ...definition, visuals, definePrompt };
   });
+
+  /**
+   * The hand-drawn candidate, from its own call on the define model: as a slot of the define
+   * call it came out as a shallow overview. A failed call is a warning; the data visuals remain.
+   */
+  const drawSketch = (definition: {
+    overallSummary: string;
+    decisions: NonNullable<Tour['decisions']>;
+    definePrompt: string;
+  }) =>
+    Effect.suspend(() => {
+      const sketchPrompt = buildSketchPrompt(definition.definePrompt, definition.overallSummary, definition.decisions);
+      return cached(
+        'sketch',
+        { PROMPTS_VERSION, model: models.define, prompt: sketchPrompt },
+        prompt({
+          tier: 'define',
+          system: SKETCH_SYSTEM,
+          prompt: sketchPrompt,
+          result: SketchSchema,
+          resultName: 'sketch',
+        }),
+        models.define,
+      ).pipe(
+        Effect.map(({ value }) => {
+          const { visual, warnings } = normalizeSketch(value);
+          for (const message of warnings) {
+            warn('define', message);
+          }
+          return visual;
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync(() => {
+            warn('define', `Drawing the sketch failed: ${error.message}`);
+            return undefined;
+          }),
+        ),
+      );
+    });
+
+  /** The sketch joins the data visuals as the first candidate, then Jev (or the order) picks. */
+  const showVisual = (definition: Effect.Success<typeof defineGroups>) =>
+    drawSketch(definition).pipe(
+      Effect.flatMap((sketch) => {
+        const visuals = sketch ? [sketch, ...definition.visuals] : definition.visuals;
+        if (judge) {
+          return chooseVisual(judge, { ...definition, visuals });
+        }
+        return sketch
+          ? Effect.sync(() =>
+              send({
+                type: 'tour.summary',
+                overallSummary: definition.overallSummary,
+                decisions: definition.decisions,
+                visual: sketch,
+              }),
+            )
+          : Effect.void;
+      }),
+    );
 
   /**
    * Jev looks at each candidate drawn as a PNG (or reads its spec when one fails to draw)
@@ -431,13 +494,13 @@ const tourProgram = Effect.fnUntraced(function* (
       judge
         ? defineGroups.pipe(
             Effect.tap((defined) =>
-              Effect.all([judgeGroupChoice(judge, defined.groups), chooseVisual(judge, defined)], {
+              Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
                 concurrency: 'unbounded',
                 discard: true,
               }),
             ),
           )
-        : defineGroups,
+        : defineGroups.pipe(Effect.tap(showVisual)),
       judge ? judgeFiles(judge) : Effect.void,
     ],
     { concurrency: 'unbounded' },
