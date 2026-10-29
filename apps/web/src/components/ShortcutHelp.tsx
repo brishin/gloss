@@ -13,7 +13,7 @@ export const SHORTCUTS: readonly (readonly [keys: string, action: string])[] = [
   ['[', 'Previous note'],
   ['x', 'Collapse or expand the current file'],
   ['v', 'Mark the current file viewed (and move on)'],
-  ['r a', 'Approve'],
+  ['r', 'Review, on Approve'],
   ['r y', 'Approve now, without a comment'],
   ['r n', 'Request changes'],
   ['r c', 'Comment'],

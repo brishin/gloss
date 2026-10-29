@@ -114,7 +114,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         )}
         <div className="toolbar">
           {reviewable && (
-            <ReviewPanel review={review} dispatch={dispatch}>
+            <ReviewPanel review={review} chord={model.chord === 'r'} dispatch={dispatch}>
               <Button
                 size="sm"
                 variant="primary"

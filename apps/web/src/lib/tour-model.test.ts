@@ -310,6 +310,13 @@ describe('review', () => {
     run(start, ...keys.map((key): Msg => ({ type: 'KeyPressed', key })));
   const submitted = (cmds: readonly Cmd[]) => cmds.flatMap((cmd) => (cmd.type === 'SubmitReview' ? [cmd.request] : []));
 
+  test('r opens the review on Approve and waits for the next key', () => {
+    const [next, cmds] = press(reviewable(), 'r');
+    expect(next.review).toMatchObject({ open: true, verdict: 'APPROVE' });
+    expect(next.chord).toBe('r');
+    expect(cmds).toEqual([]);
+  });
+
   test.each([
     ['a', 'APPROVE'],
     ['n', 'REQUEST_CHANGES'],
@@ -328,7 +335,7 @@ describe('review', () => {
       { type: 'CommentSaved' },
     );
     const [sending, cmds] = press(drafted, 'r', 'y');
-    expect(sending.review.open).toBe(false);
+    expect(sending.review.sending).toBeDefined();
     expect(submitted(cmds)).toEqual([
       {
         owner: 'o',
@@ -348,12 +355,19 @@ describe('review', () => {
     expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
   });
 
-  test.each(['j', 'z', 'Escape'])('%s after r drops the chord and does nothing else', (key) => {
+  test.each(['j', 'z'])('%s after r drops the chord and leaves the review open on Approve', (key) => {
     const [next, cmds] = press(reviewable(), 'r', key);
     expect(next.chord).toBeUndefined();
+    expect(next.review).toMatchObject({ open: true, verdict: 'APPROVE' });
     expect(next.position.g).toBeUndefined();
     expect(cmds).toEqual([]);
-    expect(press(next, 'a')[0].review.open).toBe(false);
+    expect(press(next, 'n')[0].review.verdict).toBe('APPROVE');
+  });
+
+  test('Escape after r closes the review', () => {
+    const [next] = press(reviewable(), 'r', 'Escape');
+    expect(next.chord).toBeUndefined();
+    expect(next.review.open).toBe(false);
   });
 
   test('a local diff, or a PR before its diff arrives, cannot be reviewed', () => {
