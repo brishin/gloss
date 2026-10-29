@@ -15,7 +15,7 @@ node packages/cli/src/bin.ts tour main...HEAD                         # print a 
 
 ## Open from GitHub
 
-`apps/extension` is a Chrome extension (also Arc, Brave, Edge): on a pull request page, its
+`apps/extension` is a Chrome extension (also Arc, Dia, Brave, Edge): on a pull request page, its
 toolbar button (or Alt+G, or "Open in gloss" on any PR link) opens the PR in the local
 server it finds on ports 4777 to 4786. Load it once from `chrome://extensions` (Developer
 mode, Load unpacked), then run `gloss extension install` so the button can start

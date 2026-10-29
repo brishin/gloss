@@ -37,6 +37,7 @@ export function nativeHostDirs(platform: NodeJS.Platform, home = homedir()): { b
             'BraveSoftware/Brave-Browser',
             'Microsoft Edge',
             'Arc/User Data',
+            'Dia/User Data',
             'Vivaldi',
           ],
         }
@@ -97,7 +98,7 @@ export function installExtension(platform = process.platform): { wrapper: string
   const targets = nativeHostDirs(platform).filter(({ browser }) => existsSync(browser));
   if (targets.length === 0) {
     throw new Error(
-      'No Chromium browser profile found (Chrome, Arc, Brave, Edge, Chromium or Vivaldi on macOS or Linux).',
+      'No Chromium browser profile found (Chrome, Arc, Dia, Brave, Edge, Chromium or Vivaldi on macOS or Linux).',
     );
   }
   const wrapper = glossPath('native-host');
