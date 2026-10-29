@@ -15,7 +15,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   KeyboardIcon,
-  MapIcon,
   RotateCwIcon,
   SquareIcon,
 } from 'lucide-react';
@@ -95,34 +94,11 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             </Text>
           </span>
         )}
-        <StageRail stages={state.stages} />
-        {/* macOS-style toolbar: icon-only controls in grouped capsules, names in tooltips. */}
+        {/* Pipeline progress matters while it runs or when a stage broke; a clean finish needs no rail. */}
+        {(running || Object.values(state.stages).some((stage) => stage.state === 'failed')) && (
+          <StageRail stages={state.stages} />
+        )}
         <div className="toolbar">
-          <ButtonGroup label="Groups" size="sm">
-            <IconButton
-              variant="secondary"
-              label="Previous group"
-              tooltip={prev ? `Previous: ${prev.label} (k)` : 'Previous group (k)'}
-              icon={<Icon icon={ChevronLeftIcon} />}
-              isDisabled={!current}
-              onClick={() => select(prev ? prev.key : OVERVIEW)}
-            />
-            <IconButton
-              variant="secondary"
-              label="Overview"
-              tooltip="Overview (o)"
-              icon={<Icon icon={MapIcon} />}
-              onClick={() => select(OVERVIEW)}
-            />
-            <IconButton
-              variant="secondary"
-              label="Next group"
-              tooltip={next ? `Next: ${next.label} (j)` : 'Next group (j)'}
-              icon={<Icon icon={ChevronRightIcon} />}
-              isDisabled={!next}
-              onClick={() => next && select(next.key)}
-            />
-          </ButtonGroup>
           {running ? (
             <IconButton
               size="sm"
@@ -177,20 +153,46 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 onClick={() => dispatch({ type: 'NavToggled' })}
               />
             </span>
-            <span className="subbar-crumbs">
+            {/* Where you are in the tour, and the way to the neighbouring stops. */}
+            <ButtonGroup label="Groups" size="sm">
+              <IconButton
+                variant="ghost"
+                label="Previous group"
+                tooltip={prev ? `Previous: ${prev.label} (k)` : current ? 'Overview (k)' : 'Previous group (k)'}
+                icon={<Icon icon={ChevronLeftIcon} />}
+                isDisabled={!current}
+                onClick={() => select(prev ? prev.key : OVERVIEW)}
+              />
+              <IconButton
+                variant="ghost"
+                label="Next group"
+                tooltip={next ? `Next: ${next.label} (j)` : 'Next group (j)'}
+                icon={<Icon icon={ChevronRightIcon} />}
+                isDisabled={!next}
+                onClick={() => next && select(next.key)}
+              />
+            </ButtonGroup>
+            <nav className="subbar-crumbs" aria-label="Tour position">
               {current ? (
                 <>
-                  <strong>{current.label}</strong> · group {index + 1} of {groups.length} · {current.fileIds.length}{' '}
-                  files{reviewed ? `, ${reviewed} viewed` : ''}
-                  {state.meta ? ` · ${state.meta.baseRef} ← ${state.meta.headRef}` : ''}
+                  <button type="button" className="crumb" title="Overview (o)" onClick={() => select(OVERVIEW)}>
+                    Overview
+                  </button>
+                  <span className="crumb-sep" aria-hidden="true">
+                    /
+                  </span>
+                  <strong aria-current="step">{current.label}</strong>
                 </>
               ) : (
-                <>
-                  <strong>Overview</strong>
-                  {state.meta ? ` · ${state.meta.title} · ${state.meta.baseRef} ← ${state.meta.headRef}` : ''}
-                </>
+                <strong aria-current="step">Overview</strong>
               )}
-            </span>
+            </nav>
+            {current && (
+              <span className="subbar-position">
+                Group {index + 1} of {groups.length}
+                {reviewed ? ` · ${reviewed} of ${current.fileIds.length} files viewed` : ''}
+              </span>
+            )}
           </div>
 
           <div className="content">
@@ -219,15 +221,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                     icon={<Icon icon={ArrowLeftIcon} />}
                     onClick={() => select(prev ? prev.key : OVERVIEW)}
                   />
-                  {next && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      label={next.label}
-                      endContent={<Icon icon={ArrowRightIcon} />}
-                      onClick={() => select(next.key)}
-                    />
-                  )}
+                  {/* The tour ends where it began: the last group leads back to the overview and its decisions. */}
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    label={next ? next.label : 'Overview'}
+                    endContent={<Icon icon={ArrowRightIcon} />}
+                    onClick={() => select(next ? next.key : OVERVIEW)}
+                  />
                 </div>
               </>
             ) : state.meta || !running ? (

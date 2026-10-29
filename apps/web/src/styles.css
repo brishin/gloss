@@ -22,9 +22,9 @@
     --text-label-size: 12px;
     --text-supporting-size: 12px;
     --text-code-size: 12px;
-    --text-heading-1-size: 18px;
-    --text-heading-2-size: 16px;
-    --text-heading-3-size: 14px;
+    --text-heading-1-size: 20px;
+    --text-heading-2-size: 14px;
+    --text-heading-3-size: 13px;
     --text-heading-4-size: 13px;
     /* gloss's own hue, reserved for notes (see .note). */
     --gloss-ink: light-dark(oklch(50% 0.17 285), oklch(78% 0.12 285));
@@ -174,16 +174,7 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: var(--spacing-1) var(--spacing-2) var(--spacing-4);
-  }
-
-  .tree-section {
-    padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-text-secondary);
+    padding: var(--spacing-2) var(--spacing-2) var(--spacing-4);
   }
 
   .tree-node,
@@ -265,13 +256,23 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .tree-critical {
+  /* One vocabulary for "watch out": a dot and a word, the same in the sidebar, the overview and a group's head. */
+  .tree-critical,
+  .risk-kind {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+
+  .tree-critical {
     color: var(--color-error);
+  }
+
+  .risk-kind {
+    color: var(--color-warning);
   }
 
   .tree-ring {
@@ -441,7 +442,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-2);
-    padding: 0 var(--spacing-4);
+    padding: 0 var(--spacing-6) 0 var(--spacing-5);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-background-body);
     font-size: 12px;
@@ -452,26 +453,80 @@
   .subbar-crumbs {
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-1-5);
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .subbar-crumbs strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--color-text-primary);
     font-weight: var(--font-weight-semibold);
   }
 
+  .crumb {
+    all: unset;
+    flex: none;
+    cursor: pointer;
+    border-radius: var(--radius-inner);
+  }
+
+  .crumb:hover {
+    color: var(--color-text-primary);
+  }
+
+  .crumb:focus-visible,
+  .row-link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .crumb-sep {
+    flex: none;
+    color: var(--color-text-disabled);
+  }
+
+  .subbar-position {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * Spacing rhythm: tight inside a block (title and its summary, a heading and its rows),
+   * generous between blocks, so sections read as groups without boxes around them.
+   */
   .content {
-    padding: var(--spacing-3) var(--spacing-4) var(--spacing-8);
+    padding: var(--spacing-5) var(--spacing-6) var(--spacing-12);
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-3);
+    gap: var(--spacing-6);
+  }
+
+  .page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-6);
+  }
+
+  .page-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1-5);
   }
 
   .section {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-2);
+  }
+
+  .files {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
   }
 
   .prose {
@@ -489,7 +544,11 @@
     color: var(--color-text-secondary);
   }
 
+  /* A beat below the summary, still inside the head: the risks are part of what the group is. */
   .risk-list {
+    margin: var(--spacing-1-5) 0 0;
+    padding: 0;
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: var(--spacing-1);
@@ -507,9 +566,9 @@
   }
 
   .risk-row a {
+    flex: none;
     font-family: var(--font-family-code);
     color: var(--color-text-primary);
-    white-space: nowrap;
   }
 
   .group-nav {
@@ -542,9 +601,37 @@
   }
 
   .overview-table td {
-    padding: 4px 8px;
+    padding: 6px 8px;
     border-bottom: 1px solid var(--color-border);
     vertical-align: baseline;
+  }
+
+  .overview-table tr:first-child td {
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* Numbers hug the right; the label column takes the rest. */
+  .overview-table td.stat {
+    width: 1%;
+    text-align: right;
+  }
+
+  /* Words read from the left even among right-aligned numbers. */
+  .overview-table td.cat {
+    text-align: left;
+  }
+
+  .group-cell {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--spacing-2);
+  }
+
+  .row-link {
+    all: unset;
+    cursor: pointer;
+    font-weight: var(--font-weight-semibold);
+    border-radius: var(--radius-inner);
   }
 
   .overview-table tr {
@@ -704,7 +791,6 @@
     display: flex;
     align-items: baseline;
     gap: var(--spacing-2);
-    border-left-color: var(--color-text-purple);
   }
 
   /* The icon sits on the first line of text. */
@@ -727,7 +813,6 @@
   .decisions .decision-priority {
     width: 14px;
     padding-right: 0;
-    border-left: 3px solid var(--color-text-purple);
   }
 
   .decisions .priority-icon {
@@ -893,7 +978,16 @@
     }
 
     .content {
-      padding: var(--spacing-2) var(--spacing-2) var(--spacing-8);
+      padding: var(--spacing-3) var(--spacing-2) var(--spacing-8);
+      gap: var(--spacing-5);
+    }
+
+    .page {
+      gap: var(--spacing-5);
+    }
+
+    .subbar-position {
+      display: none;
     }
 
     .group-nav {

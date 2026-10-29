@@ -1,5 +1,3 @@
-import { Badge } from '@astryxdesign/core/Badge';
-import { Banner } from '@astryxdesign/core/Banner';
 import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
@@ -65,33 +63,41 @@ export function GroupPanel({
   const riskNotes = notes?.riskNotes ?? [];
 
   return (
-    <div className="section">
-      <div className="group-header">
-        <Heading level={3}>{group.label}</Heading>
-        <Badge variant="neutral" label={group.category} />
-        {group.critical && <Badge variant="error" label="critical" />}
-        {group.phase === 'provisional' && <Badge variant="warning" label="provisional" />}
-        {notesPending && <Spinner size="sm" label="Writing notes" />}
-      </div>
-      {group.summary ? (
-        <div className="prose">
-          <Markdown density="compact">{group.summary}</Markdown>
+    <div className="page">
+      <header className="page-head">
+        <div className="group-header">
+          <Heading level={1}>{group.label}</Heading>
+          {/* The same quiet mark as the overview table and the sidebar, not a pill of its own. */}
+          {group.critical && (
+            <span className="tree-critical">
+              <span className="marker marker-critical" />
+              critical
+            </span>
+          )}
+          {notesPending && (
+            <span className="muted">
+              <Spinner size="sm" label="Writing notes" />
+            </span>
+          )}
         </div>
-      ) : group.phase === 'provisional' ? (
-        <span className="muted">Grouped by path while the model reads the change…</span>
-      ) : null}
-      {riskNotes.length > 0 && (
-        <Banner
-          status="warning"
-          title={`${riskNotes.length} risk ${riskNotes.length === 1 ? 'flag' : 'flags'} in this group`}
-          collapsible={{ defaultIsOpen: true }}
-        >
-          <div className="risk-list">
+        {group.summary ? (
+          <div className="prose">
+            <Markdown density="compact">{group.summary}</Markdown>
+          </div>
+        ) : group.phase === 'provisional' ? (
+          <span className="muted">Grouped by path while the model reads the change…</span>
+        ) : null}
+        {/* Where the risk is, read right after what the group does: a list under the summary, not an alert. */}
+        {riskNotes.length > 0 && (
+          <ul className="risk-list" aria-label="Risk flags">
             {riskNotes.map((risk, index) => {
               const path = files.get(risk.fileId)?.path ?? risk.fileId;
               return (
-                <div className="risk-row" key={index}>
-                  <Badge variant="warning" label={RISK_SHORT[risk.risk]} />
+                <li className="risk-row" key={index}>
+                  <span className="risk-kind">
+                    <span className="marker marker-risk" />
+                    {RISK_SHORT[risk.risk]}
+                  </span>
                   <a
                     href={`#file-${risk.fileId}`}
                     title={path}
@@ -103,34 +109,36 @@ export function GroupPanel({
                     {splitPath(path).base}
                   </a>
                   <span>{risk.text}</span>
-                </div>
+                </li>
               );
             })}
-          </div>
-        </Banner>
-      )}
-      {order.map((fileId) => {
-        const summary = files.get(fileId);
-        if (!summary) {
-          return <Skeleton key={fileId} height={32} />;
-        }
-        return (
-          <FileView
-            key={fileId}
-            summary={summary}
-            change={changes.get(fileId)}
-            fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
-            lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
-            decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
-            risks={risks.get(fileId) ?? NO_RISKS}
-            generated={isGeneratedFile(group, summary)}
-            expanded={isFileExpanded(controls, group, summary)}
-            viewed={controls.viewed.has(fileId)}
-            onToggleExpanded={controls.onToggleExpanded}
-            onToggleViewed={controls.onToggleViewed}
-          />
-        );
-      })}
+          </ul>
+        )}
+      </header>
+      <div className="files">
+        {order.map((fileId) => {
+          const summary = files.get(fileId);
+          if (!summary) {
+            return <Skeleton key={fileId} height={32} />;
+          }
+          return (
+            <FileView
+              key={fileId}
+              summary={summary}
+              change={changes.get(fileId)}
+              fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
+              lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
+              decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
+              risks={risks.get(fileId) ?? NO_RISKS}
+              generated={isGeneratedFile(group, summary)}
+              expanded={isFileExpanded(controls, group, summary)}
+              viewed={controls.viewed.has(fileId)}
+              onToggleExpanded={controls.onToggleExpanded}
+              onToggleViewed={controls.onToggleViewed}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

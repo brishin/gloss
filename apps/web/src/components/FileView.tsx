@@ -124,8 +124,12 @@ export const FileView = memo(function FileView({
             <strong>{base}</strong>
           </span>
         </button>
+        {/* The same mark as the group head and the sidebar dot; a pill would outshout the file name. */}
         {riskKinds.map((risk) => (
-          <Badge key={risk} variant="warning" label={RISK_SHORT[risk]} />
+          <span key={risk} className="risk-kind">
+            <span className="marker marker-risk" />
+            {RISK_SHORT[risk]}
+          </span>
         ))}
         {generated && <Badge variant="neutral" label="generated" />}
         {summary.status !== 'modified' && <Badge variant="neutral" label={summary.status} />}
