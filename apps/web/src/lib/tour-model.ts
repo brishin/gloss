@@ -5,6 +5,7 @@ import type {
   ReviewRequest,
   ReviewVerdict,
   SourceRef,
+  Stack,
   TourEvent,
   TourState,
 } from '@gloss/protocol';
@@ -85,6 +86,8 @@ export interface Model {
   review: ReviewDraft;
   /** The first key of a two-key shortcut (`r a`), until the second arrives. */
   chord?: 'r';
+  /** The PR's stack, once the backend has walked it (PRs only). */
+  stack?: Stack;
 }
 
 export type Step = 1 | -1;
@@ -101,6 +104,9 @@ export type Msg =
   | { type: 'UrlChanged'; position: Position }
   | { type: 'GroupSelected'; key: string }
   | { type: 'GroupStepped'; by: Step }
+  | { type: 'StackLoaded'; stack: Stack }
+  /** Shift+J/K: opens the next or previous PR in the stack. */
+  | { type: 'StackStepped'; by: Step }
   | { type: 'FileJumped'; fileId: string }
   | { type: 'FileStepped'; by: Step }
   | { type: 'NoteStepped'; by: Step }
@@ -171,7 +177,10 @@ export type Cmd =
   | { type: 'SetTitle'; title: string }
   | { type: 'LoadReview'; diffId: string }
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
-  | { type: 'SubmitReview'; diffId: string; request: ReviewRequest };
+  | { type: 'SubmitReview'; diffId: string; request: ReviewRequest }
+  | { type: 'FetchStack'; ref: Extract<SourceRef, { kind: 'github-pr' }> }
+  /** Leaves this tour for another one. */
+  | { type: 'OpenRef'; ref: SourceRef };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -193,7 +202,8 @@ export function initialModel(ref: SourceRef, position: Position): Model {
 
 export function init(ref: SourceRef, position: Position): Next {
   const model = initialModel(ref, position);
-  return settle(undefined, model, [{ type: 'StartTour', ref, force: false }]);
+  const stack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
+  return settle(undefined, model, [{ type: 'StartTour', ref, force: false }, ...stack]);
 }
 
 export const groupsOf = (model: Model): GroupView[] => groupsInOrder(model.tour);
@@ -211,6 +221,17 @@ export const fileOrder = (groups: readonly GroupView[]): string[] => groups.flat
 
 export const groupOfFile = (groups: readonly GroupView[], fileId: string): GroupView | undefined =>
   groups.find((group) => group.fileIds.includes(fileId));
+
+/** The PR `by` steps up (toward the top) or down the stack from this one, if there is one. */
+export function stackNeighbour(model: Model, by: Step): SourceRef | undefined {
+  const { ref, stack } = model;
+  if (ref.kind !== 'github-pr' || !stack) {
+    return undefined;
+  }
+  const at = stack.members.findIndex((member) => member.number === ref.number);
+  const target = at < 0 ? undefined : stack.members[at + by];
+  return target && { kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: target.number };
+}
 
 /** Reviews go to GitHub, so only a PR with its diff loaded can be reviewed. */
 export const canReview = (model: Model): boolean => model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
@@ -236,7 +257,7 @@ export function isFileExpanded(
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** Keys that may be shortcuts, so the browser's own use of them is held back. */
-export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkonp][xv?rayc');
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?rayc');
 
 /** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
@@ -271,6 +292,10 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'GroupStepped', by: 1 };
     case 'k':
       return { type: 'GroupStepped', by: -1 };
+    case 'J':
+      return { type: 'StackStepped', by: 1 };
+    case 'K':
+      return { type: 'StackStepped', by: -1 };
     case 'o':
       return { type: 'GroupSelected', key: OVERVIEW };
     case 'n':
@@ -334,6 +359,12 @@ function step(model: Model, msg: Msg): Next {
       const stops = [OVERVIEW, ...groups.map((group) => group.key)];
       const target = stops[stops.indexOf(selectedKey(model, groups)) + msg.by];
       return target ? select(model, target) : [model, []];
+    }
+    case 'StackLoaded':
+      return [{ ...model, stack: msg.stack }, []];
+    case 'StackStepped': {
+      const target = stackNeighbour(model, msg.by);
+      return target ? [model, [{ type: 'OpenRef', ref: target }]] : [model, []];
     }
     case 'FileJumped':
       return jump(model, msg.fileId, true);

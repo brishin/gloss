@@ -1,6 +1,6 @@
 import type { SourceRef } from '@gloss/protocol';
 import { parseGithubTarget } from '@gloss/protocol';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { type AnyRouter, Link, useRouter } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import * as v from 'valibot';
 
@@ -26,15 +26,18 @@ export function RefLink({ sourceRef, children }: { sourceRef: SourceRef; childre
   );
 }
 
+export function navigateToRef(router: AnyRouter, ref: SourceRef) {
+  return ref.kind === 'github-pr'
+    ? router.navigate({
+        to: '/gh/$owner/$repo/pull/$number',
+        params: { owner: ref.owner, repo: ref.repo, number: String(ref.number) },
+      })
+    : router.navigate({ to: '/local', search: { repo: ref.repo, target: ref.target } });
+}
+
 export function useNavigateToRef() {
-  const navigate = useNavigate();
-  return (ref: SourceRef) =>
-    ref.kind === 'github-pr'
-      ? navigate({
-          to: '/gh/$owner/$repo/pull/$number',
-          params: { owner: ref.owner, repo: ref.repo, number: String(ref.number) },
-        })
-      : navigate({ to: '/local', search: { repo: ref.repo, target: ref.target } });
+  const router = useRouter();
+  return (ref: SourceRef) => navigateToRef(router, ref);
 }
 
 /** What the home page's box accepts: a PR URL, `owner/repo#123`, or an absolute repo path with an optional `@target`. */

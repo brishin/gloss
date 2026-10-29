@@ -6,6 +6,8 @@ import { Fragment } from 'react';
 export const SHORTCUTS: readonly (readonly [keys: string, action: string])[] = [
   ['j', 'Next group'],
   ['k', 'Previous group'],
+  ['shift+j', 'Next PR in the stack'],
+  ['shift+k', 'Previous PR in the stack'],
   ['o', 'Overview'],
   ['n', 'Next file'],
   ['p', 'Previous file'],

@@ -5,6 +5,7 @@ import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { Gloss, glossRuntime, request } from './client.ts';
 import type { SavedReview } from './review-draft.ts';
+import { navigateToRef } from './source-routes.tsx';
 import { makeProgram } from './tea.ts';
 import {
   type Cmd,
@@ -152,6 +153,13 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'Scrolled', spied: spy() }))));
     case 'StepNote':
       return once(Effect.sync(() => stepNote(cmd.by)));
+    case 'FetchStack':
+      // No stack (the lookup failed) just means no stack row and no Shift+J/K.
+      return once(
+        request((client) => client.stack(cmd.ref)).pipe(Effect.map((stack): Msg => ({ type: 'StackLoaded', stack }))),
+      );
+    case 'OpenRef':
+      return once(Effect.sync(() => void navigateToRef(router, cmd.ref)));
     case 'SetTitle':
       // Held until the next title replaces it, or the page goes away.
       return once(
