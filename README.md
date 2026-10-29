@@ -13,6 +13,15 @@ node packages/cli/src/bin.ts                                          # this rep
 node packages/cli/src/bin.ts tour main...HEAD                         # print a tour in the terminal
 ```
 
+## Open from GitHub
+
+`apps/extension` is a Chrome extension (also Arc, Brave, Edge): on a pull request page, its
+toolbar button (or Alt+G, or "Open in gloss" on any PR link) opens the PR in the local
+server it finds on ports 4777 to 4786. Load it once from `chrome://extensions` (Developer
+mode, Load unpacked), then run `gloss extension install` so the button can start
+`gloss serve` itself when nothing is running (logs in `~/.gloss/serve.log`). Without that,
+it shows how to start the server and opens the PR once it is up.
+
 ## Models and keys
 
 - **LLM** (group definitions, follow-up placement, notes) runs through a [Flue](https://flueframework.com) agent on the backend. Defaults: Claude Haiku 5.5 for the fast tiers, Sonnet 5.5 for notes. Set `"profile": "openai"` in `~/.gloss/config.json` for GPT.

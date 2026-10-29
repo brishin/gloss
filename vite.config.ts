@@ -13,6 +13,6 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'apps/web/src/**/*.test.ts'],
+    include: ['packages/*/src/**/*.test.ts', 'apps/web/src/**/*.test.ts', 'apps/extension/*.test.js'],
   },
 });
