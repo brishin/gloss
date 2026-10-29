@@ -288,7 +288,6 @@ export function GroupSidebar({
         </SegmentedControl>
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
-        <div className="tree-section">Review queue</div>
         {stack ? (
           <div className="tree-node">
             <TreeRow

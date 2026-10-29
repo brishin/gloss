@@ -174,16 +174,7 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: var(--spacing-1) var(--spacing-2) var(--spacing-4);
-  }
-
-  .tree-section {
-    padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-text-secondary);
+    padding: var(--spacing-2) var(--spacing-2) var(--spacing-4);
   }
 
   .tree-node,
@@ -265,13 +256,23 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .tree-critical {
+  /* One vocabulary for "watch out": a dot and a word, the same in the sidebar, the overview and a group's head. */
+  .tree-critical,
+  .risk-kind {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+
+  .tree-critical {
     color: var(--color-error);
+  }
+
+  .risk-kind {
+    color: var(--color-warning);
   }
 
   .tree-ring {
@@ -543,7 +544,11 @@
     color: var(--color-text-secondary);
   }
 
+  /* A beat below the summary, still inside the head: the risks are part of what the group is. */
   .risk-list {
+    margin: var(--spacing-1-5) 0 0;
+    padding: 0;
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: var(--spacing-1);
@@ -561,9 +566,9 @@
   }
 
   .risk-row a {
+    flex: none;
     font-family: var(--font-family-code);
     color: var(--color-text-primary);
-    white-space: nowrap;
   }
 
   .group-nav {
@@ -609,6 +614,11 @@
   .overview-table td.stat {
     width: 1%;
     text-align: right;
+  }
+
+  /* Words read from the left even among right-aligned numbers. */
+  .overview-table td.cat {
+    text-align: left;
   }
 
   .group-cell {

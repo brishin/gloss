@@ -221,15 +221,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                     icon={<Icon icon={ArrowLeftIcon} />}
                     onClick={() => select(prev ? prev.key : OVERVIEW)}
                   />
-                  {next && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      label={next.label}
-                      endContent={<Icon icon={ArrowRightIcon} />}
-                      onClick={() => select(next.key)}
-                    />
-                  )}
+                  {/* The tour ends where it began: the last group leads back to the overview and its decisions. */}
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    label={next ? next.label : 'Overview'}
+                    endContent={<Icon icon={ArrowRightIcon} />}
+                    onClick={() => select(next ? next.key : OVERVIEW)}
+                  />
                 </div>
               </>
             ) : state.meta || !running ? (

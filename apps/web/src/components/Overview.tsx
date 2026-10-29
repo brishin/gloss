@@ -145,7 +145,7 @@ export function Overview({
                         )}
                       </span>
                     </td>
-                    <td className="stat muted">{CATEGORY_LABEL[group.category]}</td>
+                    <td className="stat cat muted">{CATEGORY_LABEL[group.category]}</td>
                     <td className="stat muted">
                       {group.fileIds.length} {plural(group.fileIds.length, 'file')}
                     </td>
