@@ -22,6 +22,13 @@ const escape = (text: string) =>
 /** Inline code loses its backticks, as in the web app. */
 const plain = (text: string) => escape(text.replace(/`([^`]+)`/g, '$1'));
 
+/** Cuts text to about `width` px of 12px sans with an ellipsis, as the web app's span does. */
+export function fit(text: string, width: number): string {
+  const flat = text.replace(/`([^`]+)`/g, '$1');
+  const max = Math.floor(width / 6.2);
+  return flat.length <= max ? flat : max < 2 ? '' : `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
 /** Greedy word wrap by character count; resvg cannot wrap and has no text metrics. */
 export function wrap(text: string, max: number): string[] {
   const lines: string[] = [];
@@ -96,7 +103,7 @@ function timelineSvg(visual: Extract<Visual, { kind: 'timeline' }>): string {
           const color = span.tone === 'bad' ? BAD : span.tone === 'muted' ? INK.muted : INK.fg;
           return (
             `<rect x="${x(span.from)}" y="${y + 6}" width="${x(span.to) - x(span.from)}" height="20" rx="3" fill="${fill}"/>` +
-            `<text x="${x(span.from) + 6}" y="${y + 20}" font-size="12" fill="${color}" ${FONT}>${plain(span.text)}</text>`
+            `<text x="${x(span.from) + 6}" y="${y + 20}" font-size="12" fill="${color}" ${FONT}>${escape(fit(span.text, x(span.to) - x(span.from) - 12))}</text>`
           );
         })
         .join('');
