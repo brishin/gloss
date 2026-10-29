@@ -43,8 +43,8 @@ out as a shallow overview. It is the first candidate. `svg-sanitize.ts` parses i
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
 `<img>`. `SKETCH_GUIDE` gives the house style (neutral boxes, one accent or dashed-red
-step, labelled arrows) and two example figures. The sketch names its figure type (`form`:
-timeline, states, boundary, fan, shape or bands) before it draws; with bands as the only
+step, labelled arrows) and three example figures. The sketch names its figure type (`form`:
+architecture, timeline, states, boundary, fan, shape or bands) before it draws; with bands as the only
 layout described, it drew before/after bands for most changes, so bands is listed last.
 A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, arrows into
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
