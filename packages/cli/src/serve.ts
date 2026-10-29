@@ -74,6 +74,7 @@ export async function startServer(
   const shell = shellHtml();
   if (shell) {
     app.use('/assets/*', serveStatic({ root: WEB_ROOT }));
+    app.use('/favicon.svg', serveStatic({ root: WEB_ROOT }));
     app.get('*', (c) => c.html(shell));
   } else {
     app.get('*', (c) =>

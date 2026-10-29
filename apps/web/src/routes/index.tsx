@@ -6,6 +6,7 @@ import { describeRef } from '@gloss/protocol';
 import { createFileRoute } from '@tanstack/react-router';
 import { AsyncResult } from 'effect/reactivity';
 import { useState } from 'react';
+import { Logo } from '../components/Logo.tsx';
 import { recentToursAtom } from '../lib/client.ts';
 import { parseInput, RefLink, useNavigateToRef } from '../lib/source-routes.tsx';
 
@@ -30,7 +31,9 @@ function Home() {
   return (
     <main className="home">
       <div>
-        <Heading level={1}>gloss</Heading>
+        <h1 className="home-logo">
+          <Logo />
+        </h1>
         <Text color="secondary">A guided, annotated review tour of a pull request or local diff.</Text>
       </div>
       <form className="target-form" onSubmit={submit}>
