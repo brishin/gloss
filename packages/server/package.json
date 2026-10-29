@@ -13,6 +13,7 @@
     "@gloss/models": "workspace:*",
     "@gloss/protocol": "workspace:*",
     "@hono/node-server": "catalog:",
+    "effect": "catalog:",
     "hono": "catalog:",
     "valibot": "catalog:"
   }

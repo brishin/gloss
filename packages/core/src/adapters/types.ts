@@ -1,4 +1,5 @@
 import type { ModelConfig } from '@gloss/protocol';
+import { Context, Data, type Effect } from 'effect';
 import type * as v from 'valibot';
 
 export type ModelTier = 'define' | 'followup' | 'notes';
@@ -18,7 +19,6 @@ export interface ModelRequest<S extends v.GenericSchema> {
   result: S;
   /** Short name of the result, e.g. "groups"; adapters use it to name the submit tool. */
   resultName: string;
-  signal?: AbortSignal;
   /** Streamed model text/reasoning, for progress only. */
   onDelta?: (delta: { kind: 'text' | 'reasoning'; text: string }) => void;
 }
@@ -29,12 +29,23 @@ export interface ModelResponse<T> {
   usage?: ModelUsage;
 }
 
+/** A model call that failed or returned no valid result. Interruption is not an error. */
+export class ModelError extends Data.TaggedError('ModelError')<{ message: string; cause?: unknown }> {}
+
+/** A Jev call that failed after its retries. */
+export class JudgeError extends Data.TaggedError('JudgeError')<{ message: string; cause?: unknown }> {}
+
 /** The LLM seam: the pipeline depends only on this, never on an SDK. */
-export interface ModelClient {
-  /** `provider/model` per tier; part of every cache key. */
-  config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'>;
-  prompt<S extends v.GenericSchema>(request: ModelRequest<S>): Promise<ModelResponse<v.InferOutput<S>>>;
-}
+export class ModelClient extends Context.Service<
+  ModelClient,
+  {
+    /** `provider/model` per tier; part of every cache key. */
+    config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'>;
+    prompt<S extends v.GenericSchema>(
+      request: ModelRequest<S>,
+    ): Effect.Effect<ModelResponse<v.InferOutput<S>>, ModelError>;
+  }
+>()('@gloss/core/ModelClient') {}
 
 /** Jev-style typed questions; `bool` maps to TypeSafe's `noul`. Criteria shapes are passed through as written. */
 export interface JudgeQuestion {
@@ -48,12 +59,17 @@ export type JudgeAnswer =
   | { type: 'score'; score: number; confidence: number }
   | { type: 'bool'; probability: number };
 
-/** A classifier that answers typed questions about one state with calibrated probabilities (TypeSafe Jev). */
-export interface JudgeClient {
-  readonly model: string;
-  judge(request: {
-    state: Record<string, unknown>;
-    questions: Record<string, JudgeQuestion>;
-    signal?: AbortSignal;
-  }): Promise<Record<string, JudgeAnswer>>;
-}
+/**
+ * A classifier that answers typed questions about one state with calibrated probabilities
+ * (TypeSafe Jev). Optional: without it the LLM places files itself.
+ */
+export class JudgeClient extends Context.Service<
+  JudgeClient,
+  {
+    readonly model: string;
+    judge(request: {
+      state: Record<string, unknown>;
+      questions: Record<string, JudgeQuestion>;
+    }): Effect.Effect<Record<string, JudgeAnswer>, JudgeError>;
+  }
+>()('@gloss/core/JudgeClient') {}

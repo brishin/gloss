@@ -1,4 +1,5 @@
 import type { SourceRef } from '@gloss/protocol';
+import { Context, Layer } from 'effect';
 import { createGithubSource } from './github.ts';
 import { createLocalSource } from './local.ts';
 import type { DiffSource } from './types.ts';
@@ -10,6 +11,13 @@ export function createSource(ref: SourceRef): DiffSource {
     case 'local':
       return createLocalSource(ref);
   }
+}
+
+/** Turns a ref into its diff source; tests swap in fixed sources. */
+export class DiffSources extends Context.Service<DiffSources, { make(ref: SourceRef): DiffSource }>()(
+  '@gloss/core/DiffSources',
+) {
+  static readonly layer = Layer.succeed(DiffSources, { make: createSource });
 }
 
 export { createGithubSource, resolveGithubAsset } from './github.ts';

@@ -1,3 +1,3 @@
-export { type Backend, createBackend } from './backend.ts';
+export { BackendInfo, BackendLayer } from './backend.ts';
 export { DEFAULT_PORT, startServer } from './serve.ts';
 export { resolveTarget, webPath } from './target.ts';

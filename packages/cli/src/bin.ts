@@ -3,11 +3,12 @@ import { execFile } from 'node:child_process';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { createSource, runTour } from '@gloss/core';
+import { runTour, TourCache } from '@gloss/core';
 import { configPath, glossPath, login, logout, providerStatus, SUBSCRIPTIONS, type Subscription } from '@gloss/models';
 import type { TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient, describeRef, RISK_LABELS, RISK_KEYS } from '@gloss/protocol';
-import { createBackend, loadGlossEnv, VERSION } from './backend.ts';
+import { Effect, Fiber, ManagedRuntime, Stream } from 'effect';
+import { BackendInfo, BackendLayer, VERSION } from './backend.ts';
 import { DEFAULT_PORT, startServer } from './serve.ts';
 import { resolveTarget, webPath } from './target.ts';
 
@@ -117,9 +118,8 @@ async function main() {
     }
 
     case 'status': {
-      loadGlossEnv();
-      const backend = await createBackend();
-      const health = await backend.health();
+      const runtime = ManagedRuntime.make(BackendLayer);
+      const health = await runtime.runPromise(BackendInfo.use((info) => Effect.promise(() => info.health())));
       console.log(
         `Models: define ${health.models.define}, followup ${health.models.followup}, notes ${health.models.notes}`,
       );
@@ -129,7 +129,7 @@ async function main() {
           `  ${provider.id}: ${provider.configured ? `configured (${provider.source ?? 'ok'})` : 'not configured'}`,
         );
       }
-      backend.cache.close();
+      await runtime.dispose();
       return;
     }
 
@@ -137,20 +137,22 @@ async function main() {
       if (rest[0] !== 'prune') {
         throw new Error('Usage: gloss cache prune [--days N]');
       }
-      const backend = await createBackend();
-      const removed = backend.cache.prune(Number(values.days ?? 30) * 86_400_000);
+      const runtime = ManagedRuntime.make(BackendLayer);
+      const days = Number(values.days ?? 30);
+      const removed = await runtime.runPromise(
+        TourCache.use((cache) => Effect.sync(() => cache.prune(days * 86_400_000))),
+      );
       console.log(`Removed ${removed} cache entries.`);
-      backend.cache.close();
+      await runtime.dispose();
       return;
     }
 
     case 'tour': {
       const ref = await resolveTarget(rest[0], process.cwd());
-      const backend = await createBackend();
+      const runtime = ManagedRuntime.make(BackendLayer);
+      const info = await runtime.runPromise(BackendInfo.use(Effect.succeed));
       const start = performance.now();
-      const controller = new AbortController();
-      process.once('SIGINT', () => controller.abort(new DOMException('Interrupted', 'AbortError')));
-      console.error(`Touring ${describeRef(ref)}${backend.judge ? '' : ' (no judge: LLM places files)'}`);
+      console.error(`Touring ${describeRef(ref)}${info.judge ? '' : ' (no judge: LLM places files)'}`);
       const log = (event: TourEventBody) => {
         const at = elapsed(start).padStart(6);
         switch (event.type) {
@@ -187,16 +189,18 @@ async function main() {
         }
       };
       try {
-        const tour = await runTour({
-          ref,
-          source: createSource(ref),
-          cache: backend.cache,
-          model: backend.model,
-          judge: backend.judge,
-          force: values.force,
-          signal: controller.signal,
-          emit: log,
-        });
+        const fiber = runtime.runFork(
+          runTour({ ref, force: values.force }).pipe(
+            Stream.tap((event) => Effect.sync(() => log(event))),
+            Stream.runLast,
+          ),
+        );
+        process.once('SIGINT', () => void Effect.runFork(Fiber.interrupt(fiber)));
+        const last = await Effect.runPromise(Fiber.join(fiber));
+        if (last._tag === 'None' || last.value.type !== 'tour.complete') {
+          throw new Error('The tour ended without finishing.');
+        }
+        const { tour } = last.value;
         console.error(`${elapsed(start).padStart(6)}  done`);
         if (values.json) {
           console.log(JSON.stringify(tour, null, 2));
@@ -226,7 +230,7 @@ async function main() {
           console.log('');
         }
       } finally {
-        backend.cache.close();
+        await runtime.dispose();
         // Flue's runtime keeps handles open; a one-shot command exits explicitly.
         setTimeout(() => process.exit(process.exitCode ?? 0), 50).unref();
       }
@@ -249,10 +253,9 @@ async function main() {
         .then(() => true)
         .catch(() => false);
       if (!running) {
-        const backend = await createBackend();
-        const server = await startServer(backend, { port, host, token, corsOrigins });
+        const server = await startServer({ port, host, token, corsOrigins });
         url = server.url;
-        console.error(`gloss server on ${url}${backend.judge ? '' : ' (judge off: set TYPESAFE_API_KEY for Jev)'}`);
+        console.error(`gloss server on ${url}${server.judge ? '' : ' (judge off: set TYPESAFE_API_KEY for Jev)'}`);
         process.once('SIGINT', () => void server.close().then(() => process.exit(0)));
       } else if (serveOnly) {
         console.error(`gloss is already running on ${url}`);
