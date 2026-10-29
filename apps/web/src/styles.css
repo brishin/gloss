@@ -943,6 +943,15 @@
     color: var(--color-text-red);
   }
 
+  .visual-svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
+    border-radius: var(--radius-2, 6px);
+    background: #fff;
+  }
+
   .visual-mermaid {
     overflow-x: auto;
   }

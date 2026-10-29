@@ -35,7 +35,11 @@ each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-`
 
 The define call overgenerates three required candidate slots (`first`, `second`,
 `third`), each with an explicit `none`; asked for a 2-3 item list, the model returned one
-every time. `normalizeVisuals` clips text, clamps timeline positions, caps rows and
+every time. At least one should be an `svg` the model draws itself: hand-drawn pictures
+explained decisions best in the bake-off. `svg-sanitize.ts` parses it against an element
+and attribute allowlist (no script, style, links, images, foreignObject, entities or
+external `url()`), rejects anything else whole, and the web app shows it only as an
+`<img>`. `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
 shown. With Jev, `visual-image.ts` draws each candidate to a PNG at tour width (resvg; Mermaid
