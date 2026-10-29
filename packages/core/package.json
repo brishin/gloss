@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@gloss/protocol": "workspace:*",
+    "@resvg/resvg-js": "catalog:",
+    "beautiful-mermaid": "catalog:",
     "effect": "catalog:",
     "valibot": "catalog:"
   }

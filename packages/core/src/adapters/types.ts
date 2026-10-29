@@ -54,6 +54,12 @@ export interface JudgeQuestion {
   criteria?: unknown;
 }
 
+/** A picture Jev looks at together with the state; the state can name it as `<image-N>`, counted from 1. */
+export interface JudgeImage {
+  data: string;
+  mimeType: 'image/png' | 'image/jpeg';
+}
+
 export type JudgeAnswer =
   | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
   | { type: 'score'; score: number; confidence: number }
@@ -70,6 +76,8 @@ export class JudgeClient extends Context.Service<
     judge(request: {
       state: Record<string, unknown>;
       questions: Record<string, JudgeQuestion>;
+      /** Base64 pictures, read before the state. Only clients whose model takes images accept them. */
+      images?: readonly JudgeImage[];
     }): Effect.Effect<Record<string, JudgeAnswer>, JudgeError>;
   }
 >()('@gloss/core/JudgeClient') {}

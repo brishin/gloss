@@ -2,6 +2,7 @@ import type { Visual } from '@gloss/protocol';
 import { lazy, Suspense } from 'react';
 
 const MermaidVisual = lazy(() => import('./MermaidVisual.tsx'));
+const BeforeAfterVisual = lazy(() => import('./BeforeAfterVisual.tsx'));
 
 type Timeline = Extract<Visual, { kind: 'timeline' }>;
 
@@ -13,12 +14,18 @@ export function TourVisual({ visual }: { visual: Visual }) {
   return (
     <figure className="visual">
       {visual.kind === 'before-after' ? (
-        <div className="visual-before-after">
-          <VisualColumn label="Before" rows={visual.before} />
-          <VisualColumn label="After" rows={visual.after} />
-        </div>
+        <Suspense fallback={null}>
+          <BeforeAfterVisual before={visual.before} after={visual.after} />
+        </Suspense>
       ) : visual.kind === 'timeline' ? (
         <TimelineVisual timeline={visual} />
+      ) : visual.kind === 'svg' ? (
+        // An image, not inline markup: nothing in a model-drawn SVG can run or link.
+        <img
+          className="visual-svg"
+          alt={visual.caption ?? ''}
+          src={`data:image/svg+xml,${encodeURIComponent(visual.svg)}`}
+        />
       ) : (
         <Suspense fallback={null}>
           <MermaidVisual source={visual.source} />
@@ -27,34 +34,6 @@ export function TourVisual({ visual }: { visual: Visual }) {
       {visual.caption && <figcaption className="muted">{visual.caption}</figcaption>}
     </figure>
   );
-}
-
-function VisualColumn({ label, rows }: { label: string; rows: readonly string[] }) {
-  return (
-    <div className="visual-column">
-      <div className="visual-label">{label}</div>
-      <ul>
-        {rows.map((row, index) => (
-          <li key={index}>
-            <InlineCode text={row} />
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** Backtick spans as code; everything else as plain text. */
-function InlineCode({ text }: { text: string }) {
-  return text
-    .split(/(`[^`]+`)/)
-    .map((part, index) =>
-      part.startsWith('`') && part.endsWith('`') && part.length > 2 ? (
-        <code key={index}>{part.slice(1, -1)}</code>
-      ) : (
-        part
-      ),
-    );
 }
 
 function TimelineVisual({ timeline }: { timeline: Timeline }) {
