@@ -241,8 +241,8 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
 const TOUCH = 8;
 
 /**
- * Ends of arrows (a `line`, `polyline` or `path` with a marker) that touch no box, circle or
- * ellipse. An arrow into empty space is the commonest failure of a model-drawn sketch: the
+ * Ends of arrows (a `line`, `polyline` or `path` with a marker) that touch no box, circle,
+ * ellipse or polygon. An arrow into empty space is the commonest failure of a model-drawn sketch: the
  * loop or flow it was meant to show never closes. Lines without a marker are dividers and
  * axes. Paths count only when made of absolute M, L, H and V. Skipped (0) when anything is
  * transformed, since coordinates are then not comparable.
@@ -254,6 +254,13 @@ export function looseEnds(svg: string): number {
   const tags = (name: string) => [...svg.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => tag);
   const text = (tag: string, key: string) => tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1];
   const num = (tag: string, key: string, fallback = 0) => Number(text(tag, key) ?? fallback);
+  const pairs = (list: string) => {
+    const n = list
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    return Array.from({ length: Math.floor(n.length / 2) }, (_, i) => [n[i * 2]!, n[i * 2 + 1]!] as const);
+  };
   const near = (a: number, b: number) => Math.abs(a - b) <= TOUCH;
   const within = (value: number, from: number, to: number) => value >= from - TOUCH && value <= to + TOUCH;
   const shapes: ((x: number, y: number) => boolean)[] = [
@@ -269,15 +276,21 @@ export function looseEnds(svg: string): number {
       return (px: number, py: number) =>
         Math.abs(Math.hypot((px - cx) / rx, (py - cy) / ry) - 1) * Math.min(rx, ry) <= TOUCH;
     }),
+    // A polygon, such as a decision diamond: touching is being near one of its sides.
+    ...tags('polygon').map((tag) => {
+      const corners = pairs(text(tag, 'points') ?? '');
+      return (px: number, py: number) =>
+        corners.some(([ax, ay], i) => {
+          const [bx, by] = corners[(i + 1) % corners.length]!;
+          const t = Math.min(
+            1,
+            Math.max(0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / Math.max((bx - ax) ** 2 + (by - ay) ** 2, 1)),
+          );
+          return Math.hypot(px - ax - t * (bx - ax), py - ay - t * (by - ay)) <= TOUCH;
+        });
+    }),
   ];
   const arrow = (tag: string) => /\smarker-(?:start|end)="/.test(tag);
-  const points = (list: string) => {
-    const n = list
-      .trim()
-      .split(/[\s,]+/)
-      .map(Number);
-    return n.length >= 4 ? [n.slice(0, 2), n.slice(-2)] : [];
-  };
   const ends = [
     ...tags('line')
       .filter(arrow)
@@ -287,7 +300,10 @@ export function looseEnds(svg: string): number {
       ]),
     ...tags('polyline')
       .filter(arrow)
-      .flatMap((tag) => points(text(tag, 'points') ?? '')),
+      .flatMap((tag) => {
+        const all = pairs(text(tag, 'points') ?? '');
+        return all.length >= 2 ? [all[0]!, all.at(-1)!] : [];
+      }),
     ...tags('path')
       .filter(arrow)
       .flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
