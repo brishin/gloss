@@ -13,6 +13,7 @@ const pr = (
 /** A fake repo: `byHead` sees every state, `byBase` only open and draft PRs, as the gh lookup does. */
 function lookup(pulls: StackPull[]): StackLookup {
   return {
+    trunk: async () => 'main',
     pull: async (number) => pulls.find((pull) => pull.number === number)!,
     byHead: async (branch) => pulls.filter((pull) => pull.headInRepo && pull.headRef === branch),
     byBase: async (branch) =>
@@ -54,6 +55,12 @@ describe('walkStack', () => {
 
   test('a fork PR from its main is not the base of PRs onto main here', async () => {
     expect(await numbers(5, [pr(5, 'main', 'main', 'open', false), pr(6, 'main', 'other')])).toEqual([5]);
+  });
+
+  test('a PR promoting main into a release branch is not under PRs onto main', async () => {
+    const promote = pr(1, 'release', 'main', 'merged', true);
+    expect(await numbers(2, [promote, pr(2, 'main', 'feature')])).toEqual([2]);
+    expect(await numbers(1, [promote, pr(2, 'main', 'feature')])).toEqual([1]);
   });
 
   test('members carry no walk-only fields', async () => {

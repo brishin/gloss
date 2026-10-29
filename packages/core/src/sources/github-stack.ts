@@ -15,6 +15,8 @@ export type StackPull = StackMember & { headInRepo: boolean };
 
 /** How a stack walk finds a PR's neighbours. Kept apart from `gh` so the walk is testable. */
 export interface StackLookup {
+  /** The repo's default branch: a stack never reaches past it. */
+  trunk(): Promise<string>;
   pull(number: number): Promise<StackPull>;
   /** PRs whose head branch in this repo is `branch` (the PR below). */
   byHead(branch: string): Promise<StackPull[]>;
@@ -36,17 +38,18 @@ function pickAbove(candidates: StackPull[]): StackPull | undefined {
 }
 
 /**
- * Walks base branches down and head branches up from one PR. Stops at a branch no PR
- * heads (the trunk), at a PR already seen, or at `MAX_STACK` members.
+ * Walks base branches down and head branches up from one PR. Stops at the trunk (a PR
+ * promoting trunk into a release branch is not under PRs onto trunk), at a branch no PR
+ * heads, at a PR already seen, or at `MAX_STACK` members.
  */
 export async function walkStack(number: number, lookup: StackLookup): Promise<StackMember[]> {
-  const current = await lookup.pull(number);
+  const [current, trunk] = await Promise.all([lookup.pull(number), lookup.trunk()]);
   const seen = new Set([current.number]);
   const below: StackPull[] = [];
   const above: StackPull[] = [];
   const full = () => seen.size >= MAX_STACK;
 
-  for (let at = current; !full();) {
+  for (let at = current; at.baseRef !== trunk && !full();) {
     const next = pickBelow((await lookup.byHead(at.baseRef)).filter((pull) => !seen.has(pull.number)));
     if (!next) {
       break;
@@ -55,7 +58,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     below.unshift(next);
     at = next;
   }
-  for (let at = current; at.headInRepo && !full();) {
+  for (let at = current; at.headInRepo && at.headRef !== trunk && !full();) {
     const next = pickAbove((await lookup.byBase(at.headRef)).filter((pull) => !seen.has(pull.number)));
     if (!next) {
       break;
@@ -108,6 +111,9 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
       ) as PullJson[]
     ).map(toMember);
   return {
+    trunk: async () =>
+      (JSON.parse(await run('gh', ['api', `repos/${ref.owner}/${ref.repo}`], { signal })) as { default_branch: string })
+        .default_branch,
     pull: async (number) =>
       toMember(JSON.parse(await run('gh', ['api', `${pulls}/${number}`], { signal })) as PullJson),
     byHead: (branch) => list({ head: `${ref.owner}:${branch}`, state: 'all' }),
