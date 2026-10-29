@@ -147,7 +147,17 @@ export function isSinglePath(source: string): boolean {
     into.set(to, (into.get(to) ?? 0) + 1);
   }
   const nodes = new Set(edges.flat());
-  return [...out.values(), ...into.values()].every((n) => n <= 1) && edges.length === nodes.size - 1;
+  if (![...out.values(), ...into.values()].every((n) => n <= 1) || edges.length !== nodes.size - 1) {
+    return false;
+  }
+  // One walk from the only node with nothing in must reach every node; a cycle elsewhere breaks it.
+  const next = new Map(edges);
+  let node = [...nodes].find((id) => !into.has(id));
+  let seen = 0;
+  for (; node !== undefined && seen <= nodes.size; node = next.get(node)) {
+    seen++;
+  }
+  return seen === nodes.size;
 }
 
 /**
