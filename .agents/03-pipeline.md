@@ -40,11 +40,11 @@ lanes, keeps only flowchart and state Mermaid without styling or click lines, an
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
 shown. With Jev, `visual-image.ts` draws each candidate to a PNG at tour width (resvg; Mermaid
 via beautiful-mermaid with its CSS vars resolved), shrunk or padded so every side is
-400-1200 px, since Jev rejects a side outside about 280-1568 px, and one `judge-visual` call sends the
-pictures as `<image-N>` beside their specs: `best` ranks them and `cN_explains` filters
-each (shown at `NO` or above, because Jev scores even good pictures 0.35-0.57), so the
-top-ranked one that passes is shown, or none
-(`pickVisual`). If a picture fails to draw, Jev reads the specs only; if Jev fails, the
+400-1200 px, since Jev rejects a side outside about 280-1568 px, and one `judge-visual` call sends the pictures as `<image-N>` beside their specs. Jev answers
+focused yes/no questions per candidate (`accurate`, `whole`, and with pictures `easy`); a
+single "which is best" choice favored any flowchart, even a muddled or partial one. The
+accurate candidate with the highest `whole` x `easy` is shown, or none (`pickVisual`).
+If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
 Ideas not built yet: re-tour only changed files on new commits (the per-file and
