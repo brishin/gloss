@@ -249,8 +249,8 @@ export const ACCURATE = NO;
 
 /**
  * How sure Jev must be that the change is a workflow before a flowchart may beat the sketch.
- * High because Jev said 0.5-0.88 for one limit, a moved responsibility or a write-behind
- * queue, where the sketch read better; real decision trees came in at 0.9 and over.
+ * High because in evals Jev said 0.5-0.88 for changes that were not workflows, where the
+ * sketch read better; real decision trees came in at 0.9 and over.
  */
 export const WORKFLOW = 0.9;
 

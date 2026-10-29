@@ -67,7 +67,7 @@ describe('pickVisual', () => {
     expect(pickVisual(Array(scores.length).fill('mermaid'), answers)).toBe(expected);
   });
 
-  // Candidates: a sketch rated lower than a flowchart, as in the Flashback evals.
+  // Candidates: a sketch rated lower than a flowchart, as in the evals.
   const sketchAndFlow = (workflow: number, sketchAccurate = 0.9) => ({
     workflow: yes(workflow),
     c1_accurate: yes(sketchAccurate),
