@@ -16,7 +16,7 @@ export interface DraftComment extends CommentAnchor {
 }
 
 export interface ReviewDraft {
-  /** The review dialog is open. */
+  /** The review panel is open. */
   open: boolean;
   verdict: ReviewVerdict;
   body: string;
@@ -31,7 +31,7 @@ export interface ReviewDraft {
 
 export const emptyReview: ReviewDraft = { open: false, verdict: 'COMMENT', body: '', comments: [], sending: false };
 
-/** What is kept across reloads, per diff: the words, not the dialog. */
+/** What is kept across reloads, per diff: the words, not the panel. */
 export interface SavedReview {
   body: string;
   comments: readonly DraftComment[];

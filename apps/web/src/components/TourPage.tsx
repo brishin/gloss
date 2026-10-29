@@ -28,7 +28,7 @@ import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
 import { Overview } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
-import { ReviewDialog } from './ReviewDialog.tsx';
+import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { StageRail } from './StageRail.tsx';
 
@@ -121,13 +121,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         )}
         <div className="toolbar">
           {reviewable && (
-            <Button
-              size="sm"
-              variant="secondary"
-              label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
-              tooltip="Approve r a · Request changes r n · Comment r c"
-              onClick={() => dispatch({ type: 'ReviewOpened' })}
-            />
+            <ReviewPanel review={review} dispatch={dispatch}>
+              <Button
+                size="sm"
+                variant="secondary"
+                label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
+                tooltip="Approve r a · Request changes r n · Comment r c"
+              />
+            </ReviewPanel>
           )}
           {running ? (
             <IconButton
@@ -282,7 +283,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </div>
         </main>
       </div>
-      <ReviewDialog review={review} dispatch={dispatch} />
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
   );

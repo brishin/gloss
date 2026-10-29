@@ -317,7 +317,7 @@ describe('review', () => {
     expect(next.review.error).toBeDefined();
   });
 
-  test('shortcuts stay off while the review dialog is open', () => {
+  test('shortcuts stay off while the review panel is open', () => {
     const [open] = run(reviewable(), { type: 'ReviewOpened' });
     expect(keyToMsg(open, 'j')).toBeUndefined();
   });

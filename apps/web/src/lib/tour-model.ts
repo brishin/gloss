@@ -116,12 +116,12 @@ export type Msg =
   | { type: 'ChordStarted'; chord: 'r' }
   | { type: 'ChordCancelled' }
   | { type: 'ReviewLoaded'; diffId: string; saved: SavedReview }
-  /** Opens the review dialog on a verdict (`r a`, `r n`, `r c`, or the Review button). */
+  /** Opens the review panel on a verdict (`r a`, `r n`, `r c`, or the Review button). */
   | { type: 'ReviewOpened'; verdict?: ReviewVerdict }
   | { type: 'ReviewClosed' }
   | { type: 'ReviewVerdictChanged'; verdict: ReviewVerdict }
   | { type: 'ReviewBodyChanged'; body: string }
-  /** Sends the review; `verdict` sends it as that without the dialog (`r y`). */
+  /** Sends the review; `verdict` sends it as that without the panel (`r y`). */
   | { type: 'ReviewSubmitted'; verdict?: ReviewVerdict }
   | { type: 'ReviewSent'; verdict: ReviewVerdict; url: string }
   | { type: 'ReviewFailed'; error: string }
@@ -376,7 +376,7 @@ function step(model: Model, msg: Msg): Next {
   }
 }
 
-/** The review: a dialog for the verdict and summary, and line comments that wait in it until it is sent. */
+/** The review: a panel for the verdict and summary, and line comments that wait in it until it is sent. */
 function stepReview(model: Model, msg: Msg): Next {
   const review = model.review;
   const set = (patch: Partial<ReviewDraft>): Model => ({ ...model, review: { ...review, ...patch } });
