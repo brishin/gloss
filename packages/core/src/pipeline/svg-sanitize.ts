@@ -93,14 +93,11 @@ export function sanitizeSvg(raw: string): string | { why: string } {
   let last = 0;
   for (const match of source.matchAll(/<(\/?)([A-Za-z][\w-]*)((?:\s+[\w:-]+\s*=\s*"[^"]*")*)\s*(\/?)>/g)) {
     const text = source.slice(last, match.index);
-    if (
-      text.includes('<') ||
-      text.includes('>') ||
-      (text.trim() && !['text', 'tspan', 'title'].includes(open.at(-1)!))
-    ) {
+    if (text.includes('<') || (text.trim() && !['text', 'tspan', 'title'].includes(open.at(-1)!))) {
       return { why: 'it has text or markup outside its elements' };
     }
-    out.push(text);
+    // A bare ">" is valid XML text ("a -> b" in a label); written back escaped.
+    out.push(text.replace(/>/g, '&gt;'));
     last = match.index + match[0].length;
     const [, closing, name, attributes, selfClosing] = match as unknown as [string, string, string, string, string];
     if (!ELEMENTS.has(name)) {
