@@ -33,10 +33,11 @@ the submit tool. Budgets are 60k characters per prompt and 12k per file, and gen
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
 
-The define call overgenerates three required candidate slots (`first`, `second`,
-`third`), each with an explicit `none`; asked for a 2-3 item list, the model returned one
-every time. At least one should be an `svg` the model draws itself: hand-drawn pictures
-explained decisions best in the bake-off. `svg-sanitize.ts` parses it against an element
+The define call overgenerates three required candidate slots: a `sketch` (an SVG the
+model draws itself, since hand-drawn pictures explained decisions best in the bake-off;
+as an optional kind it was drawn once in five PRs) and `first`/`second` from the data
+kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
+every time. `svg-sanitize.ts` parses it against an element
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
 `<img>`. `normalizeVisuals` clips text, clamps timeline positions, caps rows and

@@ -70,9 +70,9 @@ const at = v.pipe(v.number(), v.description('Position on the time axis, 0 (start
 const visual = v.pipe(
   v.object({
     kind: v.pipe(
-      v.picklist(['svg', 'before-after', 'timeline', 'mermaid', 'none']),
+      v.picklist(['before-after', 'timeline', 'mermaid', 'none']),
       v.description(
-        'none: no picture in this slot. svg: a picture you draw yourself, for when no fixed kind fits (a layout sketch, old and new side by side with arrows, a data shape). before-after: the change replaces one flow or structure with another (a data path, a state machine, a component tree), drawn as two small diagrams. timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine. Never a list of points: the summary already says them.',
+        'none: no picture in this slot. before-after: the change replaces one flow or structure with another (a data path, a state machine, a component tree), drawn as two small diagrams. timeline: when things happen is the point (a timer, a lifecycle event, a race, a retry). mermaid: a small flow or state machine. Never a list of points: the summary already says them.',
       ),
     ),
     caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
@@ -121,14 +121,6 @@ const visual = v.pipe(
         ),
       ),
     ),
-    svg: v.optional(
-      v.pipe(
-        v.string(),
-        v.description(
-          'svg only: one <svg> with a viewBox about 760 wide and 160-460 tall. Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, script, image, links or CSS. Colors: text #1f2328, secondary #59636e, lines #d1d9e0, accent #5b4cc4, accent fill #cfc8f5, bad #cf222e, good #1a7f37, on white. 12-14px sans-serif text, few words per label, nothing overlapping. Attribute values in double quotes.',
-        ),
-      ),
-    ),
     mermaid: v.optional(
       v.pipe(
         v.string(),
@@ -147,14 +139,28 @@ const visual = v.pipe(
  * Overgenerated on purpose: a judge (or, without one, the order) picks the one shown.
  * Three required slots, because asked for a list of 2-3 the model returned one every time.
  */
+/** Its own required slot: asked for "at least one svg" among the kinds, the model drew one in five PRs. */
+const sketch = v.pipe(
+  v.object({
+    caption: short('One sentence under 25 words saying what the picture shows. No Markdown. Empty for none.'),
+    svg: v.pipe(
+      v.string(),
+      v.description(
+        'One <svg> you draw by hand, or "" when nothing is worth drawing. viewBox about 760 wide and 160-460 tall, used edge to edge. Draw the mechanism the decision changes (old path next to new with arrows, the order of events on a time axis, the shape of the data), not the UI outline or the file list. Only rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs and marker; no style, script, image, links or CSS; attribute values in double quotes. Colors: text #1f2328, secondary #59636e, lines #d1d9e0, accent #5b4cc4, accent fill #cfc8f5, bad #cf222e, good #1a7f37, on white. 12-14px text, few words per label, nothing overlapping.',
+      ),
+    ),
+  }),
+  v.description('A hand-drawn explainer figure of the main decision, like one in a design doc.'),
+);
+
 const visuals = v.pipe(
   v.object({
+    sketch,
     first: visual,
-    second: v.pipe(visual, v.description('Another candidate, of a different kind or angle than first.')),
-    third: v.pipe(visual, v.description('A third candidate, different from both, or none.')),
+    second: v.pipe(visual, v.description('Another candidate, of a different kind or angle than first, or none.')),
   }),
   v.description(
-    'Three candidate pictures of the main decision, best first; only one is shown. All none only for a rename, a styling tweak, a dependency bump or a docs-only change.',
+    'Three candidate pictures of the main decision: a hand-drawn sketch and two drawn from data. Only one is shown. All empty only for a rename, a styling tweak, a dependency bump or a docs-only change.',
   ),
 );
 
@@ -278,7 +284,7 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
-Then propose three candidate visuals of the main decision (first, second, third), best first; only one will be shown. Make them differ in kind or angle so there is a real choice, and fill every slot you can. Make at least one an svg you draw by hand: lay it out like an explainer figure, with the old and new shapes, the order of events or the structure that the decision changes, labelled in the reviewer's words. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in all three only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
+Then propose three candidate visuals of the main decision; only one will be shown. The sketch is an SVG you draw by hand, laid out like an explainer figure in a design doc: the old and new mechanism side by side, the order of events, or the shape of the data that the decision changes, labelled in the reviewer's words and using the full width. The first and second are drawn from data; make them differ in kind or angle so there is a real choice. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in all three only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
 
 Call the submit tool once with the complete result.`;
 
@@ -299,7 +305,7 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

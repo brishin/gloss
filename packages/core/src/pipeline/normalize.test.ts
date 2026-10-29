@@ -96,12 +96,27 @@ describe('normalizeVisual', () => {
   it('keeps the candidates that survive, in order, and skips none without a warning', () => {
     const rows = { kind: 'mermaid' as const, caption: 'c', mermaid: 'flowchart TD\n  A --> B\n  A --> C' };
     const { visuals, warnings } = normalizeVisuals({
+      sketch: { caption: '', svg: '' },
       first: { kind: 'mermaid', caption: '1', mermaid: 'pie' },
-      second: { kind: 'none', caption: '' },
-      third: { ...rows, caption: '3' },
+      second: { ...rows, caption: '3' },
     });
     expect(visuals.map((visual) => visual.caption)).toEqual(['3']);
     expect(warnings).toEqual(['Dropped the mermaid visual: only flowcharts and state diagrams are drawn.']);
+  });
+
+  it('puts a sanitized sketch first and drops an unsafe one with a warning', () => {
+    const none = { kind: 'none' as const, caption: '' };
+    const svg = '<svg viewBox="0 0 10 10"><rect width="4"/></svg>';
+    expect(normalizeVisuals({ sketch: { caption: 's', svg }, first: none, second: none }).visuals).toEqual([
+      { kind: 'svg', caption: 's', svg: svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ') },
+    ]);
+    expect(
+      normalizeVisuals({
+        sketch: { caption: 's', svg: '<svg viewBox="0 0 1 1"><script/></svg>' },
+        first: none,
+        second: none,
+      }),
+    ).toEqual({ visuals: [], warnings: ['Dropped the svg visual: it uses <script>.'] });
   });
 
   it('needs a diagram on both sides of a before-after', () => {

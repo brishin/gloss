@@ -70,24 +70,29 @@ const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
   decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
   visuals: {
-    first: {
-      kind: 'before-after',
+    sketch: {
       caption: 'Who passes the check.',
-      before: 'flowchart TD\n  A[Any user] --> B[Pass]',
-      after: 'flowchart TD\n  A[User] --> B{Admin?}\n  B -->|yes| C[Pass]\n  B -->|no| D[Denied]',
+      svg: '<svg viewBox="0 0 760 200"><rect x="10" y="10" width="200" height="40" fill="#cfc8f5"/><text x="20" y="35">Admins only</text></svg>',
     },
-    second: {
+    first: {
       kind: 'timeline',
       caption: 'When a session loses access.',
       markers: [],
       lanes: [{ label: 'After', spans: [{ from: 0, to: 60, text: 'Signed in' }] }],
     },
-    third: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B\n  A --> C' },
+    second: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B\n  A --> C' },
   },
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
   ],
+};
+
+/** The sketch as the normalizer passes it on: sanitized, with its namespace. */
+const sketch = {
+  kind: 'svg',
+  caption: groupsAnswer.visuals.sketch.caption,
+  svg: groupsAnswer.visuals.sketch.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
 };
 
 function fakeModel() {
@@ -116,7 +121,7 @@ function fakeModel() {
 
 const fakeJudge = () =>
   createFakeJudgeClient((state, id): JudgeAnswer => {
-    // The mermaid candidate is wrong and the table shows one detail, so the timeline wins.
+    // The mermaid candidate is wrong and the sketch shows one detail, so the timeline wins.
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
@@ -177,7 +182,7 @@ describe('runTour', () => {
     expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
     expect(finished.decisions).toEqual(groupsAnswer.decisions);
-    expect(finished.visual).toEqual(groupsAnswer.visuals.second);
+    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
@@ -206,7 +211,7 @@ describe('runTour', () => {
     ).toBe(true);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('f-hallucinated'))).toBe(true);
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
-    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
+    expect(finished.visual).toEqual(sketch);
   });
 
   it('shows Jev the candidates as pictures and falls back to the first when it fails', async () => {
@@ -225,7 +230,7 @@ describe('runTour', () => {
     const { events, tour: finished } = await tour({ model: fakeModel(), judge: failing });
     expect(sent).toEqual([0x89504e47, 0x89504e47, 0x89504e47]);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('pick a visual'))).toBe(true);
-    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
+    expect(finished.visual).toEqual(sketch);
   });
 
   it('reports a failed Jev file as a warning and still places it', async () => {

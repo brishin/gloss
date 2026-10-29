@@ -210,10 +210,6 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
       ? { visual: { kind: 'timeline', caption, markers, lanes }, warnings: [] }
       : drop('no lane has anything on it');
   }
-  if (raw.kind === 'svg') {
-    const svg = sanitizeSvg(raw.svg ?? '');
-    return typeof svg === 'string' ? { visual: { kind: 'svg', caption, svg }, warnings: [] } : drop(svg.why);
-  }
   const source = mermaidSource(raw.mermaid);
   if (typeof source !== 'string') {
     return drop(source.why);
@@ -223,9 +219,21 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
     : { visual: { kind: 'mermaid', caption, source }, warnings: [] };
 }
 
-/** Candidates that survive, in the model's order. */
+/** The hand-drawn candidate, through the SVG allowlist. */
+function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings: string[] } {
+  if (!raw.svg.trim()) {
+    return { warnings: [] };
+  }
+  const svg = sanitizeSvg(raw.svg);
+  const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
+  return typeof svg === 'string'
+    ? { visual: { kind: 'svg', caption, svg }, warnings: [] }
+    : { warnings: [`Dropped the svg visual: ${svg.why}.`] };
+}
+
+/** Candidates that survive, in the model's order: the sketch, then the two drawn from data. */
 export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual[]; warnings: string[] } {
-  const results = raw ? [raw.first, raw.second, raw.third].map(normalizeVisual) : [];
+  const results = raw ? [normalizeSketch(raw.sketch), normalizeVisual(raw.first), normalizeVisual(raw.second)] : [];
   return {
     visuals: results.flatMap((result) => (result.visual ? [result.visual] : [])),
     warnings: results.flatMap((result) => result.warnings),
