@@ -27,7 +27,11 @@ async function readMessage(): Promise<unknown> {
 
 async function start(): Promise<{ url: string } | { error: string }> {
   const url = `http://127.0.0.1:${Number(process.env.GLOSS_PORT ?? DEFAULT_PORT)}`;
-  const client = createHttpGlossClient({ baseUrl: url });
+  // A stalled port must not hold the extension's click: each probe gives up after a second.
+  const client = createHttpGlossClient({
+    baseUrl: url,
+    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(1000) }),
+  });
   const up = () =>
     client.health().then(
       () => true,
