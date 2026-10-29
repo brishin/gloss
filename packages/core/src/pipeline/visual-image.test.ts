@@ -1,6 +1,6 @@
 import type { Visual } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { visualPng } from './visual-image.ts';
+import { visualPng, wrap } from './visual-image.ts';
 
 const visuals: Visual[] = [
   { kind: 'before-after', caption: 'c', before: ['`a` row'], after: ['b row'] },
@@ -31,4 +31,12 @@ it('shrinks a tall flowchart to a height Jev accepts', () => {
   const png = Buffer.from(visualPng({ kind: 'mermaid', source: `flowchart TD\n${steps}` })!);
   expect(png.readUInt32BE(20)).toBe(1200);
   expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(400);
+});
+
+it('wraps a long before-after row inside its column instead of running into the next', () => {
+  const row = 'The save now runs when the app is backgrounded instead of on an idle timer that never fires';
+  const lines = wrap(row, 50);
+  expect(lines.length).toBe(2);
+  expect(lines.every((line) => line.length <= 50)).toBe(true);
+  expect(lines.join(' ')).toBe(row);
 });

@@ -22,15 +22,43 @@ const escape = (text: string) =>
 /** Inline code loses its backticks, as in the web app. */
 const plain = (text: string) => escape(text.replace(/`([^`]+)`/g, '$1'));
 
+/** Greedy word wrap by character count; resvg cannot wrap and has no text metrics. */
+export function wrap(text: string, max: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > max) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  return line ? [...lines, line] : lines;
+}
+
 function beforeAfterSvg(visual: Extract<Visual, { kind: 'before-after' }>): string {
-  const rowHeight = 22;
-  const height = 44 + Math.max(visual.before.length, visual.after.length) * rowHeight + 12;
-  const column = (x: number, label: string, rows: readonly string[]) =>
+  // About 50 characters of 13px sans fit the ~350px inside a column, as the web app wraps them.
+  const lineHeight = 18;
+  const rowGap = 4;
+  const layout = (rows: readonly string[]) => {
+    let y = 52;
+    const lines = rows.flatMap((row) => {
+      const wrapped = wrap(row.replace(/`([^`]+)`/g, '$1'), 50).map((text, i) => ({ text, y: y + i * lineHeight }));
+      y += wrapped.length * lineHeight + rowGap;
+      return wrapped;
+    });
+    return { lines, bottom: y - lineHeight - rowGap };
+  };
+  const before = layout(visual.before);
+  const after = layout(visual.after);
+  const height = Math.max(before.bottom, after.bottom) + 22;
+  const column = (x: number, label: string, { lines }: ReturnType<typeof layout>) =>
     `<text x="${x + 14}" y="26" font-size="11" font-weight="600" fill="${INK.muted}" ${FONT}>${label}</text>` +
-    rows
+    lines
       .map(
-        (row, index) =>
-          `<text x="${x + 14}" y="${52 + index * rowHeight}" font-size="13" fill="${INK.fg}" ${FONT}>${plain(row)}</text>`,
+        (line) =>
+          `<text x="${x + 14}" y="${line.y}" font-size="13" fill="${INK.fg}" ${FONT}>${escape(line.text)}</text>`,
       )
       .join('');
   const half = WIDTH / 2;
@@ -39,8 +67,8 @@ function beforeAfterSvg(visual: Extract<Visual, { kind: 'before-after' }>): stri
     `<rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" fill="${INK.bg}" stroke="${INK.line}"/>` +
       `<rect x="${half}" y="1" width="${half - 1.5}" height="${height - 2}" fill="${WASH}"/>` +
       `<line x1="${half}" x2="${half}" y1="0" y2="${height}" stroke="${INK.line}"/>` +
-      column(0, 'BEFORE', visual.before) +
-      column(half, 'AFTER', visual.after),
+      column(0, 'BEFORE', before) +
+      column(half, 'AFTER', after),
   );
 }
 
