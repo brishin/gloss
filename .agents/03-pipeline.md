@@ -3,7 +3,7 @@
 | Stage  | Who                                                                                                                                                                                                   | Typical time                     |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | fetch  | `gh api` / `git diff`, `.gitattributes`, path heuristics (`heuristics.ts`)                                                                                                                            | 0.2 s local, 1-3 s gh            |
-| define | LLM fast tier: group labels, summaries, categories, order, overall summary, change-wide decisions, 0-3 visual candidates; **no file lists**                                                           | ~5 s                             |
+| define | LLM fast tier: group labels, summaries, categories, order, overall summary, change-wide decisions, three visual candidate slots; **no file lists**                                                    | ~5 s                             |
 | judge  | Jev, in parallel with define: per-file yes/no flags (generated, tests_only, auth_check, stored_data, secrets_signing, personal_data, exported_signature); after define, group choice + fits_any_group | 0.1-0.6 s per file, 8 concurrent |
 | place  | `place.ts` truth table; one LLM follow-up turn for unsure files                                                                                                                                       | ms + 1 turn                      |
 | notes  | LLM strong tier, one call per group, 3 concurrent, lead group first; also pins decisions to lines                                                                                                     | 2-7 s per group                  |
@@ -33,14 +33,17 @@ the submit tool. Budgets are 60k characters per prompt and 12k per file, and gen
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
 
-The define call overgenerates 2-3 candidate visuals (an empty list for renames, styling,
-bumps and docs). `normalizeVisuals` clips text, clamps timeline positions, caps rows and
+The define call overgenerates three required candidate slots (`first`, `second`,
+`third`), each with an explicit `none`; asked for a 2-3 item list, the model returned one
+every time. `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
-shown. With Jev, `visual-image.ts` draws each candidate to a 760 px PNG (resvg; Mermaid
-via beautiful-mermaid with its CSS vars resolved), and one `judge-visual` call sends the
+shown. With Jev, `visual-image.ts` draws each candidate to a PNG at tour width (resvg; Mermaid
+via beautiful-mermaid with its CSS vars resolved), shrunk or padded so every side is
+400-1200 px, since Jev rejects a side outside about 280-1568 px, and one `judge-visual` call sends the
 pictures as `<image-N>` beside their specs: `best` ranks them and `cN_explains` filters
-each, so the top-ranked one Jev thinks explains the change is shown, or none
+each (shown at `NO` or above, because Jev scores even good pictures 0.35-0.57), so the
+top-ranked one that passes is shown, or none
 (`pickVisual`). If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
