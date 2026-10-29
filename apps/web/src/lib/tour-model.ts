@@ -124,9 +124,10 @@ export type Msg =
    * of a chord can arrive before the first has reached the model the keyboard sees.
    */
   | { type: 'KeyPressed'; key: string }
-  | { type: 'ChordStarted'; chord: 'r' }
   | { type: 'ChordCancelled' }
   | { type: 'ReviewLoaded'; diffId: string; saved: SavedReview }
+  /** `r`: opens the review panel on Approve, and the next key may pick another verdict. */
+  | { type: 'ChordStarted'; chord: 'r' }
   /** Opens the review panel on a verdict (`r a`, `r n`, `r c`, or the Review button). */
   | { type: 'ReviewOpened'; verdict?: ReviewVerdict }
   | { type: 'ReviewClosed' }
@@ -239,11 +240,11 @@ export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkonp][xv?rayc');
 
 /** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
-  if ((model.helpOpen && key !== '?') || model.review.open) {
+  if (model.helpOpen && key !== '?') {
     return undefined;
   }
   if (model.chord === 'r') {
-    // Graphite's review chords.
+    // Graphite's review chords. `r` has opened the panel on Approve; the next key picks the verdict.
     switch (key) {
       case 'a':
         return { type: 'ReviewOpened', verdict: 'APPROVE' };
@@ -253,9 +254,14 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
         return { type: 'ReviewOpened', verdict: 'REQUEST_CHANGES' };
       case 'c':
         return { type: 'ReviewOpened', verdict: 'COMMENT' };
+      case 'Escape':
+        return { type: 'ReviewClosed' };
       default:
         return { type: 'ChordCancelled' };
     }
+  }
+  if (model.review.open) {
+    return undefined;
   }
   const active = model.activeFileId;
   switch (key) {
@@ -383,8 +389,10 @@ function step(model: Model, msg: Msg): Next {
       const action = keyToMsg(model, msg.key);
       return action ? step(model, action) : [model, []];
     }
-    case 'ChordStarted':
-      return [{ ...model, chord: msg.chord }, []];
+    case 'ChordStarted': {
+      const [opened, cmds] = stepReview(model, { type: 'ReviewOpened', verdict: 'APPROVE' });
+      return [{ ...opened, chord: msg.chord }, cmds];
+    }
     case 'ChordCancelled':
       return model.chord ? [{ ...model, chord: undefined }, []] : [model, []];
     default:

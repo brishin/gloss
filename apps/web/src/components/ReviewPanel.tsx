@@ -17,21 +17,25 @@ const VERDICTS: readonly ReviewVerdict[] = ['COMMENT', 'APPROVE', 'REQUEST_CHANG
  */
 export function ReviewPanel({
   review,
+  chord,
   dispatch,
   children,
 }: {
   review: ReviewDraft;
+  /** A key chord is pending: after `r`, the next key picks the verdict, so it must not land in the summary. */
+  chord: boolean;
   dispatch: (msg: Msg) => void;
   children: ReactNode;
 }) {
   const submit = () => dispatch({ type: 'ReviewSubmitted' });
-  // The summary takes the keys, whichever way the panel opened (button, `r a`, a refused send).
+  // The summary takes the keys, whichever way the panel opened (button, `r`, a refused send),
+  // once the chord after `r` is over.
   const summary = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (review.open) {
+    if (review.open && !chord) {
       requestAnimationFrame(() => summary.current?.focus());
     }
-  }, [review.open]);
+  }, [review.open, chord]);
   const panel = (
     <div className="section review-panel" onKeyDown={submitKeys(submit)}>
       <SegmentedControl
@@ -71,7 +75,10 @@ export function ReviewPanel({
     <Popover
       label="Review"
       isOpen={review.open}
-      onOpenChange={(open) => dispatch(open ? { type: 'ReviewOpened' } : { type: 'ReviewClosed' })}
+      // The popover also reports opens it did not start (`r`); echoing one would end the chord.
+      onOpenChange={(open) =>
+        open !== review.open && dispatch(open ? { type: 'ReviewOpened' } : { type: 'ReviewClosed' })
+      }
       placement="below"
       alignment="end"
       width={440}
