@@ -1,5 +1,5 @@
 import type { PullState, SourceRef, Stack, StackMember } from '@gloss/protocol';
-import { run } from './exec.ts';
+import { ghJson, ghPaginated } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
 
@@ -104,18 +104,15 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
   const pulls = `repos/${ref.owner}/${ref.repo}/pulls`;
   const repo = `${ref.owner}/${ref.repo}`.toLowerCase();
   const toMember = (pull: PullJson) => toPull(pull, repo);
+  // Every page: the pick rules (oldest open, open before closed) need the whole candidate list.
   const list = async (query: Record<string, string>) =>
-    (
-      JSON.parse(
-        await run('gh', ['api', `${pulls}?${new URLSearchParams({ ...query, per_page: '30' })}`], { signal }),
-      ) as PullJson[]
-    ).map(toMember);
+    (await ghPaginated<PullJson>(`${pulls}?${new URLSearchParams({ ...query, per_page: '100' })}`, signal)).map(
+      toMember,
+    );
   return {
     trunk: async () =>
-      (JSON.parse(await run('gh', ['api', `repos/${ref.owner}/${ref.repo}`], { signal })) as { default_branch: string })
-        .default_branch,
-    pull: async (number) =>
-      toMember(JSON.parse(await run('gh', ['api', `${pulls}/${number}`], { signal })) as PullJson),
+      (await ghJson<{ default_branch: string }>([`repos/${ref.owner}/${ref.repo}`], signal)).default_branch,
+    pull: async (number) => toMember(await ghJson<PullJson>([`${pulls}/${number}`], signal)),
     byHead: (branch) => list({ head: `${ref.owner}:${branch}`, state: 'all' }),
     byBase: (branch) => list({ base: branch, state: 'open' }),
   };
