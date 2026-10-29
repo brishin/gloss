@@ -414,16 +414,24 @@ function stepReview(model: Model, msg: Msg): Next {
       if (problem) {
         return [set({ open: true, verdict, error: problem }), []];
       }
-      return [set({ verdict, sending: true, error: undefined }), [{ type: 'SubmitReview', request }]];
+      const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
+      return [set({ verdict, sending, error: undefined }), [{ type: 'SubmitReview', request }]];
     }
-    case 'ReviewSent':
-      // The words went out with it; a half-written line comment stays.
-      return save({
-        ...model,
-        review: { ...emptyReview, composing: review.composing, sent: { verdict: msg.verdict, url: msg.url } },
-      });
+    case 'ReviewSent': {
+      // Only what went out leaves the draft: words written while it was on its way stay.
+      const sent = review.sending;
+      return save(
+        set({
+          open: false,
+          sending: undefined,
+          body: review.body === sent?.body ? '' : review.body,
+          comments: review.comments.filter((comment) => !sent?.ids.includes(comment.id)),
+          sent: { verdict: msg.verdict, url: msg.url },
+        }),
+      );
+    }
     case 'ReviewFailed':
-      return [set({ sending: false, open: true, error: msg.error }), []];
+      return [set({ sending: undefined, open: true, error: msg.error }), []];
     case 'ReviewNoticeDismissed':
       return [set({ sent: undefined }), []];
     case 'CommentStarted':

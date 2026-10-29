@@ -23,13 +23,14 @@ export interface ReviewDraft {
   comments: readonly DraftComment[];
   /** The line comment being written. `editing` is the draft it replaces. */
   composing?: CommentAnchor & { body: string; editing?: string };
-  sending: boolean;
+  /** What is on its way to GitHub; words written meanwhile are kept when it lands. */
+  sending?: { body: string; ids: readonly string[] };
   error?: string;
   /** The last review sent, for the confirmation. */
   sent?: { verdict: ReviewVerdict; url: string };
 }
 
-export const emptyReview: ReviewDraft = { open: false, verdict: 'COMMENT', body: '', comments: [], sending: false };
+export const emptyReview: ReviewDraft = { open: false, verdict: 'COMMENT', body: '', comments: [] };
 
 /** What is kept across reloads, per diff: the words, not the panel. */
 export interface SavedReview {

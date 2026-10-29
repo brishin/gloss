@@ -67,7 +67,7 @@ export function ReviewPanel({
           variant="primary"
           label={VERDICT_LABEL[review.verdict]}
           tooltip="⌘↵"
-          isLoading={review.sending}
+          isLoading={Boolean(review.sending)}
           onClick={submit}
         />
       </div>

@@ -285,7 +285,7 @@ describe('review', () => {
     expect(submitted(press(sending, 'r', 'y')[1])).toEqual([]);
 
     const [sent, saved] = run(sending, { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' });
-    expect(sent.review).toMatchObject({ comments: [], body: '', sending: false, sent: { verdict: 'APPROVE' } });
+    expect(sent.review).toMatchObject({ comments: [], body: '', sending: undefined, sent: { verdict: 'APPROVE' } });
     expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
   });
 
@@ -302,6 +302,23 @@ describe('review', () => {
     const local = { ...reviewable(), ref: { kind: 'local', repo: '/r', target: '' } as const };
     expect(keyToMsg(local, 'r')).toBeUndefined();
     expect(run(local, { type: 'ReviewOpened' })[0].review.open).toBe(false);
+  });
+
+  test('words written while a review is on its way stay in the draft', () => {
+    const [sending] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'lgtm' },
+      { type: 'ReviewSubmitted', verdict: 'APPROVE' },
+    );
+    const [after] = run(
+      sending,
+      { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'additions', line: 2 } },
+      { type: 'CommentBodyChanged', body: 'later' },
+      { type: 'CommentSaved' },
+      { type: 'ReviewSent', verdict: 'APPROVE', url: 'u' },
+    );
+    expect(after.review.body).toBe('');
+    expect(after.review.comments.map((comment) => comment.body)).toEqual(['later']);
   });
 
   test('request changes without a word opens the dialog with the reason instead of sending', () => {
@@ -331,7 +348,7 @@ describe('review', () => {
     );
     expect(failed.review).toMatchObject({
       open: true,
-      sending: false,
+      sending: undefined,
       body: 'lgtm',
       error: 'Can not approve your own pull request',
     });
