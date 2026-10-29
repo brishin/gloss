@@ -156,6 +156,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={() => dispatch({ type: 'NavClosed' })} />}
         <GroupSidebar
           sourceRef={sourceRef}
+          stack={model.stack}
           title={state.meta?.title}
           groups={groups}
           files={files}

@@ -1,4 +1,4 @@
-import type { DiffPayload, FileSummary, TourState } from '@gloss/protocol';
+import type { DiffPayload, FileSummary, Stack, TourState } from '@gloss/protocol';
 import { initialTourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import { groupNode, isNodeOpen } from './sidebar-tree.ts';
@@ -61,6 +61,11 @@ describe('init', () => {
     expect(start.restoring).toEqual({ g: 'a', f: 'f2' });
     expect(start.connection).toBe('connecting');
     expect(init(REF, {})[0].restoring).toBeUndefined();
+  });
+
+  test('a PR fetches its stack; a local diff has none', () => {
+    expect(init(REF, {})[1]).toContainEqual({ type: 'FetchStack', ref: REF });
+    expect(types(init({ kind: 'local', repo: '/r', target: '' }, {})[1])).not.toContain('FetchStack');
   });
 });
 
@@ -273,9 +278,35 @@ describe('keyToMsg', () => {
     ['Escape', { ...base, navOpen: true }, { type: 'NavClosed' }],
     ['j', { ...base, helpOpen: true }, undefined],
     ['?', { ...base, helpOpen: true }, { type: 'HelpToggled' }],
+    ['J', base, { type: 'StackStepped', by: 1 }],
+    ['K', base, { type: 'StackStepped', by: -1 }],
     ['q', base, undefined],
   ] as const)('%s', (key, state, expected) => {
     expect(keyToMsg(state, key)).toEqual(expected);
+  });
+});
+
+describe('stack', () => {
+  const stack = {
+    owner: 'o',
+    repo: 'r',
+    base: 'main',
+    members: [0, 1, 2].map((number) => ({ number, title: `PR ${number}`, state: 'open', baseRef: 'x', headRef: 'y' })),
+  } as Stack;
+  const pr = (number: number) => ({ kind: 'github-pr', owner: 'o', repo: 'r', number }) as const;
+
+  test.each([
+    [1, 'J opens the PR above', { by: 1 }, [{ type: 'OpenRef', ref: pr(2) }]],
+    [1, 'K opens the PR below', { by: -1 }, [{ type: 'OpenRef', ref: pr(0) }]],
+    [2, 'J at the top does nothing', { by: 1 }, []],
+    [0, 'K at the bottom does nothing', { by: -1 }, []],
+  ] as const)('from #%i, %s', (number, _, { by }, expected) => {
+    const [, cmds] = run({ ...model(), ref: pr(number), stack }, { type: 'StackStepped', by });
+    expect(cmds).toEqual(expected);
+  });
+
+  test('does nothing before the stack loads', () => {
+    expect(run(model(), { type: 'StackStepped', by: 1 })[1]).toEqual([]);
   });
 });
 

@@ -1,13 +1,9 @@
 import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
-  describeRef,
   type GlossClient,
-  parseGithubTarget,
   type RecentTour,
   type ResolvedAsset,
-  type SourceRef,
-  type Stack,
 } from '@gloss/protocol';
 import { Context, Data, Effect, Layer } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
@@ -48,21 +44,6 @@ export const glossRuntime = Atom.runtime(Gloss.layer);
 export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], GlossRequestError>> = glossRuntime.atom(
   request((client) => client.recent()),
 );
-
-// Keyed by `owner/repo#number`: family keys are compared by value, so they are strings.
-const githubStack = Atom.family((target: string) =>
-  glossRuntime.atom(
-    request((client) => {
-      const ref = parseGithubTarget(target);
-      return ref?.kind === 'github-pr' ? client.stack(ref) : Promise.reject(new Error(`Not a pull request: ${target}`));
-    }),
-  ),
-);
-
-const noStack: Atom.Atom<AsyncResult.AsyncResult<Stack, GlossRequestError>> = Atom.make(AsyncResult.initial());
-
-/** The stack a GitHub PR sits in, once the backend has walked it; never resolves for a local diff. */
-export const stackAtom = (ref: SourceRef) => (ref.kind === 'github-pr' ? githubStack(describeRef(ref)) : noStack);
 
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */
 export const assetAtom = Atom.family((src: string) =>
