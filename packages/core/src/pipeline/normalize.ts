@@ -124,6 +124,32 @@ function mermaidSource(raw: string | undefined): string | { why: string } {
 }
 
 /**
+ * Whether a diagram is one straight path (each node at most one edge in and out, no loop),
+ * which a numbered list says just as well. Rough on purpose: edges only, labels ignored.
+ */
+export function isSinglePath(source: string): boolean {
+  const edges = source
+    .split('\n')
+    .slice(1)
+    .map((line) => line.replace(/\|[^|]*\|/g, '').replace(/--\s[^-]*?\s*-->/g, '-->'))
+    .flatMap((line) => {
+      const ids = line
+        .split(/\s*(?:-{2,}>|-{3,}|-\.+->|={2,}>)\s*/)
+        .map((part) => /^\s*(\[\*\]|[\w-]+)/.exec(part)?.[1]);
+      return ids.length < 2 ? [] : ids.slice(1).map((to, i) => [ids[i], to] as const);
+    })
+    .filter((edge): edge is readonly [string, string] => !!edge[0] && !!edge[1]);
+  const into = new Map<string, number>();
+  const out = new Map<string, number>();
+  for (const [from, to] of edges) {
+    out.set(from, (out.get(from) ?? 0) + 1);
+    into.set(to, (into.get(to) ?? 0) + 1);
+  }
+  const nodes = new Set(edges.flat());
+  return [...out.values(), ...into.values()].every((n) => n <= 1) && edges.length === nodes.size - 1;
+}
+
+/**
  * The trust boundary for the tour's visual. It keeps only what the client can draw
  * legibly: two small diagrams side by side, a few lanes on a 0-100 axis, or a small flowchart or
  * state diagram without styling, init blocks or click handlers. Anything that does not
@@ -139,9 +165,16 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
     const before = mermaidSource(raw.before);
     const after = mermaidSource(raw.after);
     const why = typeof before === 'string' ? (typeof after === 'string' ? undefined : after.why) : before.why;
-    return why
-      ? drop(why)
-      : { visual: { kind: 'before-after', caption, before: before as string, after: after as string }, warnings: [] };
+    if (why) {
+      return drop(why);
+    }
+    if (isSinglePath(before as string) && isSinglePath(after as string)) {
+      return drop('both sides are a single path, which a list says as well');
+    }
+    return {
+      visual: { kind: 'before-after', caption, before: before as string, after: after as string },
+      warnings: [],
+    };
   }
   if (raw.kind === 'timeline') {
     const lanes = (raw.lanes ?? []).slice(0, 4).flatMap((lane) => {
@@ -167,7 +200,12 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
       : drop('no lane has anything on it');
   }
   const source = mermaidSource(raw.mermaid);
-  return typeof source === 'string' ? { visual: { kind: 'mermaid', caption, source }, warnings: [] } : drop(source.why);
+  if (typeof source !== 'string') {
+    return drop(source.why);
+  }
+  return isSinglePath(source)
+    ? drop('it is a single path, which a list says as well')
+    : { visual: { kind: 'mermaid', caption, source }, warnings: [] };
 }
 
 /** Candidates that survive, in the model's order. */
