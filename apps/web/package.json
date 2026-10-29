@@ -17,6 +17,7 @@
     "@stylexjs/stylex": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
+    "beautiful-mermaid": "catalog:",
     "effect": "catalog:",
     "lucide-react": "catalog:",
     "react": "catalog:",

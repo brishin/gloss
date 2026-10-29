@@ -1,6 +1,6 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { normalizeNotes } from './normalize.ts';
+import { normalizeNotes, normalizeVisual } from './normalize.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -60,5 +60,55 @@ describe('normalizeNotes', () => {
       { text: 'off the hunk', priority: 'low', fileId: 'f1' },
     ]);
     expect(warnings).toHaveLength(2);
+  });
+});
+
+describe('normalizeVisual', () => {
+  it('clamps timeline positions, orders spans, and drops empty lanes and zero-length bars', () => {
+    const { visual, warnings } = normalizeVisual({
+      kind: 'timeline',
+      caption: '  The save   now runs on background. ',
+      markers: [{ at: 140, text: 'killed' }],
+      lanes: [
+        {
+          label: 'Before',
+          spans: [
+            { from: 60, to: 20, text: 'idle timer' },
+            { from: 5, to: 5, text: 'nothing' },
+          ],
+        },
+        { label: 'Empty', spans: [] },
+        { label: 'After', spans: [], outcome: { at: -3, text: 'saved', tone: 'good' } },
+      ],
+    });
+    expect(warnings).toEqual([]);
+    expect(visual).toEqual({
+      kind: 'timeline',
+      caption: 'The save now runs on background.',
+      markers: [{ at: 100, text: 'killed' }],
+      lanes: [
+        { label: 'Before', spans: [{ from: 20, to: 60, text: 'idle timer' }] },
+        { label: 'After', spans: [], outcome: { at: 0, text: 'saved', tone: 'good' } },
+      ],
+    });
+  });
+
+  it('needs rows on both sides of a before-after', () => {
+    expect(normalizeVisual({ kind: 'before-after', caption: 'x', before: ['a'], after: ['  '] })).toEqual({
+      warnings: ['Dropped the before-after visual: it needs rows on both sides.'],
+    });
+  });
+
+  it('keeps flowcharts and state diagrams, strips fences and styling, and drops other diagram types', () => {
+    expect(
+      normalizeVisual({
+        kind: 'mermaid',
+        caption: 'c',
+        mermaid: '```mermaid\nflowchart TD\n  A --> B\n  click A "javascript:x"\n  style A fill:#f00\n```',
+      }).visual,
+    ).toEqual({ kind: 'mermaid', caption: 'c', source: 'flowchart TD\n  A --> B' });
+    expect(normalizeVisual({ kind: 'mermaid', caption: 'c', mermaid: 'sequenceDiagram\n A->>B: hi' }).visual).toBe(
+      undefined,
+    );
   });
 });

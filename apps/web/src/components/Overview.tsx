@@ -7,6 +7,7 @@ import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
 import { decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { PriorityIcon } from './icons.tsx';
+import { TourVisual } from './TourVisual.tsx';
 
 /**
  * The tour's first stop: what the change is, how it is split, and where the risk is.
@@ -80,6 +81,8 @@ export function Overview({
           </>
         ) : null}
       </div>
+
+      {state.visual && <TourVisual visual={state.visual} />}
 
       {decisions.length > 0 && (
         <div className="section">
