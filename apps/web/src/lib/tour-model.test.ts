@@ -357,6 +357,24 @@ describe('review', () => {
     expect(run(edited, { type: 'CommentRemoved', id })[0].review.comments).toEqual([]);
   });
 
+  test('a re-run on a new diff sets the old draft aside instead of sending it against new lines', () => {
+    const [drafted] = run(
+      reviewable(),
+      { type: 'ReviewBodyChanged', body: 'old' },
+      { type: 'CommentStarted', anchor: { fileId: 'f1', side: 'additions', line: 3 } },
+      { type: 'CommentBodyChanged', body: 'x' },
+      { type: 'CommentSaved' },
+    );
+    const [rerun, cmds] = run(drafted, {
+      type: 'EventReceived',
+      event: { type: 'diff.ready', seq: 9, at: '', diffId: 'd2', meta: META, files: [] } as never,
+    });
+    expect(rerun.tour.diffId).toBe('d2');
+    expect(rerun.review).toMatchObject({ body: '', comments: [] });
+    expect(cmds).toContainEqual({ type: 'LoadReview', diffId: 'd2' });
+    expect(types(cmds)).not.toContain('SaveReview');
+  });
+
   test('a new diff loads its saved review; a stale load is ignored', () => {
     const saved = { body: 'draft', comments: [] };
     expect(run(reviewable(), { type: 'ReviewLoaded', diffId: 'd1', saved })[0].review.body).toBe('draft');

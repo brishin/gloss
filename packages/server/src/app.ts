@@ -159,6 +159,15 @@ export function createApp({
   });
 
   app.post('/api/reviews', async (c) => {
+    // A review acts as the user on GitHub, so only this app or an allowed origin may send one.
+    // JSON is not a "simple" content type: a browser asks first, and CORS turns other sites away.
+    const origin = c.req.header('Origin');
+    if (
+      !c.req.header('Content-Type')?.startsWith('application/json') ||
+      (origin !== undefined && origin !== new URL(c.req.url).origin && !corsOrigins.includes(origin))
+    ) {
+      return c.json({ error: 'Reviews are accepted only as JSON from the gloss app' }, 403);
+    }
     const parsed = v.safeParse(ReviewRequestSchema, await c.req.json().catch(() => undefined));
     if (!parsed.success) {
       return c.json({ error: 'Invalid review', issues: v.flatten(parsed.issues) }, 400);

@@ -521,6 +521,10 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[]): Ne
   }
   if (diffId && prev?.tour.diffId !== diffId) {
     out.push({ type: 'LoadViewed', diffId }, { type: 'LoadReview', diffId });
+    // A draft belongs to the lines of the diff it was written on (and stays saved under it).
+    if (prev?.tour.diffId) {
+      next = { ...next, review: { ...emptyReview, sent: next.review.sent } };
+    }
   }
 
   const selectionChanged = prevSelected !== selected;

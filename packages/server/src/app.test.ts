@@ -212,3 +212,30 @@ describe('review API', () => {
     expect(await response.json()).toEqual({ error: 'Can not approve your own pull request (HTTP 422)' });
   });
 });
+
+describe('review API from other sites', () => {
+  const review = { owner: 'o', repo: 'r', number: 1, verdict: 'APPROVE', body: '', comments: [] };
+  const sent: unknown[] = [];
+  const { app } = setup(scripted().run, {
+    corsOrigins: ['http://localhost:4778'],
+    submitReview: async (submitted) => (sent.push(submitted), { url: 'u' }),
+  });
+  const post = (headers: Record<string, string>) =>
+    app.request('http://localhost:4777/api/reviews', { method: 'POST', headers, body: JSON.stringify(review) });
+
+  it.each([
+    ['a simple text/plain request', { 'Content-Type': 'text/plain' }],
+    ['JSON from another origin', { 'Content-Type': 'application/json', Origin: 'https://evil.example' }],
+  ])('refuses %s without sending it', async (_, headers) => {
+    expect((await post(headers)).status).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
+  it.each([
+    ['the same origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4777' }],
+    ['an allowed origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4778' }],
+    ['no origin (the CLI)', { 'Content-Type': 'application/json' }],
+  ])('accepts JSON from %s', async (_, headers) => {
+    expect((await post(headers)).status).toBe(200);
+  });
+});

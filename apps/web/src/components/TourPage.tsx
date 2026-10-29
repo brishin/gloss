@@ -124,7 +124,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             <ReviewPanel review={review} dispatch={dispatch}>
               <Button
                 size="sm"
-                variant="secondary"
+                variant="primary"
                 label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
                 tooltip="Approve r a · Request changes r n · Comment r c"
               />
