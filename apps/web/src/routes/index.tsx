@@ -39,6 +39,7 @@ function Home() {
       <form className="target-form" onSubmit={submit}>
         <input
           autoFocus
+          aria-label="Pull request or repository"
           placeholder="https://github.com/owner/repo/pull/123 · owner/repo#123 · /path/to/repo@main...HEAD"
           value={input}
           onChange={(event) => {
@@ -48,10 +49,14 @@ function Home() {
         />
         <Button type="submit" variant="primary" label="Tour" />
       </form>
-      {error && <Text color="secondary">{error}</Text>}
+      {error && (
+        <div role="alert">
+          <Text color="secondary">{error}</Text>
+        </div>
+      )}
       {recent.length > 0 && (
         <section className="recent">
-          <Heading level={3}>Recent</Heading>
+          <Heading level={2}>Recent</Heading>
           {recent.map((item) => (
             <RefLink key={`${item.ref.kind}:${describeRef(item.ref)}`} sourceRef={item.ref}>
               <span>{item.title}</span>

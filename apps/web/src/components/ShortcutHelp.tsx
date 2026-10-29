@@ -20,7 +20,7 @@ export function ShortcutHelp({ isOpen, onOpenChange }: { isOpen: boolean; onOpen
   return (
     <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="info" width={380} padding={4}>
       <div className="section">
-        <Heading level={3}>Keyboard shortcuts</Heading>
+        <Heading level={2}>Keyboard shortcuts</Heading>
         <div className="shortcuts">
           {SHORTCUTS.map(([keys, action]) => (
             <Fragment key={keys}>

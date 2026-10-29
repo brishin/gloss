@@ -65,21 +65,26 @@ export function GroupPanel({
   const riskNotes = notes?.riskNotes ?? [];
 
   return (
-    <div className="section">
-      <div className="group-header">
-        <Heading level={3}>{group.label}</Heading>
-        <Badge variant="neutral" label={group.category} />
-        {group.critical && <Badge variant="error" label="critical" />}
-        {group.phase === 'provisional' && <Badge variant="warning" label="provisional" />}
-        {notesPending && <Spinner size="sm" label="Writing notes" />}
-      </div>
-      {group.summary ? (
-        <div className="prose">
-          <Markdown density="compact">{group.summary}</Markdown>
+    <div className="page">
+      <header className="page-head">
+        <div className="group-header">
+          <Heading level={1}>{group.label}</Heading>
+          {group.critical && <Badge variant="error" label="critical" />}
+          {group.phase === 'provisional' && <Badge variant="warning" label="provisional" />}
+          {notesPending && (
+            <span className="muted">
+              <Spinner size="sm" label="Writing notes" />
+            </span>
+          )}
         </div>
-      ) : group.phase === 'provisional' ? (
-        <span className="muted">Grouped by path while the model reads the change…</span>
-      ) : null}
+        {group.summary ? (
+          <div className="prose">
+            <Markdown density="compact">{group.summary}</Markdown>
+          </div>
+        ) : group.phase === 'provisional' ? (
+          <span className="muted">Grouped by path while the model reads the change…</span>
+        ) : null}
+      </header>
       {riskNotes.length > 0 && (
         <Banner
           status="warning"
@@ -109,28 +114,30 @@ export function GroupPanel({
           </div>
         </Banner>
       )}
-      {order.map((fileId) => {
-        const summary = files.get(fileId);
-        if (!summary) {
-          return <Skeleton key={fileId} height={32} />;
-        }
-        return (
-          <FileView
-            key={fileId}
-            summary={summary}
-            change={changes.get(fileId)}
-            fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
-            lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
-            decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
-            risks={risks.get(fileId) ?? NO_RISKS}
-            generated={isGeneratedFile(group, summary)}
-            expanded={isFileExpanded(controls, group, summary)}
-            viewed={controls.viewed.has(fileId)}
-            onToggleExpanded={controls.onToggleExpanded}
-            onToggleViewed={controls.onToggleViewed}
-          />
-        );
-      })}
+      <div className="files">
+        {order.map((fileId) => {
+          const summary = files.get(fileId);
+          if (!summary) {
+            return <Skeleton key={fileId} height={32} />;
+          }
+          return (
+            <FileView
+              key={fileId}
+              summary={summary}
+              change={changes.get(fileId)}
+              fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
+              lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
+              decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
+              risks={risks.get(fileId) ?? NO_RISKS}
+              generated={isGeneratedFile(group, summary)}
+              expanded={isFileExpanded(controls, group, summary)}
+              viewed={controls.viewed.has(fileId)}
+              onToggleExpanded={controls.onToggleExpanded}
+              onToggleViewed={controls.onToggleViewed}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
