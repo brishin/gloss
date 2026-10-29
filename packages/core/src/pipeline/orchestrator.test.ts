@@ -86,6 +86,7 @@ const groupsAnswer = {
 
 /** What the sketch call draws. */
 const sketchAnswer = {
+  form: 'bands' as const,
   caption: 'Who passes the check.',
   svg: '<svg viewBox="0 0 760 200"><rect x="10" y="10" width="200" height="40" fill="#cfc8f5"/><text x="20" y="35">Admins only</text></svg>',
 };
