@@ -120,7 +120,7 @@ const visual = v.optional(
       ),
     }),
     v.description(
-      'One picture of the main decision, only when it explains the decision better than the summary does. Leave it out for most changes.',
+      'One picture of the main decision: a design replaced by another, events whose timing matters, or a flow of three or more steps. Leave it out only for renames, styling, dependency bumps and docs-only changes.',
     ),
   ),
 );
@@ -245,7 +245,7 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does.
 
-When a picture would explain the main decision faster than words, add one visual. Use before-after when the change swaps one design for another, timeline when the order or timing of events is the point, and mermaid for a small flow or state machine. Draw the decision, not the file list or the call graph. Most changes need no visual: leave it out for refactors, small fixes, docs and styling.
+Then decide on one visual of the main decision. Add one whenever the change has any of these: a design replaced by another (before-after: the old shape, flow, data model or behavior next to the new one), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. Leave the visual out only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
 
 Call the submit tool once with the complete result.`;
 
