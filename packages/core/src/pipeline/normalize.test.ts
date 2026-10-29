@@ -1,6 +1,7 @@
 import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
 import { isSinglePath, looseEnds, normalizeNotes, normalizeVisual, normalizeVisuals } from './normalize.ts';
+import { DEFINE_SYSTEM } from './prompts.ts';
 
 const file: FileChange = {
   id: 'f1',
@@ -176,37 +177,50 @@ describe('isSinglePath', () => {
 
 describe('looseEnds', () => {
   const box = (x: number, y: number) => `<rect x="${x}" y="${y}" width="100" height="40"/>`;
-  // Shapes from round-6 eval sketches: connectors drawn into empty space never close the flow.
+  const to = 'marker-end="url(#a)"';
+  // Shapes from round-6 eval sketches: arrows drawn into empty space never close the flow.
   it.each([
-    ['box edge to box edge', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="198" y2="20"/>`, 0],
-    ['an arrowhead a few units short', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="194" y2="20"/>`, 0],
+    ['box edge to box edge', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="198" y2="20" ${to}/>`, 0],
+    ['an arrowhead a few units short', `${box(0, 0)}${box(200, 0)}<line x1="100" y1="20" x2="194" y2="20" ${to}/>`, 0],
     [
       'a loop back that stops short of the box',
-      `${box(0, 50)}${box(300, 50)}<line x1="350" y1="50" x2="100" y2="30"/>`,
+      `${box(0, 50)}${box(300, 50)}<line x1="350" y1="50" x2="100" y2="30" ${to}/>`,
       1,
     ],
-    ['a line floating above both boxes', `${box(0, 50)}${box(200, 50)}<line x1="100" y1="30" x2="200" y2="30"/>`, 2],
+    [
+      'an arrow floating above both boxes',
+      `${box(0, 50)}${box(200, 50)}<line x1="100" y1="30" x2="200" y2="30" ${to}/>`,
+      2,
+    ],
+    ['a divider without a marker', `${box(0, 0)}<line x1="0" y1="80" x2="700" y2="80"/>`, 0],
     [
       'a polyline around to a circle',
-      `${box(0, 0)}<circle cx="300" cy="20" r="20"/><polyline points="50,40 50,80 300,80 300,40"/>`,
+      `${box(0, 0)}<circle cx="300" cy="20" r="20"/><polyline points="50,40 50,80 300,80 300,40" ${to}/>`,
       0,
     ],
+    ['a path with two hops', `${box(0, 0)}${box(160, 0)}${box(320, 0)}<path d="M100 20H158M260 20H318" ${to}/>`, 0],
+    ['a path whose second hop ends nowhere', `${box(0, 0)}${box(160, 0)}<path d="M100 20H158M260 20H400" ${to}/>`, 1],
+    ['a curve (not checked)', `${box(0, 0)}<path d="M100 20C300 0 500 0 600 300" ${to}/>`, 0],
+    ['the marker shape itself', `<defs><marker id="a"><path d="M0 0L10 5L0 10z"/></marker></defs>${box(0, 0)}`, 0],
     [
       'anything transformed (not checked)',
-      `<g transform="translate(5 0)">${box(0, 0)}</g><line x1="500" y1="500" x2="600" y2="600"/>`,
+      `<g transform="translate(5 0)">${box(0, 0)}</g><line x1="500" y1="500" x2="600" y2="600" ${to}/>`,
       0,
     ],
   ] as const)('%s', (_, body, expected) => {
     expect(looseEnds(`<svg viewBox="0 0 760 200">${body}</svg>`)).toBe(expected);
   });
 
-  it('drops a sketch with a loose connector', () => {
+  it('drops a sketch with a loose arrow, and keeps the prompt example', () => {
     const none = { kind: 'none', caption: '' } as const;
-    const svg =
-      '<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90"/></svg>';
+    const svg = `<svg viewBox="0 0 760 200"><rect x="0" y="0" width="10" height="10"/><line x1="5" y1="10" x2="5" y2="90" ${to}/></svg>`;
     expect(normalizeVisuals({ sketch: { caption: 's', svg }, first: none, second: none })).toEqual({
       visuals: [],
-      warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
+      warnings: ['Dropped the svg visual: 1 arrow end touches no box.'],
     });
+    const example = DEFINE_SYSTEM.match(/<svg[\s\S]*?<\/svg>/)![0];
+    expect(
+      normalizeVisuals({ sketch: { caption: 'e', svg: example }, first: none, second: none }).visuals,
+    ).toHaveLength(1);
   });
 });

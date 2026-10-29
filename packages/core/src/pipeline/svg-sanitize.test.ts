@@ -21,6 +21,12 @@ describe('sanitizeSvg', () => {
     ).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><rect width="4"/></svg>');
   });
 
+  it('keeps a bare > in a label, escaped', () => {
+    expect(sanitizeSvg(wrap('<text x="4" y="14">a -> b</text>'))).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><text x="4" y="14">a -&gt; b</text></svg>',
+    );
+  });
+
   // Each is rejected whole rather than repaired.
   it.each([
     ['a script', wrap('<script>alert(1)</script>')],

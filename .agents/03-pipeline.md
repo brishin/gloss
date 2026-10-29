@@ -40,8 +40,10 @@ kinds, each with an explicit `none`; asked for a 2-3 item list, the model return
 every time. `svg-sanitize.ts` parses it against an element
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
-`<img>`. A sketch whose `line`/`polyline` ends touch no box is dropped (`looseEnds`):
-in the eval, connectors into empty space were how sketches failed to close a loop.
+`<img>`. The define prompt's `SKETCH_GUIDE` gives the house style (stacked BEFORE/AFTER bands on one
+grid, neutral boxes, one accent or dashed-red step, labelled arrows) and one example figure.
+A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, arrows into
+empty space were how sketches failed to close a loop.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is

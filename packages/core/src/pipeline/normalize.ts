@@ -226,57 +226,94 @@ export function normalizeVisual(raw: RawVisual): { visual?: Visual; warnings: st
 }
 
 /** The hand-drawn candidate, through the SVG allowlist. */
-/** How near a box a connector's end must be to count as touching it, in viewBox units. */
+/** How near a box an arrow's end must be to count as touching it, in viewBox units. */
 const TOUCH = 8;
 
 /**
- * Ends of straight connectors (`line`, `polyline`) that touch no box, circle or ellipse. A
- * connector into empty space is the commonest failure of a model-drawn sketch: the loop or
- * flow it was meant to show never closes. Skipped (0) when anything is transformed, since
- * coordinates are then not comparable.
+ * Ends of arrows (a `line`, `polyline` or `path` with a marker) that touch no box, circle or
+ * ellipse. An arrow into empty space is the commonest failure of a model-drawn sketch: the
+ * loop or flow it was meant to show never closes. Lines without a marker are dividers and
+ * axes. Paths count only when made of absolute M, L, H and V. Skipped (0) when anything is
+ * transformed, since coordinates are then not comparable.
  */
 export function looseEnds(svg: string): number {
   if (/\stransform="/.test(svg)) {
     return 0;
   }
-  const attrs = (tag: string) =>
-    Object.fromEntries([...tag.matchAll(/\s([\w-]+)="([^"]*)"/g)].map(([, k, value]) => [k!, Number(value)]));
-  const tags = (name: string) => [...svg.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => attrs(tag));
+  const tags = (name: string) => [...svg.matchAll(new RegExp(`<${name}\\s[^>]*>`, 'g'))].map(([tag]) => tag);
+  const text = (tag: string, key: string) => tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1];
+  const num = (tag: string, key: string, fallback = 0) => Number(text(tag, key) ?? fallback);
   const near = (a: number, b: number) => Math.abs(a - b) <= TOUCH;
   const within = (value: number, from: number, to: number) => value >= from - TOUCH && value <= to + TOUCH;
   const shapes: ((x: number, y: number) => boolean)[] = [
-    ...tags('rect').map(
-      ({ x = 0, y = 0, width = 0, height = 0 }) =>
-        (px: number, py: number) =>
-          (within(px, x, x + width) && (near(py, y) || near(py, y + height))) ||
-          (within(py, y, y + height) && (near(px, x) || near(px, x + width))),
-    ),
-    ...[...tags('circle'), ...tags('ellipse')].map(
-      ({ cx = 0, cy = 0, r, rx = r ?? 0, ry = r ?? 0 }) =>
-        (px: number, py: number) =>
-          Math.abs(Math.hypot((px - cx) / Math.max(rx, 1), (py - cy) / Math.max(ry, 1)) - 1) * Math.min(rx, ry) <=
-          TOUCH,
-    ),
-  ];
-  const ends = [
-    ...tags('line').flatMap(({ x1 = 0, y1 = 0, x2 = 0, y2 = 0 }) => [
-      [x1, y1],
-      [x2, y2],
-    ]),
-    ...[...svg.matchAll(/<polyline\s[^>]*\bpoints="([^"]*)"/g)].flatMap(([, points]) => {
-      const n = points!
-        .trim()
-        .split(/[\s,]+/)
-        .map(Number);
-      return n.length >= 4
-        ? [
-            [n[0]!, n[1]!],
-            [n.at(-2)!, n.at(-1)!],
-          ]
-        : [];
+    ...tags('rect').map((tag) => {
+      const [x, y, width, height] = [num(tag, 'x'), num(tag, 'y'), num(tag, 'width'), num(tag, 'height')];
+      return (px: number, py: number) =>
+        (within(px, x, x + width) && (near(py, y) || near(py, y + height))) ||
+        (within(py, y, y + height) && (near(px, x) || near(px, x + width)));
+    }),
+    ...[...tags('circle'), ...tags('ellipse')].map((tag) => {
+      const [cx, cy, r] = [num(tag, 'cx'), num(tag, 'cy'), num(tag, 'r')];
+      const [rx, ry] = [Math.max(num(tag, 'rx', r), 1), Math.max(num(tag, 'ry', r), 1)];
+      return (px: number, py: number) =>
+        Math.abs(Math.hypot((px - cx) / rx, (py - cy) / ry) - 1) * Math.min(rx, ry) <= TOUCH;
     }),
   ];
+  const arrow = (tag: string) => /\smarker-(?:start|end)="/.test(tag);
+  const points = (list: string) => {
+    const n = list
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    return n.length >= 4 ? [n.slice(0, 2), n.slice(-2)] : [];
+  };
+  const ends = [
+    ...tags('line')
+      .filter(arrow)
+      .flatMap((tag) => [
+        [num(tag, 'x1'), num(tag, 'y1')],
+        [num(tag, 'x2'), num(tag, 'y2')],
+      ]),
+    ...tags('polyline')
+      .filter(arrow)
+      .flatMap((tag) => points(text(tag, 'points') ?? '')),
+    ...tags('path')
+      .filter(arrow)
+      .flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
+  ];
   return ends.filter(([x, y]) => !shapes.some((touches) => touches(x!, y!))).length;
+}
+
+/** Start and end of each subpath of an absolute M/L/H/V path; none for anything curved or relative. */
+function pathEnds(d: string): number[][] {
+  const commands = [...d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)];
+  if (!commands.length || commands.some(([, command]) => !'MLHV'.includes(command!))) {
+    return [];
+  }
+  const ends: number[][] = [];
+  let [x, y] = [0, 0];
+  let start: number[] | undefined;
+  for (const [, command, args] of commands) {
+    const n = args!
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
+    if (command === 'M') {
+      if (start) {
+        ends.push(start, [x, y]);
+      }
+      [x, y] = [n[0] ?? x, n[1] ?? y];
+      start = [x, y];
+    } else if (command === 'L') {
+      [x, y] = [n.at(-2) ?? x, n.at(-1) ?? y];
+    } else if (command === 'H') {
+      x = n.at(-1) ?? x;
+    } else {
+      y = n.at(-1) ?? y;
+    }
+  }
+  return start ? [...ends, start, [x, y]] : [];
 }
 
 function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings: string[] } {
@@ -290,7 +327,7 @@ function normalizeSketch(raw: RawVisuals['sketch']): { visual?: Visual; warnings
   }
   const loose = looseEnds(svg);
   return loose
-    ? { warnings: [`Dropped the svg visual: ${loose} connector end${loose > 1 ? 's touch' : ' touches'} no box.`] }
+    ? { warnings: [`Dropped the svg visual: ${loose} arrow end${loose > 1 ? 's touch' : ' touches'} no box.`] }
     : { visual: { kind: 'svg', caption, svg }, warnings: [] };
 }
 
