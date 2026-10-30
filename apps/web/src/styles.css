@@ -31,6 +31,11 @@
     --gloss-wash: light-dark(oklch(96% 0.025 285), oklch(29% 0.045 285));
     /* The logo's turned face: the ink's tint, swapped in dark mode so the front face stays strongest. */
     --gloss-tint: light-dark(oklch(78% 0.12 285), oklch(50% 0.17 285));
+    /* Flag marks need full-strength hues; the neutral theme's icon reds and oranges are near-black in light mode. */
+    --flag-severe: light-dark(#e5372b, #ff5a4e);
+    --flag-warning: light-dark(#e9a800, #f5c021);
+    --flag-investigate: light-dark(#f08a00, #ffa53a);
+    --flag-info: light-dark(#8a9096, #8f959b);
   }
 
   html,
@@ -272,7 +277,12 @@
   }
 
   .risk-kind {
-    color: var(--color-warning);
+    color: var(--color-text-secondary);
+  }
+
+  .risk-kind .flag-icon {
+    width: 12px;
+    height: 12px;
   }
 
   .tree-ring {
@@ -779,7 +789,7 @@
     font-family: var(--font-family-body);
   }
 
-  .note[data-critical='true'] {
+  .note[data-level='severe'] {
     --note-ink: var(--color-error);
     --note-wash: color-mix(in oklch, var(--color-error) 14%, var(--color-background-surface));
   }
@@ -793,10 +803,21 @@
     line-height: 16px;
   }
 
-  .note.decision {
+  /* A flag: its level's mark on the first line of text, the text beside it. */
+  .note[data-level] {
     display: flex;
-    align-items: baseline;
     gap: var(--spacing-2);
+    padding-top: var(--spacing-1-5);
+    padding-bottom: var(--spacing-1-5);
+  }
+
+  .note[data-level] > .flag-icon {
+    margin-top: 2px;
+  }
+
+  .note-body {
+    min-width: 0;
+    flex: 1;
   }
 
   .section-decisions {
@@ -807,17 +828,47 @@
     max-width: 72ch;
   }
 
-  /* The icon sits on the first line of text. */
-  .note.decision .priority-icon {
-    align-self: flex-start;
-    margin-top: 3px;
-  }
-
-  .priority-icon {
+  /* The reviewer's scale: red bug, amber triangle, orange flag, grey flag. */
+  .flag-icon {
     flex: none;
     width: 14px;
     height: 14px;
+  }
+
+  .flag-icon[data-level='severe'] {
+    color: var(--flag-severe);
+  }
+
+  .flag-icon[data-level='warning'] {
+    color: var(--flag-warning);
+  }
+
+  .flag-icon[data-level='investigate'] {
+    color: var(--flag-investigate);
+  }
+
+  .flag-icon[data-level='info'] {
+    color: var(--flag-info);
+  }
+
+  /* A section's flags by level, next to its title. */
+  .flag-counts {
+    display: inline-flex;
+    gap: var(--spacing-2-5, 10px);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
     color: var(--color-text-secondary);
+  }
+
+  .flag-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .flag-count .flag-icon {
+    width: 13px;
+    height: 13px;
   }
 
   /* The tour's visual: one picture of the main decision, drawn from checked data. */
@@ -973,16 +1024,12 @@
     max-height: 420px;
   }
 
-  .priority-urgent {
-    color: var(--color-text-orange);
-  }
-
   .decisions .decision-priority {
     width: 14px;
     padding-right: 0;
   }
 
-  .decisions .priority-icon {
+  .decisions .flag-icon {
     vertical-align: -2px;
   }
 

@@ -4,9 +4,9 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type { GroupView, TourState } from '@gloss/protocol';
 import { memo } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
-import { decisionsInOrder, splitPath } from '../lib/tour-view.ts';
+import { decisionFlag, decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
-import { PriorityIcon } from './icons.tsx';
+import { FlagIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
 
 /**
@@ -100,7 +100,7 @@ export const Overview = memo(function Overview({
                 return (
                   <tr key={index}>
                     <td className="decision-priority">
-                      <PriorityIcon priority={decision.priority} />
+                      <FlagIcon level={decisionFlag(decision)} />
                     </td>
                     <td>{decision.text}</td>
                     <td className="stat">
