@@ -1,12 +1,15 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
+import { RegistryContext } from '@effect/atom-react';
 import type { Decision, FileChange, FileNote, FileSummary, LineNote, RiskNote } from '@gloss/protocol';
 import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
-import { memo, type ReactNode, useMemo } from 'react';
-import { loadFileContents } from '../lib/client.ts';
+import { Effect } from 'effect';
+import { AtomRegistry } from 'effect/reactivity';
+import { memo, type ReactNode, useContext, useMemo } from 'react';
+import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
 import { decisionFlag, type FlagLevel, noteFlag, RISK_SHORT, splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
@@ -109,6 +112,7 @@ export const FileView = memo(function FileView({
   composing: (CommentAnchor & { body: string; editing?: string }) | undefined;
   reviewer: Reviewer | undefined;
 }) {
+  const registry = useContext(RegistryContext);
   const composingDraft = composing?.editing;
   const composingSide = composing?.side;
   const composingLine = composing?.line;
@@ -158,7 +162,9 @@ export const FileView = memo(function FileView({
       // The separators between hunks expand unchanged lines; pierre fetches the whole file on the first one.
       loadDiffFiles: diffId
         ? async (diff: FileDiffMetadata) => {
-            const { oldContents, newContents } = await loadFileContents(diffId, summary.id);
+            const { oldContents, newContents } = await Effect.runPromise(
+              AtomRegistry.getResult(registry, fileContentsAtom(JSON.stringify({ diffId, fileId: summary.id }))),
+            );
             return {
               oldFile: { name: diff.prevName ?? diff.name, contents: oldContents },
               newFile: { name: diff.name, contents: newContents },
@@ -166,7 +172,7 @@ export const FileView = memo(function FileView({
           }
         : undefined,
     }),
-    [reviewer, summary.id, diffId],
+    [reviewer, summary.id, diffId, registry],
   );
   const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);

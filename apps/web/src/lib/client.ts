@@ -113,8 +113,14 @@ export const pipelineAtom = Atom.family((key: string) =>
   ),
 );
 /**
- * A changed file in full. pierre asks for it the first time the reviewer expands unchanged
- * lines, and keeps it, so this is a promise rather than an atom.
+ * A changed file in full, keyed by `JSON.stringify({ diffId, fileId })`. pierre asks for it
+ * the first time the reviewer expands unchanged lines in the file, and keeps what it gets.
  */
-export const loadFileContents = (diffId: string, fileId: string): Promise<FileContents> =>
-  Effect.runPromise(request((client) => client.fileContents(diffId, fileId)).pipe(Effect.provide(Gloss.layer)));
+export const fileContentsAtom = Atom.family((key: string) =>
+  glossRuntime.atom(
+    request((client): Promise<FileContents> => {
+      const { diffId, fileId } = JSON.parse(key) as { diffId: string; fileId: string };
+      return client.fileContents(diffId, fileId);
+    }),
+  ),
+);
