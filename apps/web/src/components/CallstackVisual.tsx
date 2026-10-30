@@ -6,6 +6,8 @@ type Callstack = Extract<Visual, { kind: 'callstack' }>;
 const ROW = 28;
 const INDENT = 22;
 const MARK = 9;
+/** Space above each entry point after the first, so separate paths read apart. */
+const ROOT_GAP = 10;
 
 const STATUS = { new: 'new', changed: 'changed', same: 'unchanged' } as const;
 
@@ -21,7 +23,8 @@ export function CallstackVisual({ visual }: { visual: Callstack }) {
   const counts = (['new', 'changed', 'same'] as const)
     .map((status) => [status, frames.filter((frame) => frame.status === status).length] as const)
     .filter(([, count]) => count > 0);
-  const mid = (index: number) => index * ROW + ROW / 2;
+  const tops = frames.map((_, index) => index * ROW + ROOT_GAP * rootsBefore(frames, index));
+  const mid = (index: number) => tops[index]! + ROW / 2;
   return (
     <div className="visual-callstack">
       <div className="callstack-legend">
@@ -33,7 +36,7 @@ export function CallstackVisual({ visual }: { visual: Callstack }) {
         ))}
       </div>
       <div className="callstack-tree">
-        <svg className="callstack-lines" width="100%" height={frames.length * ROW} aria-hidden>
+        <svg className="callstack-lines" width="100%" height={tops.at(-1)! + ROW} aria-hidden>
           {frames.map((frame, index) => {
             const parent = parents[index]!;
             if (parent < 0) {
@@ -56,7 +59,7 @@ export function CallstackVisual({ visual }: { visual: Callstack }) {
             <div
               key={index}
               className="callstack-row"
-              style={{ paddingLeft: frame.depth * INDENT }}
+              style={{ paddingLeft: frame.depth * INDENT, marginTop: index && !frame.depth ? ROOT_GAP : 0 }}
               title={`${frame.receiver ? `${frame.receiver}.` : ''}${frame.name}(${frame.args ?? ''})${frame.path ? `\n${frame.path}${frame.line ? `:${frame.line}` : ''}` : ''}`}
             >
               <span className={`callstack-mark ${frame.status}`} aria-label={STATUS[frame.status]} />
@@ -74,4 +77,9 @@ export function CallstackVisual({ visual }: { visual: Callstack }) {
       </div>
     </div>
   );
+}
+
+/** Entry points after the first, up to and including `index`. */
+function rootsBefore(frames: Callstack['frames'], index: number): number {
+  return frames.slice(1, index + 1).filter((frame) => frame.depth === 0).length;
 }

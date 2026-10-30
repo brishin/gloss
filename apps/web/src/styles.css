@@ -36,6 +36,9 @@
     --flag-warning: light-dark(#e9a800, #f5c021);
     --flag-investigate: light-dark(#f08a00, #ffa53a);
     --flag-info: light-dark(#8a9096, #8f959b);
+    /* Call tree marks: the neutral theme's success and warning are near-black in light mode too. */
+    --call-new: light-dark(#2da44e, #4ac26b);
+    --call-changed: var(--flag-warning);
     /* Who runs a pipeline step: code, the define-tier LLM, Jev, the notes LLM. */
     --actor-code: light-dark(#64748b, #94a3b8);
     --actor-llm: var(--gloss-ink);
@@ -1040,11 +1043,11 @@
   }
 
   .callstack-mark.new {
-    background: var(--color-success);
+    background: var(--call-new);
   }
 
   .callstack-mark.changed {
-    background: var(--color-warning);
+    background: var(--call-changed);
   }
 
   .callstack-mark.same {

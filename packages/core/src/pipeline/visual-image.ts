@@ -115,16 +115,20 @@ const ROW = 28;
 const INDENT = 22;
 const CHAR = 7.8;
 const MARK = 9;
+const ROOT_GAP = 10;
 
 /** The call tree: rows of receiver.name(args), connectors from each caller, file:line on the right. */
 function callstackSvg(visual: Extract<Visual, { kind: 'callstack' }>): string {
   const { frames } = visual;
   const parents = callParents(frames);
   const locations = callLocations(frames);
-  const height = frames.length * ROW + 16;
+  // Entry points after the first sit a little apart, as in the web app.
+  let roots = 0;
+  const tops = frames.map((frame, index) => 8 + index * ROW + ROOT_GAP * (index && !frame.depth ? ++roots : roots));
+  const height = tops.at(-1)! + ROW + 8;
   const left = 14;
   const markX = (depth: number) => left + depth * INDENT;
-  const midY = (index: number) => 8 + index * ROW + ROW / 2;
+  const midY = (index: number) => tops[index]! + ROW / 2;
   const rows = frames
     .map((frame, index) => {
       const y = midY(index);
