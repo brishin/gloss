@@ -1,6 +1,6 @@
 import type { TraceStep } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { layoutGraph, NODE, promptLines, selectedStep, stepFacts } from './trace-view.ts';
+import { layoutGraph, NODE, promptLines, selectedStep, settled, stepFacts } from './trace-view.ts';
 
 const step = (id: string, kind: TraceStep['kind'], inputs: string[], extra: Partial<TraceStep> = {}): TraceStep => ({
   id,
@@ -77,5 +77,16 @@ describe('stepFacts', () => {
     });
     expect(stepFacts(call)).toBe('anthropic/claude · 4.8 s · 3.1k in / 600 out · fresh');
     expect(stepFacts(step('place', 'place', []))).toBe('10 ms');
+  });
+});
+
+describe('settled', () => {
+  it('shows a step still running after the job ended as stopped', () => {
+    const running = step('notes:a', 'notes', [], { state: 'running', endMs: undefined });
+    expect(settled({ steps: [running], done: false }).steps[0]?.state).toBe('running');
+    expect(settled({ steps: [running], done: true }).steps[0]).toMatchObject({
+      state: 'failed',
+      warnings: ['Stopped before it finished.'],
+    });
   });
 });

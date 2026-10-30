@@ -80,6 +80,7 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
       {AsyncResult.isFailure(result) && (
         <Banner status="error" title="Could not load the pipeline" description="Is the gloss server running?" />
       )}
+      {pipeline?.stopped && <Banner status="warning" title="Tour stopped" description="Re-run it to finish." />}
       {pipeline?.error && (
         <Banner
           status="error"

@@ -11,6 +11,7 @@ import {
 } from '@gloss/protocol';
 import { Context, Data, Duration, Effect, Layer, Stream } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
+import { settled } from './trace-view.ts';
 
 declare global {
   interface Window {
@@ -62,6 +63,8 @@ export interface Pipeline {
   cached: boolean;
   /** A fatal error, e.g. the diff could not be fetched before any step ran. */
   error?: { message: string; stage?: string };
+  /** The run was stopped (or superseded) before it finished. */
+  stopped: boolean;
 }
 
 /**
@@ -95,9 +98,10 @@ export const pipelineAtom = Atom.family((key: string) =>
           Stream.mapEffect((state) =>
             request((client) => client.trace(jobId)).pipe(
               Effect.map((trace): Pipeline => ({
-                trace,
+                trace: settled(trace),
                 title: state.meta?.title,
                 cached: state.cached,
+                stopped: state.status === 'aborted',
                 error: state.error,
               })),
             ),

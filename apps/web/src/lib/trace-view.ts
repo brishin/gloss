@@ -1,4 +1,4 @@
-import type { StepKind, TraceStep } from '@gloss/protocol';
+import type { StepKind, Trace, TraceStep } from '@gloss/protocol';
 
 /** What a step is called, and who does it (colors the dot): the define-tier LLM, Jev, code, or the notes LLM. */
 export const STEP_KINDS: Record<StepKind, { label: string; tag: string; actor: 'code' | 'llm' | 'jev' | 'notes' }> = {
@@ -123,4 +123,19 @@ export function promptLines(step: TraceStep, steps: readonly TraceStep[]): Promp
     }
     return { text, from, tag };
   });
+}
+
+/** Once the job has ended, a step still marked running was interrupted: show it as stopped, not running. */
+export function settled(trace: Trace): Trace {
+  if (!trace.done) {
+    return trace;
+  }
+  return {
+    ...trace,
+    steps: trace.steps.map((step) =>
+      step.state === 'running'
+        ? { ...step, state: 'failed', warnings: [...(step.warnings ?? []), 'Stopped before it finished.'] }
+        : step,
+    ),
+  };
 }
