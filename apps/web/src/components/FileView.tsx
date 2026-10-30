@@ -5,10 +5,10 @@ import type { Decision, FileChange, FileNote, FileSummary, LineNote, RiskNote } 
 import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
-import { memo, useMemo } from 'react';
+import { memo, type ReactNode, useMemo } from 'react';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
-import { RISK_SHORT, splitPath } from '../lib/tour-view.ts';
-import { PriorityIcon } from './icons.tsx';
+import { decisionFlag, type FlagLevel, noteFlag, RISK_SHORT, splitPath } from '../lib/tour-view.ts';
+import { FlagIcon } from './icons.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
 function unifiedText(file: FileChange): string {
@@ -29,21 +29,29 @@ function unifiedText(file: FileChange): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** One of gloss's flags: its level's mark, then the text. Critical notes and urgent decisions read as severe. */
+function FlagCard({ level, children, className }: { level: FlagLevel; children: ReactNode; className?: string }) {
+  return (
+    <div className={`note ${className ?? ''}`} data-level={level}>
+      <FlagIcon level={level} />
+      <div className="note-body">{children}</div>
+    </div>
+  );
+}
+
 function NoteCard({ text, critical, className }: { text: string; critical?: boolean; className?: string }) {
   return (
-    <div className={`note ${className ?? ''}`} data-critical={critical ?? false}>
-      <span className="note-label">{critical ? 'gloss · critical' : 'gloss'}</span>
+    <FlagCard level={noteFlag({ critical })} className={className}>
       <Markdown density="compact">{text}</Markdown>
-    </div>
+    </FlagCard>
   );
 }
 
 export function DecisionCard({ decision, className }: { decision: Decision; className?: string }) {
   return (
-    <div className={`note decision ${className ?? ''}`}>
-      <PriorityIcon priority={decision.priority} />
-      <span>{decision.text}</span>
-    </div>
+    <FlagCard level={decisionFlag(decision)} className={className}>
+      {decision.text}
+    </FlagCard>
   );
 }
 
@@ -167,10 +175,10 @@ export const FileView = memo(function FileView({
             <strong>{base}</strong>
           </span>
         </button>
-        {/* The same mark as the group head and the sidebar dot; a pill would outshout the file name. */}
+        {/* The warning mark the group head uses; a pill would outshout the file name. */}
         {riskKinds.map((risk) => (
           <span key={risk} className="risk-kind">
-            <span className="marker marker-risk" />
+            <FlagIcon level="warning" />
             {RISK_SHORT[risk]}
           </span>
         ))}

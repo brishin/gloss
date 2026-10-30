@@ -1,6 +1,7 @@
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
-import type { Category, DecisionPriority, PullState } from '@gloss/protocol';
+import type { Category, PullState } from '@gloss/protocol';
 import type { ReactNode } from 'react';
+import { FLAG_LABEL, FLAG_LEVELS, type FlagLevel } from '../lib/tour-view.ts';
 
 /**
  * Glyphs Astryx's icon set lacks (categories, PR, folder), drawn as 16px stroke icons and
@@ -141,47 +142,70 @@ export function ChevronIcon() {
   return <Icon icon="chevronRight" size="sm" color="inherit" className="tree-chevron-icon" />;
 }
 
-const PRIORITY_LABEL: Record<DecisionPriority, string> = {
-  urgent: 'Urgent',
-  high: 'High priority',
-  medium: 'Medium priority',
-  low: 'Low priority',
+const FLAG_GLYPHS: Record<FlagLevel, ReactNode> = {
+  severe: (
+    <>
+      <path
+        d="M6.6 3.2 5.6 1.8M9.4 3.2l1-1.4M4.6 7.6 1.8 6.6M4.4 10.2H1.6M4.8 12.6 2.2 14.2M11.4 7.6l2.8-1M11.6 10.2h2.8M11.2 12.6l2.6 1.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="4.6" r="2.1" fill="currentColor" />
+      <ellipse cx="8" cy="10" rx="3.7" ry="4.4" fill="currentColor" />
+      <path d="M8 6.2v7.8" stroke="var(--color-background-surface)" strokeWidth="1" />
+    </>
+  ),
+  warning: (
+    <>
+      <path d="M8 1.8 15 14.2H1z" fill="currentColor" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <rect x="7.2" y="5.6" width="1.6" height="4.6" rx="0.8" fill="var(--color-on-warning, #000)" />
+      <circle cx="8" cy="12.1" r="0.95" fill="var(--color-on-warning, #000)" />
+    </>
+  ),
+  investigate: <FlagGlyph />,
+  info: <FlagGlyph />,
 };
 
-/** Linear's priority marks: a filled square for urgent, else three rising bars with 3, 2 or 1 filled. */
-export function PriorityIcon({ priority }: { priority: DecisionPriority }) {
-  const label = PRIORITY_LABEL[priority];
-  if (priority === 'urgent') {
-    return (
-      <svg className="priority-icon priority-urgent" viewBox="0 0 16 16" role="img" aria-label={label}>
-        <title>{label}</title>
-        <rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" />
-        <rect x="7.1" y="4" width="1.8" height="5.2" rx="0.9" fill="var(--color-background-surface)" />
-        <circle cx="8" cy="11.6" r="1.05" fill="var(--color-background-surface)" />
-      </svg>
-    );
-  }
-  const filled = { high: 3, medium: 2, low: 1 }[priority];
+function FlagGlyph() {
   return (
-    <svg className="priority-icon" viewBox="0 0 16 16" role="img" aria-label={label}>
+    <>
+      <rect x="2.4" y="1.4" width="1.6" height="13.2" rx="0.8" fill="currentColor" />
+      <path d="M4 2.4c2.6-1.2 5 1.4 9.4 0v7c-4.4 1.4-6.8-1.2-9.4 0z" fill="currentColor" />
+    </>
+  );
+}
+
+/**
+ * A flag's level as a mark: a red bug for severe, an amber triangle for a warning, an orange
+ * flag to investigate and a grey one for information.
+ */
+export function FlagIcon({ level }: { level: FlagLevel }) {
+  const label = FLAG_LABEL[level];
+  return (
+    <svg className="flag-icon" data-level={level} viewBox="0 0 16 16" role="img" aria-label={label}>
       <title>{label}</title>
-      {[
-        [1.5, 9, 5],
-        [6.5, 6, 8],
-        [11.5, 3, 11],
-      ].map(([x, y, height], index) => (
-        <rect
-          key={x}
-          x={x}
-          y={y}
-          width="3"
-          height={height}
-          rx="1"
-          fill="currentColor"
-          opacity={index < filled ? 1 : 0.28}
-        />
-      ))}
+      {FLAG_GLYPHS[level]}
     </svg>
+  );
+}
+
+/** A section's flags by level, most urgent first; levels with none are left out. */
+export function FlagCounts({ counts }: { counts: Record<FlagLevel, number> }) {
+  const shown = FLAG_LEVELS.filter((level) => counts[level] > 0);
+  if (shown.length === 0) {
+    return null;
+  }
+  return (
+    <span className="flag-counts">
+      {shown.map((level) => (
+        <span key={level} className="flag-count" title={`${counts[level]} ${FLAG_LABEL[level].toLowerCase()}`}>
+          <FlagIcon level={level} />
+          {counts[level]}
+        </span>
+      ))}
+    </span>
   );
 }
 

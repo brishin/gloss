@@ -12,9 +12,11 @@ import {
   RISK_SHORT,
   risksByFile,
   sectionDecisions,
+  sectionFlagCounts,
   splitPath,
 } from '../lib/tour-view.ts';
 import { DecisionCard, FileView } from './FileView.tsx';
+import { FlagCounts, FlagIcon } from './icons.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
@@ -82,6 +84,7 @@ export const GroupPanel = memo(function GroupPanel({
     state.stages.notes.state !== 'failed';
   const riskNotes = notes?.riskNotes ?? [];
   const decisions = useMemo(() => sectionDecisions(state, group.key), [state, group.key]);
+  const flagCounts = useMemo(() => sectionFlagCounts(state, group), [state, group]);
 
   return (
     <div className="page">
@@ -95,6 +98,7 @@ export const GroupPanel = memo(function GroupPanel({
               critical
             </span>
           )}
+          <FlagCounts counts={flagCounts} />
           {notesPending && (
             <span className="muted">
               <Spinner size="sm" label="Writing notes" />
@@ -124,7 +128,7 @@ export const GroupPanel = memo(function GroupPanel({
               return (
                 <li className="risk-row" key={index}>
                   <span className="risk-kind">
-                    <span className="marker marker-risk" />
+                    <FlagIcon level="warning" />
                     {RISK_SHORT[risk.risk]}
                   </span>
                   <a

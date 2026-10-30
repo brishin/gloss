@@ -1,4 +1,4 @@
-import type { Decision, FileSummary, GroupView, RiskKey, RiskNote, TourState } from '@gloss/protocol';
+import type { Decision, DecisionPriority, FileSummary, GroupView, RiskKey, RiskNote, TourState } from '@gloss/protocol';
 import { DECISION_PRIORITIES } from '@gloss/protocol';
 
 /** Sidebar/selection key of the tour overview (never a group key: those come from the model or are synthetic). */
@@ -39,6 +39,49 @@ export function notedFileIds(group: GroupView | undefined): Set<string> {
       note.fileId ? [note.fileId] : [],
     ),
   );
+}
+
+/**
+ * How loudly a flag asks for the reviewer: severe (take extra care), warning (a confirmed
+ * risk), investigate (agree with it on purpose), info (explains the code). Most urgent first.
+ */
+export const FLAG_LEVELS = ['severe', 'warning', 'investigate', 'info'] as const;
+export type FlagLevel = (typeof FLAG_LEVELS)[number];
+
+export const FLAG_LABEL: Record<FlagLevel, string> = {
+  severe: 'Severe',
+  warning: 'Warning',
+  investigate: 'Investigate',
+  info: 'Informational',
+};
+
+const DECISION_FLAG: Record<DecisionPriority, FlagLevel> = {
+  urgent: 'severe',
+  high: 'investigate',
+  medium: 'investigate',
+  low: 'info',
+};
+
+export function noteFlag(note: { critical?: boolean }): FlagLevel {
+  return note.critical ? 'severe' : 'info';
+}
+
+export function decisionFlag(decision: Decision): FlagLevel {
+  return DECISION_FLAG[decision.priority];
+}
+
+/** Every flag shown in a group's section: its notes, risks and decisions, counted by level. */
+export function sectionFlagCounts(state: TourState, group: GroupView): Record<FlagLevel, number> {
+  const counts: Record<FlagLevel, number> = { severe: 0, warning: 0, investigate: 0, info: 0 };
+  const notes = group.notes;
+  for (const note of [...(notes?.fileNotes ?? []), ...(notes?.lineNotes ?? [])]) {
+    counts[noteFlag(note)] += 1;
+  }
+  counts.warning += notes?.riskNotes.length ?? 0;
+  for (const decision of [...(notes?.decisions ?? []), ...sectionDecisions(state, group.key)]) {
+    counts[decisionFlag(decision)] += 1;
+  }
+  return counts;
 }
 
 export interface DecisionEntry {
