@@ -161,7 +161,7 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
     case 'OpenRef':
       return once(Effect.sync(() => void navigateToRef(router, cmd.ref)));
     case 'OpenPipeline':
-      return once(Effect.sync(() => void navigateToPipeline(router, cmd.ref)));
+      return once(Effect.sync(() => void navigateToPipeline(router, cmd.ref, { job: cmd.jobId })));
     case 'SetTitle':
       // Held until the next title replaces it, or the page goes away.
       return once(

@@ -182,7 +182,7 @@ export type Cmd =
   | { type: 'FetchStack'; ref: Extract<SourceRef, { kind: 'github-pr' }> }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
-  | { type: 'OpenPipeline'; ref: SourceRef };
+  | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -408,7 +408,7 @@ function step(model: Model, msg: Msg): Next {
     case 'HelpSet':
       return model.helpOpen === msg.open ? [model, []] : [{ ...model, helpOpen: msg.open }, []];
     case 'PipelineOpened':
-      return [model, [{ type: 'OpenPipeline', ref: model.ref }]];
+      return [model, [{ type: 'OpenPipeline', ref: model.ref, jobId: model.jobId }]];
     case 'HelpToggled':
       return [{ ...model, helpOpen: !model.helpOpen }, []];
     case 'SidebarToggled':

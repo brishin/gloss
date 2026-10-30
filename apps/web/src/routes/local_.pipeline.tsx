@@ -3,7 +3,12 @@ import * as v from 'valibot';
 import { PipelinePage } from '../components/PipelinePage.tsx';
 import { searchText } from '../lib/source-routes.tsx';
 
-const SearchSchema = v.object({ repo: searchText, target: v.optional(searchText, ''), step: v.optional(searchText) });
+const SearchSchema = v.object({
+  repo: searchText,
+  target: v.optional(searchText, ''),
+  job: v.optional(searchText),
+  step: v.optional(searchText),
+});
 
 export const Route = createFileRoute('/local_/pipeline')({
   validateSearch: (search) => v.parse(SearchSchema, search),
@@ -11,6 +16,6 @@ export const Route = createFileRoute('/local_/pipeline')({
 });
 
 function LocalPipeline() {
-  const { repo, target, step } = Route.useSearch();
-  return <PipelinePage sourceRef={{ kind: 'local', repo, target }} stepId={step} />;
+  const { repo, target, job, step } = Route.useSearch();
+  return <PipelinePage sourceRef={{ kind: 'local', repo, target }} jobId={job} stepId={step} />;
 }

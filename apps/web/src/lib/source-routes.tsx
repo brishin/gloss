@@ -35,15 +35,15 @@ export function navigateToRef(router: AnyRouter, ref: SourceRef) {
     : router.navigate({ to: '/local', search: { repo: ref.repo, target: ref.target } });
 }
 
-/** The pipeline debug view for a ref, optionally opened on one step. */
-export function navigateToPipeline(router: AnyRouter, ref: SourceRef, step?: string) {
+/** The pipeline debug view for a ref: of one job (else the ref's current tour), optionally opened on one step. */
+export function navigateToPipeline(router: AnyRouter, ref: SourceRef, search: { job?: string; step?: string }) {
   return ref.kind === 'github-pr'
     ? router.navigate({
         to: '/gh/$owner/$repo/pull/$number/pipeline',
         params: { owner: ref.owner, repo: ref.repo, number: String(ref.number) },
-        search: { step },
+        search,
       })
-    : router.navigate({ to: '/local/pipeline', search: { repo: ref.repo, target: ref.target, step } });
+    : router.navigate({ to: '/local/pipeline', search: { repo: ref.repo, target: ref.target, ...search } });
 }
 
 export function useNavigateToRef() {

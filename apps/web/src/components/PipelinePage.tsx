@@ -28,14 +28,14 @@ const GRAPH_WIDTH = 420;
  * marked with the step it came from) next to what it returned. `j`/`k` move between
  * steps; `d` goes back to the tour.
  */
-export function PipelinePage({ sourceRef, stepId }: { sourceRef: SourceRef; stepId?: string }) {
+export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRef; jobId?: string; stepId?: string }) {
   const router = useRouter();
-  const result = useAtomValue(pipelineAtom(JSON.stringify(sourceRef)));
+  const result = useAtomValue(pipelineAtom(JSON.stringify({ ref: sourceRef, jobId })));
   const pipeline = AsyncResult.getOrElse(result, () => undefined);
   const steps = useMemo(() => pipeline?.trace.steps ?? [], [pipeline]);
   const layout = useMemo(() => layoutGraph(steps, GRAPH_WIDTH), [steps]);
   const selected = selectedStep(steps, stepId);
-  const open = (id: string) => void navigateToPipeline(router, sourceRef, id);
+  const open = (id: string) => void navigateToPipeline(router, sourceRef, { job: jobId, step: id });
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -47,7 +47,7 @@ export function PipelinePage({ sourceRef, stepId }: { sourceRef: SourceRef; step
       if (event.key === 'j' || event.key === 'k') {
         const target = order[at + (event.key === 'j' ? 1 : -1)];
         if (target) {
-          void navigateToPipeline(router, sourceRef, target);
+          void navigateToPipeline(router, sourceRef, { job: jobId, step: target });
         }
       } else if (event.key === 'd') {
         void navigateToRef(router, sourceRef);
@@ -55,7 +55,7 @@ export function PipelinePage({ sourceRef, stepId }: { sourceRef: SourceRef; step
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [layout, selected, router, sourceRef]);
+  }, [layout, selected, router, sourceRef, jobId]);
 
   return (
     <div className="app pipeline-app">

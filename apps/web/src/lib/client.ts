@@ -61,16 +61,23 @@ export interface Pipeline {
 }
 
 /**
- * The pipeline debug view for a ref (keyed by `JSON.stringify(ref)`): attaches to the ref's
- * tour (or starts it, as opening the tour would), and fetches the trace again whenever the
- * tour's events settle, so running steps fill in.
+ * The pipeline debug view (keyed by `JSON.stringify({ ref, jobId })`): follows the tour's own
+ * job, so a failed or stopped run shows its trace. Without one, or once it has expired, it
+ * attaches to the ref's tour (or starts it, as opening the tour would). The trace is fetched
+ * again whenever the job's events settle, so running steps fill in.
  */
 export const pipelineAtom = Atom.family((key: string) =>
   glossRuntime.atom(
     Stream.unwrap(
       Effect.gen(function* () {
-        const ref = JSON.parse(key) as SourceRef;
-        const { jobId } = yield* request((client) => client.startTour(ref));
+        const { ref, jobId: asked } = JSON.parse(key) as { ref: SourceRef; jobId?: string };
+        const kept = asked
+          ? yield* request((client) => client.trace(asked)).pipe(
+              Effect.as(asked),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : undefined;
+        const jobId = kept ?? (yield* request((client) => client.startTour(ref))).jobId;
         const client = yield* Gloss;
         const controller = yield* Effect.acquireRelease(
           Effect.sync(() => new AbortController()),
