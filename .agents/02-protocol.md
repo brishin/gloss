@@ -11,6 +11,10 @@
   terminal event (`tour.complete`, fatal `job.error`, `job.aborted`).
 - `POST /api/tours/:id/abort`, `GET /api/diffs/:diffId` (hunk bodies, kept out of the
   event log), `GET /api/health`, `GET /api/recent`.
+- `GET /api/tours/:id/trace` → `Trace` (`trace.ts`): the job's pipeline steps for the
+  debug view. Each step names its `inputs` (the DAG's edges), its prompt with `sections`
+  saying which input step each part came from, and its raw output. Kept out of the event
+  log because prompts are large; the web app fetches it again as events settle.
 
 Events (`events.ts`), in the order a fresh tour emits them: `job.started`,
 `stage.status`, `diff.ready`, `groups.provisional`, then `group.defined` (one per

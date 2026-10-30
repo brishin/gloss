@@ -120,6 +120,7 @@ export type Msg =
   | { type: 'NavClosed' }
   | { type: 'HelpSet'; open: boolean }
   | { type: 'HelpToggled' }
+  | { type: 'PipelineOpened' }
   | { type: 'SidebarToggled'; node: string; deep: boolean }
   /** A click on a PR or group row: jumps there and unfolds it. */
   | { type: 'SidebarActivated'; node: string; key: string }
@@ -180,7 +181,8 @@ export type Cmd =
   | { type: 'SubmitReview'; diffId: string; request: ReviewRequest }
   | { type: 'FetchStack'; ref: Extract<SourceRef, { kind: 'github-pr' }> }
   /** Leaves this tour for another one. */
-  | { type: 'OpenRef'; ref: SourceRef };
+  | { type: 'OpenRef'; ref: SourceRef }
+  | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -257,7 +259,7 @@ export function isFileExpanded(
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** Keys that may be shortcuts, so the browser's own use of them is held back. */
-export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?rayc');
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycd');
 
 /** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
@@ -312,6 +314,8 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return active ? { type: 'ActiveFileViewed' } : undefined;
     case '?':
       return { type: 'HelpToggled' };
+    case 'd':
+      return { type: 'PipelineOpened' };
     case 'Escape':
       return model.navOpen ? { type: 'NavClosed' } : undefined;
     default:
@@ -403,6 +407,8 @@ function step(model: Model, msg: Msg): Next {
       return model.navOpen ? [{ ...model, navOpen: false }, []] : [model, []];
     case 'HelpSet':
       return model.helpOpen === msg.open ? [model, []] : [{ ...model, helpOpen: msg.open }, []];
+    case 'PipelineOpened':
+      return [model, [{ type: 'OpenPipeline', ref: model.ref, jobId: model.jobId }]];
     case 'HelpToggled':
       return [{ ...model, helpOpen: !model.helpOpen }, []];
     case 'SidebarToggled':

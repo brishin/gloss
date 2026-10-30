@@ -11,11 +11,13 @@ export type CacheKind =
   | 'sketch'
   | 'followup'
   | 'notes'
-  | 'tour';
+  | 'tour'
+  | 'trace';
 
 /**
  * Content-addressed storage. Keys come from `cache/keys.ts`; values are JSON.
- * Only fetched diffs and model/Jev output are stored, never heuristics or errors.
+ * Only fetched diffs and model/Jev output are stored (a finished tour's trace is its prompts and
+ * those outputs), never heuristics or errors.
  */
 export interface CacheStore {
   get<T>(key: string): T | undefined;

@@ -281,8 +281,17 @@ describe('keyToMsg', () => {
     ['J', base, { type: 'StackStepped', by: 1 }],
     ['K', base, { type: 'StackStepped', by: -1 }],
     ['q', base, undefined],
+    ['d', base, { type: 'PipelineOpened' }],
   ] as const)('%s', (key, state, expected) => {
     expect(keyToMsg(state, key)).toEqual(expected);
+  });
+
+  test('d opens the pipeline view for the tour', () => {
+    // The tour's own job, so a failed or stopped run shows its trace instead of starting another.
+    const running = { ...base, jobId: 'j1' };
+    expect(update(running, { type: 'PipelineOpened' })[1]).toEqual([
+      { type: 'OpenPipeline', ref: base.ref, jobId: 'j1' },
+    ]);
   });
 });
 

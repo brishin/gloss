@@ -36,6 +36,11 @@
     --flag-warning: light-dark(#e9a800, #f5c021);
     --flag-investigate: light-dark(#f08a00, #ffa53a);
     --flag-info: light-dark(#8a9096, #8f959b);
+    /* Who runs a pipeline step: code, the define-tier LLM, Jev, the notes LLM. */
+    --actor-code: light-dark(#64748b, #94a3b8);
+    --actor-llm: var(--gloss-ink);
+    --actor-jev: light-dark(#0e8a6a, #34c79f);
+    --actor-notes: light-dark(#2563eb, #6b9bff);
   }
 
   html,
@@ -114,24 +119,10 @@
     font-weight: var(--font-weight-semibold);
   }
 
-  .stage-rail {
-    display: flex;
-    gap: var(--spacing-3);
-    align-items: center;
-  }
-
   .toolbar {
     display: flex;
     align-items: center;
     gap: var(--spacing-1);
-  }
-
-  .stage {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-1);
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
   }
 
   /* Layout */
@@ -1187,7 +1178,6 @@
   }
 
   .topbar-ref,
-  .stage-rail,
   .toolbar {
     flex: none;
   }
@@ -1199,13 +1189,8 @@
     }
 
     .topbar-ref,
-    .topbar-cached,
-    .stage-label {
+    .topbar-cached {
       display: none;
-    }
-
-    .stage-rail {
-      gap: var(--spacing-1);
     }
 
     .tour {
@@ -1274,6 +1259,312 @@
 
     .target-form {
       flex-direction: column;
+    }
+  }
+
+  /* Pipeline debug view: the DAG on the left, one step's prompt and output on the right. */
+
+  .pipeline-app {
+    height: 100vh;
+  }
+
+  .pipeline-crumbs {
+    display: flex;
+    gap: var(--spacing-1);
+    flex: none;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+  }
+
+  .pipeline-crumbs strong {
+    color: var(--color-text-primary);
+  }
+
+  .pipeline-empty {
+    padding: var(--spacing-6);
+  }
+
+  .pipeline {
+    display: grid;
+    grid-template-columns: 460px minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+
+  .pipeline-graph {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+    padding: var(--spacing-4) var(--spacing-5);
+    border-right: 1px solid var(--color-border);
+    background: var(--color-background-muted);
+    overflow: auto;
+  }
+
+  .graph {
+    position: relative;
+    flex: none;
+  }
+
+  .graph-edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+  }
+
+  .graph-edges path {
+    fill: none;
+    stroke: var(--color-border-emphasized);
+    stroke-width: 1.5;
+  }
+
+  .graph-edges path[data-hot='true'] {
+    stroke: var(--gloss-ink);
+    stroke-width: 2;
+  }
+
+  .graph-node {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    box-sizing: border-box;
+    padding: 0 var(--spacing-2);
+    border: 1px solid var(--color-border-emphasized);
+    border-radius: 8px;
+    background: var(--color-background-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .graph-node:hover {
+    border-color: var(--gloss-ink);
+  }
+
+  .graph-node[data-selected='true'] {
+    border-color: var(--gloss-ink);
+    box-shadow: 0 0 0 3px var(--gloss-wash);
+  }
+
+  .graph-node[data-state='failed'] {
+    border-color: var(--flag-severe);
+  }
+
+  .graph-node-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .graph-node-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-node-sub {
+    font-size: var(--font-size-xs);
+    font-weight: normal;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .graph-node-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .actor-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--actor-code);
+  }
+
+  .actor-dot[data-actor='llm'] {
+    background: var(--actor-llm);
+  }
+
+  .actor-dot[data-actor='jev'] {
+    background: var(--actor-jev);
+  }
+
+  .actor-dot[data-actor='notes'] {
+    background: var(--actor-notes);
+  }
+
+  .graph-node[data-state='running'] .actor-dot {
+    animation: actor-pulse 1.2s ease-in-out infinite;
+  }
+
+  .graph-node[data-state='failed'] .actor-dot {
+    background: var(--flag-severe);
+  }
+
+  @keyframes actor-pulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  .inspector {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .inspector-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-3);
+    padding: var(--spacing-3) var(--spacing-5);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .inspector-head h2 {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .inspector-panes {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+
+  .inspector-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .inspector-pane + .inspector-pane {
+    border-left: 1px solid var(--color-border);
+  }
+
+  .inspector-reads .pane-body {
+    padding: var(--spacing-3) var(--spacing-5);
+  }
+
+  .pane-title {
+    padding: var(--spacing-2) var(--spacing-5);
+    border-bottom: 1px solid var(--color-border);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .pane-body {
+    flex: 1;
+    overflow: auto;
+    padding: var(--spacing-2) 0;
+  }
+
+  .pane-body pre {
+    margin: 0;
+    font-family: var(--font-family-code);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .system-prompt {
+    margin: 0 var(--spacing-5) var(--spacing-2);
+    color: var(--color-text-secondary);
+  }
+
+  .system-prompt summary {
+    cursor: pointer;
+  }
+
+  .system-prompt pre {
+    margin-top: var(--spacing-2);
+  }
+
+  /* A prompt part keeps the color of the step it came from, named by its tag in the gutter. */
+  .prompt-block {
+    --actor: transparent;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .prompt-block[data-actor='code'] {
+    --actor: var(--actor-code);
+  }
+
+  .prompt-block[data-actor='llm'] {
+    --actor: var(--actor-llm);
+  }
+
+  .prompt-block[data-actor='jev'] {
+    --actor: var(--actor-jev);
+  }
+
+  .prompt-block[data-actor='notes'] {
+    --actor: var(--actor-notes);
+  }
+
+  .prompt-tag {
+    padding: 2px var(--spacing-2) 0 0;
+    text-align: right;
+    font-size: var(--font-size-xs);
+    color: var(--actor);
+  }
+
+  .prompt-block pre {
+    padding: 0 var(--spacing-5) 0 var(--spacing-2);
+    border-left: 3px solid var(--actor);
+    background: color-mix(in srgb, var(--actor) 7%, transparent);
+  }
+
+  .step-output {
+    padding: 0 var(--spacing-5);
+  }
+
+  .step-warnings {
+    margin: 0 var(--spacing-5) var(--spacing-3);
+    padding: var(--spacing-2) var(--spacing-3);
+    border-radius: 6px;
+    background: var(--color-background-muted);
+    color: var(--color-text-secondary);
+  }
+
+  .step-warnings strong {
+    color: var(--color-text-primary);
+  }
+
+  .step-warnings[data-state='failed'] strong {
+    color: var(--flag-severe);
+  }
+
+  @media (max-width: 1023px) {
+    .pipeline-app {
+      height: auto;
+    }
+
+    .pipeline,
+    .inspector-panes {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pipeline-graph {
+      border-right: none;
+      border-bottom: 1px solid var(--color-border);
+      align-items: center;
+    }
+
+    .inspector-pane + .inspector-pane {
+      border-left: none;
+      border-top: 1px solid var(--color-border);
     }
   }
 }

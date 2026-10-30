@@ -20,7 +20,7 @@ events; the web app renders them as they land. Source and tests win over these d
 - MUST: inference runs only on the backend. The web app talks to the backend only through `GlossClient` (HTTP + SSE), so a remote backend is a base URL + bearer token away.
 - MUST: `reduceTourEvent` is the only interpretation of events. `tour.complete.tour` is built from the reducer, so a replayed log always equals the final tour.
 - MUST: every file ends in exactly one group at every stage (`place.ts`, `groupsInOrder`). Never drop a file.
-- MUST: only fetched diffs and model/Jev output are cached; never heuristics or errors. Cache keys hash the exact request (prompt text, model, `PROMPTS_VERSION`/`QUESTIONS_VERSION`/`PIPELINE_VERSION`).
+- MUST: only fetched diffs and model/Jev output are cached (plus a finished tour's trace: its prompts and those outputs); never heuristics or errors. Cache keys hash the exact request (prompt text, model, `PROMPTS_VERSION`/`QUESTIONS_VERSION`/`PIPELINE_VERSION`).
 - MUST: model output is untrusted. It references `fileId`/`hunkId`; `normalize.ts` validates lines and demotes invalid line notes to file notes.
 - MUST: `packages/core` stays free of pi-ai/Flue; model access goes through the `ModelClient`/`JudgeClient` services (fakes in `adapters/fake.ts`).
 - MUST: business logic is Effect: services via `Context.Service` + layers, cancellation by interruption (no `AbortSignal` plumbing), concurrency via `Effect.forEach`/`Semaphore`.

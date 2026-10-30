@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PipelineError, runTour, type RunTourOptions, type Services } from '@gloss/core';
-import type { SourceRef, TourEvent, TourEventBody } from '@gloss/protocol';
+import type { SourceRef, TourEvent, TourEventBody, TraceStep } from '@gloss/protocol';
 import { isTerminal, serializeRef } from '@gloss/protocol';
 import { Cause, Context, Effect, Fiber, Layer, Queue, type Scope, Stream } from 'effect';
 
@@ -14,10 +14,13 @@ export interface Job {
   readonly ref: SourceRef;
   readonly log: readonly TourEvent[];
   readonly state: JobState;
+  /** The pipeline's steps by id, for the debug view; kept out of the event log because prompts are large. */
+  readonly trace: ReadonlyMap<string, TraceStep>;
 }
 
 interface LiveJob extends Job {
   readonly log: TourEvent[];
+  readonly trace: Map<string, TraceStep>;
   state: JobState;
   /** Set once placement is done: the expensive part is paid for, so an unwatched job still finishes and caches. */
   pastPlacement: boolean;
@@ -136,7 +139,7 @@ const makeJobs = Effect.fnUntraced(function* (options: JobsOptions) {
     });
 
   const execute = (job: LiveJob, force: boolean) =>
-    run({ ref: job.ref, force }).pipe(
+    run({ ref: job.ref, force, onStep: (step) => job.trace.set(step.id, step) }).pipe(
       Stream.runForEach((body) => emit(job, body)),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
@@ -173,6 +176,7 @@ const makeJobs = Effect.fnUntraced(function* (options: JobsOptions) {
           key,
           ref,
           log: [],
+          trace: new Map(),
           state: 'running',
           pastPlacement: false,
           listeners: new Set(),

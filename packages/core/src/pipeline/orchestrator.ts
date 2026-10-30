@@ -10,6 +10,7 @@ import type {
   StageState,
   Tour,
   TourEventBody,
+  TraceStep,
   Visual,
 } from '@gloss/protocol';
 import {
@@ -23,7 +24,7 @@ import {
 } from '@gloss/protocol';
 import { Data, Effect, Option, Queue, Stream } from 'effect';
 import type * as v from 'valibot';
-import { JudgeClient, ModelClient, type ModelRequest } from '../adapters/types.ts';
+import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
 import { DiffSources } from '../sources/index.ts';
@@ -47,6 +48,7 @@ import {
   buildNotesPrompt,
   buildSketchPrompt,
   DEFINE_SYSTEM,
+  flaggedRisks,
   DefineSchema,
   DefineWithFilesSchema,
   FOLLOWUP_SYSTEM,
@@ -57,6 +59,7 @@ import {
   SKETCH_SYSTEM,
   SketchSchema,
 } from './prompts.ts';
+import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
 
 export interface RunTourOptions {
@@ -64,6 +67,8 @@ export interface RunTourOptions {
   /** Skip cache reads (writes still happen). */
   force?: boolean;
   concurrency?: { judge?: number; notes?: number };
+  /** Called with each new or changed pipeline step, for the debug view (`trace.ts`). */
+  onStep?: (step: TraceStep) => void;
 }
 
 /** A failure that ends the tour; it becomes a fatal `job.error`. Per-file and per-group failures are warnings instead. */
@@ -76,6 +81,11 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
 
 export function tourCacheKey(sourceKey: string, fingerprint: string, models: ModelConfig): string {
   return hashOf({ kind: 'tour', PIPELINE_VERSION, PROMPTS_VERSION, QUESTIONS_VERSION, sourceKey, fingerprint, models });
+}
+
+/** The trace of the run that produced a cached tour, so its debug view outlives the job. */
+export function traceCacheKey(tourKey: string): string {
+  return hashOf({ kind: 'trace', tourKey });
 }
 
 export function diffCacheKey(sourceKey: string, fingerprint: string): string {
@@ -117,6 +127,7 @@ const tourProgram = Effect.fnUntraced(function* (
   const warn = (warnStage: Stage, message: string, fileId?: string) =>
     send({ type: 'job.warning', stage: warnStage, message, fileId });
   const models: ModelConfig = { ...model.config(), judge: judge?.model };
+  const trace = createTracer(options.onStep);
   const sourceKey = serializeRef(ref);
 
   /** Returns the cached value for `request`, or runs `effect` and caches its result. */
@@ -133,8 +144,18 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     });
 
-  const prompt = <S extends v.GenericSchema>(request: ModelRequest<S>) =>
-    model.prompt(request).pipe(Effect.map((response) => response.data));
+  /** A model call for trace step `stepId`, which records the call's usage. */
+  const prompt = <S extends v.GenericSchema>(stepId: string, request: ModelRequest<S>) =>
+    model.prompt(request).pipe(
+      Effect.map((response) => {
+        const { usage } = response;
+        trace.patch(stepId, {
+          model: response.model,
+          ...(usage ? { usage: { input: usage.input, output: usage.output } } : {}),
+        });
+        return response.data;
+      }),
+    );
 
   const sourceError = (cause: unknown) =>
     new PipelineError({ stage: 'fetch', code: 'source', message: messageOf(cause), cause });
@@ -145,16 +166,22 @@ const tourProgram = Effect.fnUntraced(function* (
   const cachedTour = options.force ? undefined : cache.get<Tour>(tourKey);
   send({ type: 'job.started', ref, sourceKey, pipelineVersion: PIPELINE_VERSION, models, cached: !!cachedTour });
   if (cachedTour) {
+    for (const step of cache.get<TraceStep[]>(traceCacheKey(tourKey)) ?? []) {
+      options.onStep?.(step);
+    }
     cache.recordRecent(ref, sourceKey, cachedTour.meta.title);
     send({ type: 'tour.complete', tour: cachedTour, cached: true });
     return cachedTour;
   }
 
   stage('fetch', 'running');
+  trace.begin('fetch', 'fetch', { inputs: [] });
   const diffKey = diffCacheKey(sourceKey, fingerprint);
   let diff = options.force ? undefined : cache.get<DiffPayload>(diffKey);
   if (!diff) {
-    const fetched = yield* Effect.tryPromise({ try: (signal) => source.fetch(signal), catch: sourceError });
+    const fetched = yield* Effect.tryPromise({ try: (signal) => source.fetch(signal), catch: sourceError }).pipe(
+      Effect.tapError((error) => Effect.sync(() => trace.end('fetch', { warnings: [error.message] }, 'failed'))),
+    );
     diff = { id: diffKey, ref, sourceKey, fingerprint, ...fetched };
     cache.put(diffKey, 'diff', diff);
   }
@@ -163,6 +190,10 @@ const tourProgram = Effect.fnUntraced(function* (
   send({ type: 'diff.ready', diffId: diff.id, meta, files: files.map(summarizeFile) });
   send({ type: 'groups.provisional', groups: provisionalGroups(files) });
   stage('fetch', 'done', `${files.length} files`);
+  trace.end('fetch', {
+    summary: `${files.length} files`,
+    output: files.map((file) => `${file.id} ${file.status} ${file.path} +${file.additions} -${file.deletions}`),
+  });
 
   const finish = Effect.suspend(() => {
     const tour = tourFromState(state);
@@ -176,6 +207,7 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     }
     cache.put(tourKey, 'tour', tour);
+    cache.put(traceCacheKey(tourKey), 'trace', trace.steps());
     send({ type: 'tour.complete', tour, cached: false });
     return Effect.succeed(tour);
   });
@@ -194,10 +226,17 @@ const tourProgram = Effect.fnUntraced(function* (
     const listFiles = !judge;
     stage('define', 'running');
     const definePrompt = buildDefinePrompt(meta, files, listFiles);
-    const { value } = yield* cached(
+    trace.begin('define', 'define', {
+      inputs: ['fetch'],
+      model: models.define,
+      system: DEFINE_SYSTEM,
+      prompt: definePrompt,
+      sections: promptSections(definePrompt),
+    });
+    const { value, hit } = yield* cached(
       'define',
       { PROMPTS_VERSION, model: models.define, listFiles, prompt: definePrompt },
-      prompt({
+      prompt('define', {
         tier: 'define',
         system: DEFINE_SYSTEM,
         prompt: definePrompt,
@@ -208,6 +247,7 @@ const tourProgram = Effect.fnUntraced(function* (
     ).pipe(
       Effect.catchTag('ModelError', (error) => {
         stage('define', 'failed');
+        trace.end('define', { warnings: [error.message] }, 'failed');
         return Effect.fail(
           new PipelineError({
             stage: 'define',
@@ -240,6 +280,12 @@ const tourProgram = Effect.fnUntraced(function* (
     });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
+    trace.end('define', {
+      cached: hit,
+      output: value,
+      summary: `${definition.groups.length} groups`,
+      ...(warnings.length ? { warnings } : {}),
+    });
     return { ...definition, decisions, visuals, definePrompt };
   });
 
@@ -254,10 +300,17 @@ const tourProgram = Effect.fnUntraced(function* (
   }) =>
     Effect.suspend(() => {
       const sketchPrompt = buildSketchPrompt(definition.definePrompt, definition.overallSummary, definition.decisions);
+      trace.begin('sketch', 'sketch', {
+        inputs: ['define'],
+        model: models.define,
+        system: SKETCH_SYSTEM,
+        prompt: sketchPrompt,
+        sections: promptSections(sketchPrompt, { 'The tour so far': 'define' }),
+      });
       return cached(
         'sketch',
         { PROMPTS_VERSION, model: models.define, prompt: sketchPrompt },
-        prompt({
+        prompt('sketch', {
           tier: 'define',
           system: SKETCH_SYSTEM,
           prompt: sketchPrompt,
@@ -266,16 +319,23 @@ const tourProgram = Effect.fnUntraced(function* (
         }),
         models.define,
       ).pipe(
-        Effect.map(({ value }) => {
+        Effect.map(({ value, hit }) => {
           const { visual, warnings } = normalizeSketch(value);
           for (const message of warnings) {
             warn('define', message);
           }
+          trace.end('sketch', {
+            cached: hit,
+            output: value,
+            summary: visual ? value.form : 'dropped',
+            ...(warnings.length ? { warnings } : {}),
+          });
           return visual;
         }),
         Effect.catchTag('ModelError', (error) =>
           Effect.sync(() => {
             warn('define', `Drawing the sketch failed: ${error.message}`);
+            trace.end('sketch', { warnings: [error.message] }, 'failed');
             return undefined;
           }),
         ),
@@ -323,22 +383,43 @@ const tourProgram = Effect.fnUntraced(function* (
       const judgeState = visualState(meta.title, overallSummary, decisions, visuals, !!images);
       const questions = visualQuestions(visuals.length, !!images);
       const show = (visual: Visual | undefined) => send({ type: 'tour.summary', overallSummary, decisions, visual });
+      const visualPrompt = [
+        judgePrompt(
+          questions,
+          visuals.map((visual, i) => `candidate ${i + 1}: ${visual.kind}`),
+        ),
+        '',
+        '## Candidates',
+        JSON.stringify(judgeState, null, 2),
+      ].join('\n');
+      trace.begin('judge-visual', 'judge-visual', {
+        inputs: ['sketch', 'define'],
+        model: client.model,
+        prompt: visualPrompt,
+        sections: promptSections(visualPrompt, { Questions: 'judge-visual', States: 'define', Candidates: 'sketch' }),
+      });
       return cached(
         'judge-visual',
         { QUESTIONS_VERSION, model: client.model, state: judgeState, questions, images: images && hashOf(images) },
         client.judge({ state: judgeState, questions, ...(images ? { images } : {}) }),
         client.model,
       ).pipe(
-        Effect.map(({ value }) => {
+        Effect.map(({ value, hit }) => {
           const pick = pickVisual(
             visuals.map((visual) => visual.kind),
             value,
           );
+          trace.end('judge-visual', {
+            cached: hit,
+            output: value,
+            summary: pick === undefined ? 'none shown' : `${visuals[pick]!.kind} shown`,
+          });
           show(pick === undefined ? undefined : visuals[pick]);
         }),
         Effect.catchTag('JudgeError', (error) =>
           Effect.sync(() => {
             warn('judge', `Jev could not pick a visual: ${error.message}`);
+            trace.end('judge-visual', { warnings: [error.message] }, 'failed');
             show(visuals[0]);
           }),
         ),
@@ -350,33 +431,72 @@ const tourProgram = Effect.fnUntraced(function* (
     client: JudgeClient['Service'],
     candidates: readonly FileChange[],
     kind: 'judge-file' | 'judge-group',
+    step: { id: 'judge-files' | 'judge-groups'; inputs: string[]; questions: Record<string, JudgeQuestion> },
     ask: (state: Record<string, unknown>) => { request: unknown; run: Effect.Effect<FileJudgment, unknown> },
   ) =>
-    Effect.forEach(
-      candidates,
-      (file) => {
-        const { request, run } = ask(fileState(meta.title, file));
-        return cached(kind, request, run, client.model).pipe(
-          Effect.tap(({ value, hit }) =>
-            Effect.sync(() =>
-              send({ type: 'file.judged', fileId: file.id, judgment: value, source: hit ? 'cache' : 'jev' }),
+    Effect.suspend(() => {
+      const askedPrompt = judgePrompt(
+        step.questions,
+        candidates.map((file) => `${file.id} ${file.path}: title, path, status, diff`),
+      );
+      trace.begin(step.id, step.id, {
+        inputs: step.inputs,
+        model: client.model,
+        prompt: askedPrompt,
+        sections: promptSections(askedPrompt, { Questions: step.id === 'judge-groups' ? 'define' : step.id }),
+      });
+      const output: Record<string, FileJudgment> = {};
+      const warnings: string[] = [];
+      let hits = 0;
+      return Effect.forEach(
+        candidates,
+        (file) => {
+          const { request, run } = ask(fileState(meta.title, file));
+          return cached(kind, request, run, client.model).pipe(
+            Effect.tap(({ value, hit }) =>
+              Effect.sync(() => {
+                output[file.path] = value;
+                hits += hit ? 1 : 0;
+                send({ type: 'file.judged', fileId: file.id, judgment: value, source: hit ? 'cache' : 'jev' });
+              }),
             ),
-          ),
-          Effect.catch((error) =>
-            Effect.sync(() => warn('judge', `Jev failed on ${file.path}: ${messageOf(error)}`, file.id)),
-          ),
-        );
-      },
-      { concurrency: judgeConcurrency, discard: true },
-    );
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                warnings.push(`${file.path}: ${messageOf(error)}`);
+                warn('judge', `Jev failed on ${file.path}: ${messageOf(error)}`, file.id);
+              }),
+            ),
+          );
+        },
+        { concurrency: judgeConcurrency, discard: true },
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            const flagged = Object.values(output).filter((judgment) => flaggedRisks(judgment).length).length;
+            trace.end(step.id, {
+              cached: hits > 0 && hits === candidates.length,
+              output,
+              summary: `${candidates.length} files${flagged ? `, ${flagged} flagged` : ''}`,
+              ...(warnings.length ? { warnings } : {}),
+            });
+          }),
+        ),
+      );
+    });
 
   const judgeFiles = (client: JudgeClient['Service']) =>
     Effect.suspend(() => {
       stage('judge', 'running', `${files.length} files`);
-      return judgeEach(client, files, 'judge-file', (fileState) => ({
-        request: { QUESTIONS_VERSION, model: client.model, state: fileState },
-        run: client.judge({ state: fileState, questions: FILE_QUESTIONS }).pipe(Effect.map(judgmentFromFileAnswers)),
-      }));
+      return judgeEach(
+        client,
+        files,
+        'judge-file',
+        { id: 'judge-files', inputs: ['fetch'], questions: FILE_QUESTIONS },
+        (fileState) => ({
+          request: { QUESTIONS_VERSION, model: client.model, state: fileState },
+          run: client.judge({ state: fileState, questions: FILE_QUESTIONS }).pipe(Effect.map(judgmentFromFileAnswers)),
+        }),
+      );
     });
 
   const judgeGroupChoice = (client: JudgeClient['Service'], definitions: readonly GroupDefinition[]) => {
@@ -385,6 +505,7 @@ const tourProgram = Effect.fnUntraced(function* (
       client,
       files.filter((file) => file.generated !== 'gitattributes'),
       'judge-group',
+      { id: 'judge-groups', inputs: ['define'], questions },
       (fileState) => ({
         request: { QUESTIONS_VERSION, model: client.model, state: fileState, questions },
         run: client.judge({ state: fileState, questions }).pipe(Effect.map(judgmentFromGroupAnswers)),
@@ -401,10 +522,17 @@ const tourProgram = Effect.fnUntraced(function* (
       const pending = files.filter((file) => uncertain.has(file.id));
       stage('place', 'running', `Asking the model about ${pending.length} files`);
       const followupPrompt = buildFollowupPrompt(meta, definitions, pending);
+      trace.begin('followup', 'followup', {
+        inputs: ['place', 'define'],
+        model: models.followup,
+        system: FOLLOWUP_SYSTEM,
+        prompt: followupPrompt,
+        sections: promptSections(followupPrompt, { Groups: 'define', 'Files to place': 'place' }),
+      });
       return cached(
         'followup',
         { PROMPTS_VERSION, model: models.followup, prompt: followupPrompt },
-        prompt({
+        prompt('followup', {
           tier: 'followup',
           system: FOLLOWUP_SYSTEM,
           prompt: followupPrompt,
@@ -413,17 +541,21 @@ const tourProgram = Effect.fnUntraced(function* (
         }),
         models.followup,
       ).pipe(
-        Effect.map(({ value }) => applyFollowup(outcome, definitions, value.placements)),
+        Effect.map(({ value, hit }) => {
+          trace.end('followup', { cached: hit, output: value, summary: `${value.placements.length} files placed` });
+          return applyFollowup(outcome, definitions, value.placements);
+        }),
         Effect.catchTag('ModelError', (error) =>
           Effect.sync(() => {
             warn('place', `Follow-up placement failed: ${error.message}`);
+            trace.end('followup', { warnings: [error.message] }, 'failed');
             return applyFollowup(outcome, definitions, []);
           }),
         ),
       );
     });
 
-  const writeNotes = (groups: ReturnType<typeof resolveGroups>) =>
+  const writeNotes = (groups: ReturnType<typeof resolveGroups>, placedBy: 'place' | 'followup') =>
     Effect.suspend(() => {
       const annotatable = groups.filter((group) => group.key !== SYNTHETIC_GROUPS.generated.key);
       if (annotatable.length === 0) {
@@ -435,49 +567,73 @@ const tourProgram = Effect.fnUntraced(function* (
       let failed = 0;
       return Effect.forEach(
         annotatable,
-        (group) => {
-          const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
-          const notesPrompt = buildNotesPrompt(
-            meta,
-            state.overallSummary,
-            group,
-            members,
-            state.judgments,
-            state.decisions,
-          );
-          return cached(
-            'notes',
-            { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
-            prompt({
-              tier: 'notes',
+        (group) =>
+          Effect.suspend(() => {
+            const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
+            const notesPrompt = buildNotesPrompt(
+              meta,
+              state.overallSummary,
+              group,
+              members,
+              state.judgments,
+              state.decisions,
+            );
+            const stepId = `notes:${group.key}`;
+            trace.begin(stepId, 'notes', {
+              subject: group.label,
+              inputs: [placedBy, 'define', ...(judge ? ['judge-files'] : [])],
+              model: models.notes,
               system: NOTES_SYSTEM,
               prompt: notesPrompt,
-              result: NotesSchema,
-              resultName: 'notes',
-            }),
-            models.notes,
-          ).pipe(
-            Effect.map(({ value, hit }) => {
-              const { notes, warnings } = normalizeNotes(value, group, members);
-              for (const message of warnings) {
-                warn('notes', message);
-              }
-              send({ type: 'group.notes', groupKey: group.key, notes, source: hit ? 'cache' : 'llm' });
-            }),
-            Effect.catchTag('ModelError', (error) =>
-              Effect.sync(() => {
-                failed++;
-                send({
-                  type: 'job.error',
-                  stage: 'notes',
-                  code: 'model',
-                  message: `Notes for "${group.label}" failed: ${error.message}`,
-                  fatal: false,
-                });
+              sections: promptSections(notesPrompt, {
+                Overall: 'define',
+                'Change-wide decisions': 'define',
+                'This group': 'define',
+                'Flagged risks': judge ? 'judge-files' : 'define',
+                Files: placedBy,
               }),
-            ),
-          );
-        },
+            });
+            return cached(
+              'notes',
+              { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
+              prompt(stepId, {
+                tier: 'notes',
+                system: NOTES_SYSTEM,
+                prompt: notesPrompt,
+                result: NotesSchema,
+                resultName: 'notes',
+              }),
+              models.notes,
+            ).pipe(
+              Effect.map(({ value, hit }) => {
+                const { notes, warnings } = normalizeNotes(value, group, members);
+                for (const message of warnings) {
+                  warn('notes', message);
+                }
+                const count = value.fileNotes.length + value.lineNotes.length + value.riskNotes.length;
+                trace.end(stepId, {
+                  cached: hit,
+                  output: value,
+                  summary: `${count} notes`,
+                  ...(warnings.length ? { warnings } : {}),
+                });
+                send({ type: 'group.notes', groupKey: group.key, notes, source: hit ? 'cache' : 'llm' });
+              }),
+              Effect.catchTag('ModelError', (error) =>
+                Effect.sync(() => {
+                  failed++;
+                  trace.end(stepId, { warnings: [error.message] }, 'failed');
+                  send({
+                    type: 'job.error',
+                    stage: 'notes',
+                    code: 'model',
+                    message: `Notes for "${group.label}" failed: ${error.message}`,
+                    fatal: false,
+                  });
+                }),
+              ),
+            );
+          }),
         { concurrency: options.concurrency?.notes ?? 3, discard: true },
       ).pipe(
         Effect.tap(() =>
@@ -518,6 +674,7 @@ const tourProgram = Effect.fnUntraced(function* (
 
   // Stage 2: code places files; the LLM settles what Jev was unsure about.
   stage('place', 'running');
+  trace.begin('place', 'place', { inputs: judge ? ['judge-files', 'judge-groups', 'define'] : ['define'] });
   let outcome: PlaceOutcome;
   if (!judge) {
     const listed = reconcileListedFiles(
@@ -537,6 +694,19 @@ const tourProgram = Effect.fnUntraced(function* (
   for (const [fileId, placement] of Object.entries(outcome.placements)) {
     send({ type: 'placement', fileId, placement });
   }
+  const pathOf = new Map(files.map((file) => [file.id, file.path]));
+  trace.end('place', {
+    output: {
+      placed: Object.fromEntries(
+        Object.entries(outcome.placements).map(([fileId, placement]) => [
+          pathOf.get(fileId) ?? fileId,
+          `${placement.groupKey} (${placement.reason})`,
+        ]),
+      ),
+      unsure: outcome.uncertain.map((fileId) => pathOf.get(fileId) ?? fileId),
+    },
+    summary: outcome.uncertain.length ? `${outcome.uncertain.length} unsure` : 'all placed',
+  });
   // `resolveGroups` moves placements into unknown groups to `uncategorized` in this copy.
   const placements = { ...(yield* followUp(outcome, definition.groups)) };
   const groups = resolveGroups(files, definition.groups, placements, state.judgments);
@@ -551,7 +721,7 @@ const tourProgram = Effect.fnUntraced(function* (
   stage('place', 'done');
 
   // Stage 3: notes per group, lead group first.
-  yield* writeNotes(groups);
+  yield* writeNotes(groups, outcome.uncertain.length && definition.groups.length ? 'followup' : 'place');
   return yield* finish;
 });
 

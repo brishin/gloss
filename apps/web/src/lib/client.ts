@@ -2,11 +2,16 @@ import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
   type GlossClient,
+  initialTourState,
   type RecentTour,
+  reduceTourEvent,
   type ResolvedAsset,
+  type SourceRef,
+  type Trace,
 } from '@gloss/protocol';
-import { Context, Data, Effect, Layer } from 'effect';
+import { Context, Data, Duration, Effect, Layer, Stream } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
+import { settled } from './trace-view.ts';
 
 declare global {
   interface Window {
@@ -48,4 +53,61 @@ export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], Gl
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */
 export const assetAtom = Atom.family((src: string) =>
   glossRuntime.atom(request((client): Promise<ResolvedAsset> => client.asset(src))),
+);
+
+/** A tour's pipeline trace, with what the tour's events say about the run around it. */
+export interface Pipeline {
+  trace: Trace;
+  title?: string;
+  /** The run replayed a cached tour. */
+  cached: boolean;
+  /** A fatal error, e.g. the diff could not be fetched before any step ran. */
+  error?: { message: string; stage?: string };
+  /** The run was stopped (or superseded) before it finished. */
+  stopped: boolean;
+}
+
+/**
+ * The pipeline debug view (keyed by `JSON.stringify({ ref, jobId })`): follows the tour's own
+ * job, so a failed or stopped run shows its trace. Without one, or once it has expired, it
+ * attaches to the ref's tour (or starts it, as opening the tour would). The trace is fetched
+ * again whenever the job's events settle, so running steps fill in.
+ */
+export const pipelineAtom = Atom.family((key: string) =>
+  glossRuntime.atom(
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const { ref, jobId: asked } = JSON.parse(key) as { ref: SourceRef; jobId?: string };
+        const kept = asked
+          ? yield* request((client) => client.trace(asked)).pipe(
+              Effect.as(asked),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : undefined;
+        const jobId = kept ?? (yield* request((client) => client.startTour(ref))).jobId;
+        const client = yield* Gloss;
+        const controller = yield* Effect.acquireRelease(
+          Effect.sync(() => new AbortController()),
+          (controller) => Effect.sync(() => controller.abort()),
+        );
+        const states = Stream.fromAsyncIterable(
+          client.events(jobId, { signal: controller.signal }),
+          (cause) => new GlossRequestError({ cause }),
+        ).pipe(Stream.scan(initialTourState, reduceTourEvent), Stream.debounce(Duration.millis(200)));
+        return states.pipe(
+          Stream.mapEffect((state) =>
+            request((client) => client.trace(jobId)).pipe(
+              Effect.map((trace): Pipeline => ({
+                trace: settled(trace),
+                title: state.meta?.title,
+                cached: state.cached,
+                stopped: state.status === 'aborted',
+                error: state.error,
+              })),
+            ),
+          ),
+        );
+      }),
+    ),
+  ),
 );
