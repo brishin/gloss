@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { SourceRef, Tour, TourEventBody } from '@gloss/protocol';
+import type { SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -50,7 +50,7 @@ async function tour(options: {
   model: ModelClient['Service'];
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
-}): Promise<{ events: TourEventBody[]; tour: Tour }> {
+}): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
     Layer.succeed(ModelClient, options.model),
@@ -58,12 +58,16 @@ async function tour(options: {
     DiffSources.layer,
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
   );
-  const events = [...(await Effect.runPromise(Stream.runCollect(runTour({ ref })).pipe(Effect.provide(layer))))];
+  const trace = new Map<string, TraceStep>();
+  const onStep = (step: TraceStep) => trace.set(step.id, step);
+  const events = [
+    ...(await Effect.runPromise(Stream.runCollect(runTour({ ref, onStep })).pipe(Effect.provide(layer)))),
+  ];
   const last = events.at(-1);
   if (last?.type !== 'tour.complete') {
     throw new Error(`The tour ended with ${last?.type}`);
   }
-  return { events, tour: last.tour };
+  return { events, tour: last.tour, trace };
 }
 
 const groupsAnswer = {
@@ -210,6 +214,51 @@ describe('runTour', () => {
     const second = await tour({ model, judge: fakeJudge(), cache });
     expect(second.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
     expect(model.calls.length).toBe(calls);
+  });
+
+  it('traces every step as a DAG with tagged prompts, and replays the trace with a cached tour', async () => {
+    const cache = createMemoryCacheStore();
+    const { trace } = await tour({ model: fakeModel(), judge: fakeJudge(), cache });
+    const steps = [...trace.values()];
+
+    expect(steps.map((step) => step.id).toSorted()).toEqual(
+      [
+        'define',
+        'fetch',
+        'followup',
+        'judge-files',
+        'judge-groups',
+        'judge-visual',
+        'notes:auth',
+        'notes:docs',
+        'notes:tests',
+        'place',
+        'sketch',
+      ].toSorted(),
+    );
+    for (const step of steps) {
+      expect(step.state).toBe('done');
+      expect(step.endMs).toBeGreaterThanOrEqual(step.startMs);
+      for (const input of step.inputs) {
+        expect(trace.has(input), `${step.id} reads ${input}`).toBe(true);
+      }
+    }
+    // Jev was unsure about src/auth.ts, so notes read the follow-up's placements.
+    const notes = trace.get('notes:auth')!;
+    expect(notes.inputs).toEqual(['followup', 'define', 'judge-files']);
+    expect(notes.subject).toBe('Auth check');
+    const lines = notes.prompt!.split('\n');
+    const from = (heading: string) =>
+      notes.sections!.findLast((section) => section.line <= lines.findIndex((line) => line.startsWith(heading)))?.from;
+    expect(from('# ')).toBe('fetch');
+    expect(from('## This group')).toBe('define');
+    expect(from('## Flagged risks')).toBe('judge-files');
+    expect(from('## Files')).toBe('followup');
+    expect(notes.output).toMatchObject({ lineNotes: [{ text: 'Note.' }] });
+    expect(trace.get('judge-groups')!.sections?.[0]).toEqual({ line: 0, from: 'define' });
+
+    const replayed = await tour({ model: fakeModel(), judge: fakeJudge(), cache });
+    expect([...replayed.trace.values()]).toEqual(steps);
   });
 
   it('without a judge, the LLM lists files and nothing is dropped', async () => {

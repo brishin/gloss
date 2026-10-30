@@ -2,10 +2,14 @@ import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
   type GlossClient,
+  initialTourState,
   type RecentTour,
+  reduceTourEvent,
   type ResolvedAsset,
+  type SourceRef,
+  type Trace,
 } from '@gloss/protocol';
-import { Context, Data, Effect, Layer } from 'effect';
+import { Context, Data, Duration, Effect, Layer, Stream } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
 
 declare global {
@@ -48,4 +52,42 @@ export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], Gl
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */
 export const assetAtom = Atom.family((src: string) =>
   glossRuntime.atom(request((client): Promise<ResolvedAsset> => client.asset(src))),
+);
+
+/** A tour's pipeline trace, and the change's title once the tour has said it. */
+export interface Pipeline {
+  trace: Trace;
+  title?: string;
+}
+
+/**
+ * The pipeline debug view for a ref (keyed by `JSON.stringify(ref)`): attaches to the ref's
+ * tour (or starts it, as opening the tour would), and fetches the trace again whenever the
+ * tour's events settle, so running steps fill in.
+ */
+export const pipelineAtom = Atom.family((key: string) =>
+  glossRuntime.atom(
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const ref = JSON.parse(key) as SourceRef;
+        const { jobId } = yield* request((client) => client.startTour(ref));
+        const client = yield* Gloss;
+        const controller = yield* Effect.acquireRelease(
+          Effect.sync(() => new AbortController()),
+          (controller) => Effect.sync(() => controller.abort()),
+        );
+        const states = Stream.fromAsyncIterable(
+          client.events(jobId, { signal: controller.signal }),
+          (cause) => new GlossRequestError({ cause }),
+        ).pipe(Stream.scan(initialTourState, reduceTourEvent), Stream.debounce(Duration.millis(200)));
+        return states.pipe(
+          Stream.mapEffect((state) =>
+            request((client) => client.trace(jobId)).pipe(
+              Effect.map((trace): Pipeline => ({ trace, title: state.meta?.title })),
+            ),
+          ),
+        );
+      }),
+    ),
+  ),
 );

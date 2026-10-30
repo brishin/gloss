@@ -27,10 +27,11 @@ function scripted() {
     release = resolve;
   });
   let runs = 0;
-  const run: RunTour = () =>
+  const run: RunTour = ({ onStep }) =>
     Stream.callback<TourEventBody>((queue) =>
       Effect.gen(function* () {
         runs++;
+        onStep?.({ id: 'fetch', kind: 'fetch', inputs: [], state: 'done', startMs: 0, endMs: 5 });
         Queue.offerUnsafe(queue, {
           type: 'job.started',
           ref,
@@ -77,6 +78,18 @@ async function take(events: AsyncIterable<TourEvent>, count: number): Promise<To
 }
 
 describe('tour API', () => {
+  it('serves the job trace while it runs and after it ends', async () => {
+    const script = scripted();
+    const { client } = setup(script.run);
+    const { jobId } = await client.startTour(ref);
+    const running = await client.trace(jobId);
+    expect(running).toEqual({ done: false, steps: [expect.objectContaining({ id: 'fetch', state: 'done' })] });
+    script.release();
+    await take(client.events(jobId), 4);
+    expect((await client.trace(jobId)).done).toBe(true);
+    await expect(client.trace('nope')).rejects.toThrow(/Unknown/);
+  });
+
   it('dedupes concurrent starts, replays after a seq, and streams to the terminal event', async () => {
     const script = scripted();
     const { client } = setup(script.run);

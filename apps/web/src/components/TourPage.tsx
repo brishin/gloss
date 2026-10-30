@@ -9,7 +9,7 @@ import { useAtomMount, useAtomSet, useAtomValue } from '@effect/atom-react';
 import type { SourceRef } from '@gloss/protocol';
 import { describeRef, groupsInOrder } from '@gloss/protocol';
 import { Link, useRouter } from '@tanstack/react-router';
-import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon, WorkflowIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
 import { canReview, currentGroup, isRunning } from '../lib/tour-model.ts';
@@ -22,7 +22,6 @@ import { Overview } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
-import { StageRail } from './StageRail.tsx';
 
 /**
  * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,
@@ -108,10 +107,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             </Text>
           </span>
         )}
-        {/* Pipeline progress matters while it runs or when a stage broke; a clean finish needs no rail. */}
-        {(running || Object.values(state.stages).some((stage) => stage.state === 'failed')) && (
-          <StageRail stages={state.stages} />
-        )}
         <div className="toolbar">
           {reviewable && (
             <ReviewPanel review={review} chord={model.chord === 'r'} dispatch={dispatch}>
@@ -141,6 +136,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               onClick={() => dispatch({ type: 'RerunClicked' })}
             />
           )}
+          <IconButton
+            size="sm"
+            variant="ghost"
+            label="Pipeline"
+            tooltip="Pipeline (d)"
+            icon={<Icon icon={WorkflowIcon} />}
+            onClick={() => dispatch({ type: 'PipelineOpened' })}
+          />
           <IconButton
             size="sm"
             variant="ghost"

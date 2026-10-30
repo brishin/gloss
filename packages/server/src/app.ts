@@ -8,6 +8,7 @@ import type {
   SourceRef,
   Stack,
   TourEvent,
+  Trace,
 } from '@gloss/protocol';
 import { encodeNdjson, ReviewRequestSchema, reviewProblem, SourceRefSchema } from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
@@ -125,6 +126,15 @@ export function createApp({
       }),
     );
     return found ? c.body(null, 204) : c.json({ error: 'Unknown or expired job' }, 404);
+  });
+
+  app.get('/api/tours/:id/trace', async (c) => {
+    const job = await run(Jobs.use((jobs) => Effect.sync(() => jobs.get(c.req.param('id')))));
+    if (!job) {
+      return c.json({ error: 'Unknown or expired job' }, 404);
+    }
+    const trace: Trace = { steps: [...job.trace.values()], done: job.state !== 'running' };
+    return c.json(trace);
   });
 
   app.get('/api/diffs/:id', async (c) => {

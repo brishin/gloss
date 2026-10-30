@@ -65,6 +65,13 @@ accurate candidate that is more than a list, with the highest `whole` x `easy`, 
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
+Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
+fetch, define, sketch, judge-files, judge-groups, judge-visual, place, followup, and
+`notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
+cached tour replays its trace too. The web app's pipeline view (`d` on a tour) draws it.
+When a prompt gains a `## ` section that reads another step, add it to that call's
+`promptSections` map, or the view credits it to the fetch.
+
 Ideas not built yet: re-tour only changed files on new commits (the per-file and
 per-group cache keys already make unchanged work free), moving group order to Jev, and
 streaming `group.defined` per group while the define call is still running.

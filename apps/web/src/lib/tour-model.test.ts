@@ -281,8 +281,13 @@ describe('keyToMsg', () => {
     ['J', base, { type: 'StackStepped', by: 1 }],
     ['K', base, { type: 'StackStepped', by: -1 }],
     ['q', base, undefined],
+    ['d', base, { type: 'PipelineOpened' }],
   ] as const)('%s', (key, state, expected) => {
     expect(keyToMsg(state, key)).toEqual(expected);
+  });
+
+  test('d opens the pipeline view for the tour', () => {
+    expect(update(base, { type: 'PipelineOpened' })[1]).toEqual([{ type: 'OpenPipeline', ref: base.ref }]);
   });
 });
 

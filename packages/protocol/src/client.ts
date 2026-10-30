@@ -8,6 +8,7 @@ import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './rev
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { type Stack, StackSchema } from './stack.ts';
+import { type Trace, TraceSchema } from './trace.ts';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:4777';
 
@@ -44,6 +45,8 @@ export interface GlossClient {
   events(jobId: string, options?: { after?: number; signal?: AbortSignal }): AsyncIterable<TourEvent>;
   abort(jobId: string): Promise<void>;
   diff(diffId: string): Promise<DiffPayload>;
+  /** What each pipeline step of the job read and returned, for the pipeline debug view. */
+  trace(jobId: string): Promise<Trace>;
   health(): Promise<Health>;
   recent(): Promise<RecentTour[]>;
   /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
@@ -135,6 +138,7 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       await request(`/api/tours/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
     },
     diff: (diffId) => json(DiffPayloadSchema, `/api/diffs/${encodeURIComponent(diffId)}`),
+    trace: (jobId) => json(TraceSchema, `/api/tours/${encodeURIComponent(jobId)}/trace`),
     health: () => json(HealthSchema, '/api/health'),
     recent: () => json(v.array(RecentTourSchema), '/api/recent'),
     asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),
