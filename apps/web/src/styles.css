@@ -31,6 +31,11 @@
     --gloss-wash: light-dark(oklch(96% 0.025 285), oklch(29% 0.045 285));
     /* The logo's turned face: the ink's tint, swapped in dark mode so the front face stays strongest. */
     --gloss-tint: light-dark(oklch(78% 0.12 285), oklch(50% 0.17 285));
+    /* Flag marks need full-strength hues; the neutral theme's icon reds and oranges are near-black in light mode. */
+    --flag-severe: light-dark(#e5372b, #ff5a4e);
+    --flag-warning: light-dark(#e9a800, #f5c021);
+    --flag-investigate: light-dark(#f08a00, #ffa53a);
+    --flag-info: light-dark(#8a9096, #8f959b);
   }
 
   html,
@@ -831,19 +836,19 @@
   }
 
   .flag-icon[data-level='severe'] {
-    color: var(--color-icon-red);
+    color: var(--flag-severe);
   }
 
   .flag-icon[data-level='warning'] {
-    color: var(--color-warning);
+    color: var(--flag-warning);
   }
 
   .flag-icon[data-level='investigate'] {
-    color: var(--color-icon-orange);
+    color: var(--flag-investigate);
   }
 
   .flag-icon[data-level='info'] {
-    color: var(--color-icon-gray);
+    color: var(--flag-info);
   }
 
   /* A section's flags by level, next to its title. */

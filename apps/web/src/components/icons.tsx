@@ -160,8 +160,8 @@ const FLAG_GLYPHS: Record<FlagLevel, ReactNode> = {
   warning: (
     <>
       <path d="M8 1.8 15 14.2H1z" fill="currentColor" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      <rect x="7.2" y="5.6" width="1.6" height="4.6" rx="0.8" fill="var(--color-on-warning, #000)" />
-      <circle cx="8" cy="12.1" r="0.95" fill="var(--color-on-warning, #000)" />
+      <rect x="7.2" y="5.6" width="1.6" height="4.6" rx="0.8" fill="#2a1d00" />
+      <circle cx="8" cy="12.1" r="0.95" fill="#2a1d00" />
     </>
   ),
   investigate: <FlagGlyph />,
