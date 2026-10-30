@@ -40,13 +40,22 @@ import {
   visualQuestions,
   visualState,
 } from './judge-questions.ts';
-import { normalizeDecisionGroups, normalizeNotes, normalizeSketch, normalizeVisuals } from './normalize.ts';
+import {
+  normalizeCallstack,
+  normalizeDecisionGroups,
+  normalizeNotes,
+  normalizeSketch,
+  normalizeVisuals,
+} from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
+  buildCallstackPrompt,
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
   buildSketchPrompt,
+  CALLSTACK_SYSTEM,
+  CallstackSchema,
   DEFINE_SYSTEM,
   flaggedRisks,
   DefineSchema,
@@ -342,21 +351,74 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     });
 
-  /** The sketch joins the data visuals as the first candidate, then Jev (or the order) picks. */
+  /**
+   * The call-tree candidate, from its own call on the define model with a numbered diff, so
+   * its frames can point at definitions. Like the sketch, a failed call is only a warning.
+   */
+  const drawCallstack = (definition: { overallSummary: string; decisions: NonNullable<Tour['decisions']> }) =>
+    Effect.suspend(() => {
+      const callstackPrompt = buildCallstackPrompt(meta, files, definition.overallSummary, definition.decisions);
+      trace.begin('callstack', 'callstack', {
+        inputs: ['define'],
+        model: models.define,
+        system: CALLSTACK_SYSTEM,
+        prompt: callstackPrompt,
+        sections: promptSections(callstackPrompt, { 'The tour so far': 'define' }),
+      });
+      return cached(
+        'callstack',
+        { PROMPTS_VERSION, model: models.define, prompt: callstackPrompt },
+        prompt('callstack', {
+          tier: 'define',
+          system: CALLSTACK_SYSTEM,
+          prompt: callstackPrompt,
+          result: CallstackSchema,
+          resultName: 'callstack',
+        }),
+        models.define,
+      ).pipe(
+        Effect.map(({ value, hit }) => {
+          const { visual, warnings } = normalizeCallstack(value, files);
+          for (const message of warnings) {
+            warn('define', message);
+          }
+          trace.end('callstack', {
+            cached: hit,
+            output: value,
+            summary: visual?.kind === 'callstack' ? `${visual.frames.length} frames` : 'none',
+            ...(warnings.length ? { warnings } : {}),
+          });
+          return visual;
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync(() => {
+            warn('define', `Drawing the call stack failed: ${error.message}`);
+            trace.end('callstack', { warnings: [error.message] }, 'failed');
+            return undefined;
+          }),
+        ),
+      );
+    });
+
+  /**
+   * The sketch and the call tree join the data visuals as the first candidates, then Jev
+   * (or the order) picks.
+   */
   const showVisual = (definition: Effect.Success<typeof defineGroups>) =>
-    drawSketch(definition).pipe(
-      Effect.flatMap((sketch) => {
-        const visuals = sketch ? [sketch, ...definition.visuals] : definition.visuals;
+    Effect.all([drawSketch(definition), drawCallstack(definition)], { concurrency: 'unbounded' }).pipe(
+      Effect.flatMap(([sketch, callstack]) => {
+        const drawn = [sketch, callstack].filter((visual) => visual !== undefined);
+        const visuals = [...drawn, ...definition.visuals];
         if (judge) {
           return chooseVisual(judge, { ...definition, visuals });
         }
-        return sketch
+        return drawn[0]
           ? Effect.sync(() =>
               send({
                 type: 'tour.summary',
                 overallSummary: definition.overallSummary,
                 decisions: definition.decisions,
-                visual: sketch,
+                visual: drawn[0],
               }),
             )
           : Effect.void;
@@ -393,7 +455,7 @@ const tourProgram = Effect.fnUntraced(function* (
         JSON.stringify(judgeState, null, 2),
       ].join('\n');
       trace.begin('judge-visual', 'judge-visual', {
-        inputs: ['sketch', 'define'],
+        inputs: ['sketch', 'callstack', 'define'],
         model: client.model,
         prompt: visualPrompt,
         sections: promptSections(visualPrompt, { Questions: 'judge-visual', States: 'define', Candidates: 'sketch' }),

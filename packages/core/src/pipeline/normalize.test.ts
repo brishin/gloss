@@ -2,6 +2,7 @@ import type { FileChange, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   isSinglePath,
+  normalizeCallstack,
   looseEnds,
   normalizeSketch,
   sketchGap,
@@ -322,5 +323,50 @@ describe('sketchGap', () => {
     ],
   ] as const)('%s', (_, body, caption, expected) => {
     expect(sketchGap(svg(body), caption)).toBe(expected);
+  });
+});
+
+describe('normalizeCallstack', () => {
+  const frame = (depth: number, name: string, status: 'new' | 'changed' | 'same', fileId = 'f1', line = 0) => ({
+    depth,
+    receiver: '',
+    name,
+    args: '',
+    fileId,
+    line,
+    status,
+  });
+
+  it('makes depths a tree, resolves files, and keeps only lines the diff shows', () => {
+    const { visual, warnings } = normalizeCallstack(
+      {
+        caption: 'c',
+        frames: [
+          frame(1, 'handler', 'same', 'f1', 99),
+          { ...frame(3, 'check', 'new', 'src/a.ts', 12), receiver: 'Rules.', args: '(a, b)' },
+          frame(1, 'save', 'changed', 'nope', 11),
+        ],
+      },
+      [file],
+    );
+    expect(warnings).toEqual([]);
+    expect(visual).toEqual({
+      kind: 'callstack',
+      caption: 'c',
+      frames: [
+        // An entry point never nests, and a line outside the diff is a guess, so it goes.
+        { depth: 0, name: 'handler', path: 'src/a.ts', status: 'same' },
+        { depth: 1, receiver: 'Rules', name: 'check', args: 'a, b', path: 'src/a.ts', line: 12, status: 'new' },
+        { depth: 1, name: 'save', status: 'changed' },
+      ],
+    });
+  });
+
+  it('drops a tree with no calls or nothing the change touches', () => {
+    expect(normalizeCallstack({ frames: [frame(0, 'a', 'new'), frame(0, 'b', 'new')] }, [file]).visual).toBeUndefined();
+    expect(
+      normalizeCallstack({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')] }, [file]).visual,
+    ).toBeUndefined();
+    expect(normalizeCallstack({ frames: [] }, [file])).toEqual({ warnings: [] });
   });
 });

@@ -83,8 +83,21 @@ export function visualQuestions(count: number, withImages: boolean): Record<stri
       },
     },
   ];
+  const callPath: [string, JudgeQuestion] = [
+    'call_path',
+    {
+      type: 'bool',
+      instructions:
+        'Is the main decision in `summary` and `decisions` a call path: an entry point that now reaches new or changed functions through a chain of calls, which a call tree draws best?',
+      criteria: {
+        true: 'The change adds or reroutes calls from a handler, job, command or component down to new functions.',
+        false: 'The change is about components, data, timing, styling or one rule inside a function.',
+      },
+    },
+  ];
   return Object.fromEntries([
     workflow,
+    callPath,
     ...Array.from({ length: count }, (_, i) => {
       const id = `c${i + 1}`;
       const it = withImages ? `the picture <image-${i + 1}> (\`candidates.${id}\`)` : `\`candidates.${id}\``;
@@ -254,9 +267,13 @@ export const ACCURATE = NO;
  */
 export const WORKFLOW = 0.9;
 
+/** How sure Jev must be that the change is a call path before the call tree beats the sketch. */
+export const CALL_PATH = 0.8;
+
 /**
- * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the
- * change is a workflow (Brian prefers hand-drawn sketches to diagrams except for those).
+ * Of the candidates Jev thinks are accurate and more than a list: the call tree when the
+ * change is a call path, else the sketch, unless the change is a workflow (Brian prefers
+ * hand-drawn sketches to diagrams except for those).
  * Otherwise the one Jev rates highest for showing the whole change and being easy to
  * follow; model order breaks ties. `undefined` hides the visual.
  */
@@ -266,6 +283,10 @@ export function pickVisual(kinds: readonly Visual['kind'][], answers: Record<str
   const shown = kinds
     .map((_, i) => i)
     .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE);
+  const callstack = shown.find((i) => kinds[i] === 'callstack');
+  if (callstack !== undefined && (bool(answers.call_path) ?? 0) >= CALL_PATH) {
+    return callstack;
+  }
   const sketch = shown.find((i) => kinds[i] === 'svg');
   if (sketch !== undefined && (bool(answers.workflow) ?? 0) < WORKFLOW) {
     return sketch;

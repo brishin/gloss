@@ -202,9 +202,51 @@ export const TimelineLaneSchema = v.object({
 });
 
 /**
+ * One function on a call path, in a call tree read top down: a frame's callees follow it,
+ * one level deeper. `path` and `line` point at its definition, when the diff shows it.
+ */
+export const CallFrameSchema = v.object({
+  /** 0 for an entry point; never more than one deeper than the frame before. */
+  depth: v.number(),
+  /** What it is called on, e.g. `ScheduleCheck` or `this.tools`; absent for a plain function. */
+  receiver: v.optional(v.string()),
+  name: v.string(),
+  /** Its parameters, short, e.g. `session, check` or `...`. */
+  args: v.optional(v.string()),
+  path: v.optional(v.string()),
+  line: v.optional(v.number()),
+  /** `same` frames are unchanged callers, shown only to connect the path to an entry point. */
+  status: v.picklist(['new', 'changed', 'same']),
+});
+export type CallFrame = v.InferOutput<typeof CallFrameSchema>;
+
+/** Each frame's caller: the nearest frame before it one level up, or -1 for an entry point. */
+export function callParents(frames: readonly CallFrame[]): number[] {
+  return frames.map((frame, index) => {
+    for (let at = index - 1; at >= 0; at--) {
+      if (frames[at]!.depth < frame.depth) {
+        return at;
+      }
+    }
+    return -1;
+  });
+}
+
+/** Where each frame's definition is: the file only when it differs from the frame above. */
+export function callLocations(frames: readonly CallFrame[]): string[] {
+  return frames.map((frame, index) => {
+    const file = frame.path?.split('/').at(-1) ?? '';
+    const sameFile = index > 0 && frame.path !== undefined && frames[index - 1]!.path === frame.path;
+    const line = frame.line === undefined ? '' : `:${frame.line}`;
+    return sameFile && line ? line : `${file}${file ? line : ''}`;
+  });
+}
+
+/**
  * One picture of the change's main decision, drawn by the client so every tour looks
  * the same: the old flow next to the new one (two small Mermaid diagrams), lanes over
- * time, one small Mermaid flowchart or state diagram, or a hand-drawn sanitized SVG. Never a text list: the
+ * time, one small Mermaid flowchart or state diagram, a call tree of the path the change
+ * adds, or a hand-drawn sanitized SVG. Never a text list: the
  * overview's prose already says that. `caption` is one sentence under it.
  */
 export const VisualSchema = v.variant('kind', [
@@ -223,6 +265,7 @@ export const VisualSchema = v.variant('kind', [
     lanes: v.array(TimelineLaneSchema),
   }),
   v.object({ kind: v.literal('mermaid'), caption: v.optional(v.string()), source: v.string() }),
+  v.object({ kind: v.literal('callstack'), caption: v.optional(v.string()), frames: v.array(CallFrameSchema) }),
   /** A hand-drawn picture, already sanitized to plain shapes and text; shown only as an image. */
   v.object({ kind: v.literal('svg'), caption: v.optional(v.string()), svg: v.string() }),
 ]);
