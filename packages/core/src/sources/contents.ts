@@ -84,12 +84,13 @@ async function readHead(diff: DiffPayload, path: string, signal?: AbortSignal): 
       signal,
     );
   }
+  // `--textconv`: the diff ran any textconv driver, so the lines must match its output.
   if (meta.headSha) {
-    return git(ref.repo, ['cat-file', 'blob', `${meta.headSha}:${path}`], { signal });
+    return git(ref.repo, ['cat-file', '--textconv', `${meta.headSha}:${path}`], { signal });
   }
   // The working tree, through git's clean filters (CRLF, LFS) as the diff saw it, not the raw checkout.
   const blob = (await git(ref.repo, ['hash-object', '-w', '--', path], { signal })).trim();
-  return git(ref.repo, ['cat-file', 'blob', blob], { signal });
+  return git(ref.repo, ['cat-file', '--textconv', `--path=${path}`, blob], { signal });
 }
 
 /**
