@@ -80,6 +80,13 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
       {AsyncResult.isFailure(result) && (
         <Banner status="error" title="Could not load the pipeline" description="Is the gloss server running?" />
       )}
+      {pipeline?.error && (
+        <Banner
+          status="error"
+          title={`Tour failed (${pipeline.error.stage ?? 'pipeline'})`}
+          description={pipeline.error.message}
+        />
+      )}
       {!pipeline ? (
         AsyncResult.isFailure(result) ? null : (
           <div className="pipeline-empty">
@@ -87,13 +94,7 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
           </div>
         )
       ) : steps.length === 0 ? (
-        pipeline.error ? (
-          <Banner
-            status="error"
-            title={`Tour failed (${pipeline.error.stage ?? 'pipeline'}) before any step ran`}
-            description={pipeline.error.message}
-          />
-        ) : (
+        pipeline.error ? null : (
           <div className="pipeline-empty">
             <Text color="secondary">
               {!pipeline.trace.done

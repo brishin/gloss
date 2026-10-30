@@ -179,7 +179,9 @@ const tourProgram = Effect.fnUntraced(function* (
   const diffKey = diffCacheKey(sourceKey, fingerprint);
   let diff = options.force ? undefined : cache.get<DiffPayload>(diffKey);
   if (!diff) {
-    const fetched = yield* Effect.tryPromise({ try: (signal) => source.fetch(signal), catch: sourceError });
+    const fetched = yield* Effect.tryPromise({ try: (signal) => source.fetch(signal), catch: sourceError }).pipe(
+      Effect.tapError((error) => Effect.sync(() => trace.end('fetch', { warnings: [error.message] }, 'failed'))),
+    );
     diff = { id: diffKey, ref, sourceKey, fingerprint, ...fetched };
     cache.put(diffKey, 'diff', diff);
   }

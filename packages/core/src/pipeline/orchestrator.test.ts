@@ -317,9 +317,11 @@ describe('runTour', () => {
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
   });
 
-  it('ends with a pipeline error when the model cannot define groups', async () => {
+  it('ends with a pipeline error when the model cannot define groups, and traces the failed step', async () => {
+    const trace = new Map<string, TraceStep>();
+    const onStep = (step: TraceStep) => trace.set(step.id, step);
     const exit = await Effect.runPromiseExit(
-      Stream.runCollect(runTour({ ref: { kind: 'local', repo, target: '' } })).pipe(
+      Stream.runCollect(runTour({ ref: { kind: 'local', repo, target: '' }, onStep })).pipe(
         Effect.provide(
           Layer.mergeAll(
             Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
@@ -330,5 +332,6 @@ describe('runTour', () => {
       ),
     );
     expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain('Defining groups failed');
+    expect(trace.get('define')).toMatchObject({ state: 'failed', warnings: [expect.stringContaining('tier define')] });
   });
 });
