@@ -1,4 +1,4 @@
-import type { FileChange, FileJudgment, GroupDefinition } from '@gloss/protocol';
+import type { FileChange, FileJudgment, GroupDefinition, Visual } from '@gloss/protocol';
 import type { JudgeAnswer, JudgeQuestion } from '../adapters/types.ts';
 import { hashOf } from '../hash.ts';
 
@@ -64,7 +64,87 @@ export function groupQuestions(groups: readonly GroupDefinition[]): Record<strin
   };
 }
 
-export const QUESTIONS_VERSION = hashOf({ FILE_QUESTIONS, group: groupQuestions([]), YES, NO }).slice(0, 12);
+/**
+ * Which candidate picture to show, if any. The model proposes up to three; Jev scores each
+ * with focused yes/no questions (TypeSafe advises splitting visual judgments) instead of
+ * one "which is best" choice, which in evals favored any flowchart over a clearer table.
+ * With pictures, Jev sees each rendered as `<image-N>` beside its spec.
+ */
+export function visualQuestions(count: number, withImages: boolean): Record<string, JudgeQuestion> {
+  const workflow: [string, JudgeQuestion] = [
+    'workflow',
+    {
+      type: 'bool',
+      instructions:
+        'Is the main decision in `summary` and `decisions` a workflow: steps or stages run in order, with branches, retries or a loop, that a flowchart draws best?',
+      criteria: {
+        true: 'The change adds or reorders steps of a process, a pipeline or a decision tree.',
+        false: 'The change is about components and what connects them, data, timing or one rule.',
+      },
+    },
+  ];
+  return Object.fromEntries([
+    workflow,
+    ...Array.from({ length: count }, (_, i) => {
+      const id = `c${i + 1}`;
+      const it = withImages ? `the picture <image-${i + 1}> (\`candidates.${id}\`)` : `\`candidates.${id}\``;
+      const questions: [string, JudgeQuestion][] = [
+        [
+          `${id}_accurate`,
+          {
+            type: 'bool',
+            instructions: `Does ${it} match what the change in \`summary\` and \`decisions\` does, without contradicting or overstating it?`,
+          },
+        ],
+        [
+          `${id}_beyond_text`,
+          {
+            type: 'bool',
+            instructions: `Does ${it} show structure that a bulleted list of its labels would lose: a flow, branching, an order or timing?`,
+            criteria: {
+              true: 'Arrows, branches, lanes or positions carry meaning that the words alone do not.',
+              false: 'It is text in boxes or columns that could be read as a list, or it restates the summary.',
+            },
+          },
+        ],
+        [
+          `${id}_whole`,
+          {
+            type: 'bool',
+            instructions: `Does ${it} show the change as a whole, its main decision, rather than one detail of it?`,
+            criteria: {
+              true: 'A reviewer who sees only this picture knows what the change is for.',
+              false: 'It explains one function, rule or file of the change, or restates the file list.',
+            },
+          },
+        ],
+      ];
+      if (withImages) {
+        questions.push([
+          `${id}_easy`,
+          {
+            type: 'bool',
+            instructions: `Can a reviewer follow <image-${i + 1}> at a glance?`,
+            criteria: {
+              true: 'It reads in one direction: rows line up, or arrows run top to bottom with the start at the top.',
+              false:
+                'The start is buried mid-picture, edges loop back across it, shapes dwarf their labels, or it is cluttered or cut off.',
+            },
+          },
+        ]);
+      }
+      return questions;
+    }).flat(),
+  ]);
+}
+
+export const QUESTIONS_VERSION = hashOf({
+  FILE_QUESTIONS,
+  group: groupQuestions([]),
+  visual: [visualQuestions(1, true), visualQuestions(1, false)],
+  YES,
+  NO,
+}).slice(0, 12);
 
 /** ~12k tokens; keeps state + questions well under Jev's per-question context. */
 export const DIFF_CHAR_CAP = 40_000;
@@ -141,4 +221,54 @@ export function judgmentFromGroupAnswers(answers: Record<string, JudgeAnswer>): 
         : undefined,
     fitsAnyGroup: bool(answers.fits_any_group),
   };
+}
+
+/** Without pictures, Jev reads each candidate's spec instead. */
+export function visualState(
+  prTitle: string,
+  summary: string,
+  decisions: readonly { text: string }[],
+  candidates: readonly Visual[],
+  withImages: boolean,
+): Record<string, unknown> {
+  return {
+    pr_title: prTitle,
+    summary,
+    decisions: decisions.map((decision) => decision.text),
+    candidates: Object.fromEntries(
+      candidates.map((visual, i) => [
+        `c${i + 1}`,
+        { ...(withImages ? { picture: `<image-${i + 1}>` } : {}), ...visual },
+      ]),
+    ),
+  };
+}
+
+/** Least sure a picture is accurate, and more than a list, before it can be shown. */
+export const ACCURATE = NO;
+
+/**
+ * How sure Jev must be that the change is a workflow before a flowchart may beat the sketch.
+ * High because in evals Jev said 0.5-0.88 for changes that were not workflows, where the
+ * sketch read better; real decision trees came in at 0.9 and over.
+ */
+export const WORKFLOW = 0.9;
+
+/**
+ * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the
+ * change is a workflow (Brian prefers hand-drawn sketches to diagrams except for those).
+ * Otherwise the one Jev rates highest for showing the whole change and being easy to
+ * follow; model order breaks ties. `undefined` hides the visual.
+ */
+export function pickVisual(kinds: readonly Visual['kind'][], answers: Record<string, JudgeAnswer>): number | undefined {
+  const p = (i: number, question: string) => bool(answers[`c${i + 1}_${question}`]);
+  const weight = (i: number) => (p(i, 'whole') ?? 1) * (p(i, 'easy') ?? 1);
+  const shown = kinds
+    .map((_, i) => i)
+    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE);
+  const sketch = shown.find((i) => kinds[i] === 'svg');
+  if (sketch !== undefined && (bool(answers.workflow) ?? 0) < WORKFLOW) {
+    return sketch;
+  }
+  return shown.sort((a, b) => weight(b) - weight(a) || a - b)[0];
 }

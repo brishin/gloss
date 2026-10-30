@@ -7,7 +7,7 @@ import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protoco
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import { DiffSources } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
@@ -72,16 +72,39 @@ const groupsAnswer = {
     { text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent', groupKey: 'auth' },
     { text: 'Ship docs with the check.', priority: 'low', groupKey: 'not-a-group' },
   ],
+  visuals: {
+    first: {
+      kind: 'timeline',
+      caption: 'When a session loses access.',
+      markers: [],
+      lanes: [{ label: 'After', spans: [{ from: 0, to: 60, text: 'Signed in' }] }],
+    },
+    second: { kind: 'mermaid', caption: 'Too vague.', mermaid: 'flowchart TD\n  A --> B\n  A --> C' },
+  },
   groups: [
     { key: 'auth', label: 'Auth check', summary: 'Only admins pass.', category: 'security' },
     { key: 'docs', label: 'Docs', summary: 'Readme.', category: 'docs' },
   ],
 };
 
+/** What the sketch call draws. */
+const sketchAnswer = {
+  form: 'bands' as const,
+  caption: 'Who passes the check.',
+  svg: '<svg viewBox="0 0 760 200"><rect x="10" y="10" width="200" height="40" fill="#cfc8f5"/><text x="20" y="35">Admins only</text></svg>',
+};
+
+/** The sketch as the normalizer passes it on: sanitized, with its namespace. */
+const sketch = {
+  kind: 'svg',
+  caption: sketchAnswer.caption,
+  svg: sketchAnswer.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
+};
+
 function fakeModel() {
   return createFakeModelClient({
     answers: {
-      define: groupsAnswer,
+      define: (request) => (request.resultName === 'sketch' ? sketchAnswer : groupsAnswer),
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -103,7 +126,15 @@ function fakeModel() {
 }
 
 const fakeJudge = () =>
-  createFakeJudgeClient((state, id) => {
+  createFakeJudgeClient((state, id): JudgeAnswer => {
+    // A workflow, so the candidates compete: the mermaid one is wrong and the sketch shows
+    // one detail, so the timeline wins.
+    if (id === 'workflow') {
+      return { type: 'bool', probability: 0.95 };
+    }
+    if (/^c\d_/.test(id)) {
+      return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
+    }
     const path = (state.file as { path: string }).path;
     if (id === 'group') {
       return path.endsWith('.md')
@@ -165,9 +196,14 @@ describe('runTour', () => {
       groupsAnswer.decisions[0],
       { text: 'Ship docs with the check.', priority: 'low' },
     ]);
+    expect(finished.visual).toEqual(groupsAnswer.visuals.first);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
+    // The sketch is its own call on the define model, after define, told what the tour says.
+    const sketchCall = model.calls.find((call) => call.resultName === 'sketch');
+    expect(sketchCall?.tier).toBe('define');
+    expect(sketchCall?.prompt).toContain(groupsAnswer.overallSummary);
 
     // Second run: a finished tour for the same head replays as two events, with no model calls.
     const calls = model.calls.length;
@@ -180,6 +216,9 @@ describe('runTour', () => {
     const model = createFakeModelClient({
       answers: {
         define: (request) => {
+          if (request.resultName === 'sketch') {
+            return sketchAnswer;
+          }
           const ids = [...request.prompt.matchAll(/^(f[0-9a-f]+) /gm)].map((match) => match[1]!);
           return { ...groupsAnswer, groups: [{ ...groupsAnswer.groups[0], fileIds: [ids[0], 'f-hallucinated'] }] };
         },
@@ -193,6 +232,26 @@ describe('runTour', () => {
     ).toBe(true);
     expect(events.some((event) => event.type === 'job.warning' && event.message.includes('f-hallucinated'))).toBe(true);
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
+    expect(finished.visual).toEqual(sketch);
+  });
+
+  it('shows Jev the candidates as pictures and falls back to the first when it fails', async () => {
+    const judge = fakeJudge();
+    const sent: number[] = [];
+    const failing: JudgeClient['Service'] = {
+      model: judge.model,
+      judge: (request) => {
+        if (!request.state.candidates) {
+          return judge.judge(request);
+        }
+        sent.push(...(request.images ?? []).map((image) => Buffer.from(image.data, 'base64').readUInt32BE(0)));
+        return Effect.fail(new JudgeError({ message: 'overloaded' }));
+      },
+    };
+    const { events, tour: finished } = await tour({ model: fakeModel(), judge: failing });
+    expect(sent).toEqual([0x89504e47, 0x89504e47, 0x89504e47]);
+    expect(events.some((event) => event.type === 'job.warning' && event.message.includes('pick a visual'))).toBe(true);
+    expect(finished.visual).toEqual(sketch);
   });
 
   it('reports a failed Jev file as a warning and still places it', async () => {
@@ -200,7 +259,7 @@ describe('runTour', () => {
     const failing: JudgeClient['Service'] = {
       model: judge.model,
       judge: (request) =>
-        (request.state.file as { path: string }).path === 'README.md'
+        (request.state.file as { path: string } | undefined)?.path === 'README.md'
           ? Effect.fail(new JudgeError({ message: 'overloaded' }))
           : judge.judge(request),
     };

@@ -7,6 +7,7 @@ import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
 import { decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { PriorityIcon } from './icons.tsx';
+import { TourVisual } from './TourVisual.tsx';
 
 /**
  * The top of the page: what the change is and where the risk is. Shown once, instead of a
@@ -84,6 +85,8 @@ export const Overview = memo(function Overview({
           ) : null}
         </div>
       </header>
+
+      {state.visual && <TourVisual visual={state.visual} />}
 
       {decisions.length > 0 && (
         <section className="section">

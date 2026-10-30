@@ -26,6 +26,15 @@ Linear-style priority. Change-wide ones ride on `tour.summary` (and `Tour.decisi
 ones in code ride on `group.notes` as `notes.decisions`, with `fileId` and, when the line
 is visible, `hunkId`/`side`/`line`.
 
+The tour's visual rides on `tour.summary` (and `Tour.visual`): at most one picture of the
+main decision, as data the client draws. `before-after` is two small Mermaid diagrams
+(the old flow next to the new; never rows of text, which only restate the summary), `timeline`
+is lanes of spans on a shared 0-100 axis with optional markers and an outcome per lane,
+`mermaid` is a flowchart or state diagram rendered with beautiful-mermaid, and `svg` is a
+model-drawn picture that passed the backend's allowlist sanitizer, shown only as an
+`<img>`. Never model-written HTML. With Jev, `tour.summary` is sent twice: first without the
+visual, then with Jev's pick (or none); the reducer keeps the later one.
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

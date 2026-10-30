@@ -186,6 +186,48 @@ export const DecisionSchema = v.object({
 });
 export type Decision = v.InferOutput<typeof DecisionSchema>;
 
+/** Where something sits on a timeline: 0 is its left edge, 100 its right. */
+const position = v.pipe(v.number(), v.minValue(0), v.maxValue(100));
+
+export const TimelineSpanSchema = v.object({
+  from: position,
+  to: position,
+  text: v.string(),
+  tone: v.optional(v.picklist(['accent', 'muted', 'bad'])),
+});
+export const TimelineLaneSchema = v.object({
+  label: v.string(),
+  spans: v.array(TimelineSpanSchema),
+  outcome: v.optional(v.object({ at: position, text: v.string(), tone: v.picklist(['good', 'bad']) })),
+});
+
+/**
+ * One picture of the change's main decision, drawn by the client so every tour looks
+ * the same: the old flow next to the new one (two small Mermaid diagrams), lanes over
+ * time, one small Mermaid flowchart or state diagram, or a hand-drawn sanitized SVG. Never a text list: the
+ * overview's prose already says that. `caption` is one sentence under it.
+ */
+export const VisualSchema = v.variant('kind', [
+  v.object({
+    kind: v.literal('before-after'),
+    caption: v.optional(v.string()),
+    /** Mermaid source of the old flow. */
+    before: v.string(),
+    /** Mermaid source of the new flow, laid out like `before` so the difference shows. */
+    after: v.string(),
+  }),
+  v.object({
+    kind: v.literal('timeline'),
+    caption: v.optional(v.string()),
+    markers: v.array(v.object({ at: position, text: v.string() })),
+    lanes: v.array(TimelineLaneSchema),
+  }),
+  v.object({ kind: v.literal('mermaid'), caption: v.optional(v.string()), source: v.string() }),
+  /** A hand-drawn picture, already sanitized to plain shapes and text; shown only as an image. */
+  v.object({ kind: v.literal('svg'), caption: v.optional(v.string()), svg: v.string() }),
+]);
+export type Visual = v.InferOutput<typeof VisualSchema>;
+
 export const GroupNotesSchema = v.object({
   fileNotes: v.array(FileNoteSchema),
   lineNotes: v.array(LineNoteSchema),
@@ -212,6 +254,8 @@ export const TourSchema = v.object({
   overallSummary: v.optional(v.string()),
   /** Decisions about the change as a whole, not tied to a file. */
   decisions: v.optional(v.array(DecisionSchema)),
+  /** A picture of the change's main decision, when one helps. */
+  visual: v.optional(VisualSchema),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),
   judgments: v.record(v.string(), FileJudgmentSchema),

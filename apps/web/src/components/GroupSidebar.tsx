@@ -4,11 +4,11 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { useAtomValue } from '@effect/atom-react';
-import type { FileSummary, GroupView, SourceRef } from '@gloss/protocol';
+import type { FileSummary, GroupView, SourceRef, Stack } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
 import { Fragment, type KeyboardEvent } from 'react';
-import { recentToursAtom, stackAtom } from '../lib/client.ts';
+import { recentToursAtom } from '../lib/client.ts';
 import {
   byCategory,
   CATEGORY_LABEL,
@@ -36,6 +36,7 @@ import { Progress, TreeRow } from './TreeRow.tsx';
  */
 export function GroupSidebar({
   sourceRef,
+  stack: fetchedStack,
   title,
   groups,
   files,
@@ -47,6 +48,7 @@ export function GroupSidebar({
   dispatch,
 }: {
   sourceRef: SourceRef;
+  stack: Stack | undefined;
   title: string | undefined;
   groups: GroupView[];
   files: ReadonlyMap<string, FileSummary>;
@@ -61,7 +63,6 @@ export function GroupSidebar({
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []).filter(
     (tour) => serializeRef(tour.ref) !== serializeRef(sourceRef),
   );
-  const fetchedStack = AsyncResult.getOrElse(useAtomValue(stackAtom(sourceRef)), () => undefined);
   // Only a chain of two or more is worth its own row.
   const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   const currentMember =
