@@ -1,6 +1,6 @@
-import type { Decision, FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
+import type { CallFrame, Decision, FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
 import type * as v from 'valibot';
-import type { DefineSchema, NotesSchema, SketchSchema } from './prompts.ts';
+import type { CallstackSchema, DefineSchema, NotesSchema, SketchSchema } from './prompts.ts';
 import { sanitizeSvg } from './svg-sanitize.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
@@ -422,4 +422,57 @@ export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual
     visuals: results.flatMap((result) => (result.visual ? [result.visual] : [])),
     warnings: results.flatMap((result) => result.warnings),
   };
+}
+
+/** Most frames a call tree keeps, and how deep it nests, before it stops reading at a glance. */
+const MAX_FRAMES = 16;
+const MAX_DEPTH = 6;
+
+/**
+ * The call-tree candidate's trust boundary. Depths are made a tree (the first frame is a
+ * root, none is more than one deeper than the frame before), files are known ids (or paths),
+ * and a line stays only where the diff shows it on the new side, so a model's guess at an
+ * unseen definition is never shown as fact. A tree with no call in it, or one that touches
+ * nothing the change adds or alters, is a list or plumbing and is dropped.
+ */
+export function normalizeCallstack(
+  raw: Partial<v.InferOutput<typeof CallstackSchema>>,
+  files: readonly FileChange[],
+): { visual?: Visual; warnings: string[] } {
+  if (!Array.isArray(raw.frames) || raw.frames.length === 0) {
+    return { warnings: [] };
+  }
+  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
+  const frames: CallFrame[] = [];
+  for (const frame of raw.frames.slice(0, MAX_FRAMES)) {
+    const name = clip(String(frame.name ?? ''), 48).replace(/\(.*$/, '');
+    if (!name) {
+      continue;
+    }
+    const wanted = Number.isFinite(frame.depth) ? Math.max(0, Math.floor(frame.depth)) : 0;
+    const depth = Math.min(wanted, frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const file = byKey.get(String(frame.fileId ?? ''));
+    const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(frame.line));
+    const receiver = clip(String(frame.receiver ?? ''), 40).replace(/\.$/, '');
+    const args = clip(String(frame.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
+    const status = frame.status === 'new' || frame.status === 'changed' ? frame.status : 'same';
+    frames.push({
+      depth,
+      ...(receiver ? { receiver } : {}),
+      name,
+      ...(args ? { args } : {}),
+      ...(file ? { path: file.path } : {}),
+      ...(file && shown ? { line: frame.line } : {}),
+      status,
+    });
+  }
+  const drop = (why: string) => ({ warnings: [`Dropped the callstack visual: ${why}.`] });
+  if (!frames.some((frame) => frame.depth > 0)) {
+    return drop('it has no calls, which a list says as well');
+  }
+  if (!frames.some((frame) => frame.status !== 'same')) {
+    return drop('nothing on it is new or changed');
+  }
+  const caption = raw.caption ? clip(raw.caption, 200) || undefined : undefined;
+  return { visual: { kind: 'callstack', caption, frames }, warnings: [] };
 }

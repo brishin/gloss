@@ -21,6 +21,14 @@ const visuals: Visual[] = [
     svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" font-family="sans-serif"><rect x="20" y="20" width="200" height="60" fill="#cfc8f5"/><text x="30" y="55" font-size="14">Old path</text></svg>',
   },
   { kind: 'mermaid', source: 'flowchart TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]' },
+  {
+    kind: 'callstack',
+    frames: [
+      { depth: 0, receiver: 'Schedule', name: 'create', args: 'input', path: 'src/schedule.ts', status: 'same' },
+      { depth: 1, receiver: 'ScheduleCheck', name: 'validate', args: 'condition', status: 'new' },
+      { depth: 2, name: 'scanTools', args: 'code', path: 'src/scan.ts', line: 11, status: 'changed' },
+    ],
+  },
 ];
 
 describe('visualPng', () => {

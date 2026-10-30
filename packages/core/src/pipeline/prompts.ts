@@ -172,6 +172,49 @@ export const SketchSchema = v.pipe(
 );
 
 /**
+ * The call-tree candidate, from its own call: it needs line numbers, which only a numbered
+ * diff gives, and a path read end to end rather than a summary. Flat rows with a depth,
+ * because tool schemas draw recursion poorly.
+ */
+export const CallstackSchema = v.pipe(
+  v.object({
+    caption: short('One sentence under 25 words saying what path the tree shows. No Markdown. Empty when frames is.'),
+    frames: v.pipe(
+      v.array(
+        v.object({
+          depth: v.pipe(
+            v.number(),
+            v.description('0 for an entry point; a callee is one deeper than the frame that calls it.'),
+          ),
+          receiver: short(
+            'What the function is called on as the code writes it, e.g. "ScheduleCheck", "permission", "this.tools"; "" for a plain function.',
+          ),
+          name: short('The function or method name only, e.g. "authorize".'),
+          args: short('Its parameters as short names, e.g. "session, check", or "..." when long. Under 40 characters.'),
+          fileId: short('Id of the file that defines it, or "" when no listed file does.'),
+          line: v.pipe(
+            v.number(),
+            v.description(
+              'The new-file line number printed before its definition in the diff, or 0 when the diff does not show the definition.',
+            ),
+          ),
+          status: v.pipe(
+            v.picklist(['new', 'changed', 'same']),
+            v.description(
+              'new: the change adds this function. changed: its body or signature changes. same: unchanged, shown only to connect the path to its entry point.',
+            ),
+          ),
+        }),
+      ),
+      v.description(
+        'The call tree, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no call path.',
+      ),
+    ),
+  }),
+  v.description('The call path the change adds or alters, as an indented call tree.'),
+);
+
+/**
  * Overgenerated on purpose: a judge (or, without one, the order) picks the one shown.
  * Required slots, because asked for a list of 2-3 the model returned one every time.
  */
@@ -345,6 +388,16 @@ ${SKETCH_GUIDE}
 
 Call the submit tool once with the caption and the svg.`;
 
+export const CALLSTACK_SYSTEM = `You are a senior engineer drawing the call path a code change adds or alters, as an indented call tree a reviewer reads before the diff: the entry point at the top, and under each function what it calls, in the order it calls them, one level deeper.
+
+Follow the path the change is about from an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) down to the new or changed functions it reaches. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters, and functions the change does not touch unless they connect the path. Use two or three entry points only when the change adds separate paths, such as one that creates a record and one that fires it later; each starts again at depth 0.
+
+Name functions as the code calls them: the receiver the call is made on ("ScheduleCheck", "permission", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and line number printed before its definition in the diff; use line 0 when the diff does not show the definition.
+
+Return no frames when the change has no call path to draw: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function. A tree with one frame is a list; draw at least two levels.
+
+Call the submit tool once with the caption and the frames.`;
+
 export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
 
 export const NOTES_SYSTEM = `You are a senior engineer annotating one group of a code change for a reviewer.
@@ -362,13 +415,14 @@ Separately from notes, list the key decisions this group makes in code, each on 
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
   FOLLOWUP_SYSTEM,
   NOTES_SYSTEM,
   SKETCH_SYSTEM,
+  CALLSTACK_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
   SCHEMA_VERSION,
@@ -502,6 +556,48 @@ export function buildSketchPrompt(
     overallSummary,
     ...(decisions.length ? ['', 'Key decisions:', ...decisions.map((decision) => `- ${decision.text}`)] : []),
   ].join('\n');
+}
+
+/**
+ * The change with numbered lines, so frames can point at definitions, plus what the tour
+ * already says about it. Guidance files are left out: they define no calls.
+ */
+export function buildCallstackPrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  overallSummary: string,
+  decisions: readonly { text: string }[],
+): string {
+  const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
+  let remaining = TOTAL_BUDGET;
+  const omitted: string[] = [];
+  parts.push('', '## Diffs');
+  for (const file of files) {
+    if (collapsedReason(file) || isGuidance(file)) {
+      continue;
+    }
+    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    if (budget <= 500) {
+      omitted.push(file.id);
+      continue;
+    }
+    if (body.length > budget) {
+      body = `${body.slice(0, budget)}\n... (truncated)`;
+    }
+    remaining -= body.length;
+    parts.push(`### ${file.id} ${file.path}`, body);
+  }
+  if (omitted.length) {
+    parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}.)`);
+  }
+  parts.push(
+    '',
+    '## The tour so far',
+    overallSummary,
+    ...(decisions.length ? ['', 'Key decisions:', ...decisions.map((decision) => `- ${decision.text}`)] : []),
+  );
+  return parts.join('\n');
 }
 
 export function buildNotesPrompt(

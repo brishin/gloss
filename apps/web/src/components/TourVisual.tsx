@@ -1,5 +1,6 @@
 import type { Visual } from '@gloss/protocol';
 import { lazy, Suspense } from 'react';
+import { CallstackVisual } from './CallstackVisual.tsx';
 
 const MermaidVisual = lazy(() => import('./MermaidVisual.tsx'));
 const BeforeAfterVisual = lazy(() => import('./BeforeAfterVisual.tsx'));
@@ -19,6 +20,8 @@ export function TourVisual({ visual }: { visual: Visual }) {
         </Suspense>
       ) : visual.kind === 'timeline' ? (
         <TimelineVisual timeline={visual} />
+      ) : visual.kind === 'callstack' ? (
+        <CallstackVisual visual={visual} />
       ) : visual.kind === 'svg' ? (
         // An image, not inline markup: nothing in a model-drawn SVG can run or link.
         <img

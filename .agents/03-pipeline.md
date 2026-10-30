@@ -50,6 +50,13 @@ A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, ar
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
+A fourth candidate, the `callstack`, is a call tree of the path the change adds or alters
+(entry point at depth 0, callees one level deeper, each frame `new`, `changed` or `same`).
+It has its own call on the define model too (`CALLSTACK_SYSTEM`), run beside the sketch,
+because it needs numbered diff lines to point at definitions. `normalizeCallstack` makes the
+depths a tree, resolves file ids, keeps a line only where the diff shows it on the new side,
+and drops a tree with no call in it or nothing new or changed. Jev's change-wide `call_path`
+answer (>= `CALL_PATH`, 0.8) shows an accurate tree ahead of the sketch.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
@@ -66,7 +73,7 @@ If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
 Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
-fetch, define, sketch, judge-files, judge-groups, judge-visual, place, followup, and
+fetch, define, sketch, callstack, judge-files, judge-groups, judge-visual, place, followup, and
 `notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
 cached tour replays its trace too. The web app's pipeline view (`d` on a tour) draws it.
 When a prompt gains a `## ` section that reads another step, add it to that call's

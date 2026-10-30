@@ -136,6 +136,9 @@ const fakeJudge = () =>
     if (id === 'workflow') {
       return { type: 'bool', probability: 0.95 };
     }
+    if (id === 'call_path') {
+      return { type: 'bool', probability: 0.1 };
+    }
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
@@ -234,6 +237,7 @@ describe('runTour', () => {
         'notes:tests',
         'place',
         'sketch',
+        'callstack',
       ].toSorted(),
     );
     for (const step of steps) {

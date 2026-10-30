@@ -86,8 +86,33 @@ describe('pickVisual', () => {
     expect(pickVisual(['svg', 'mermaid'], answers)).toBe(expected);
   });
 
+  // Candidates: the sketch, then a call tree rated lower, as the pipeline orders them.
+  const sketchAndTree = (callPath: number, treeAccurate = 0.9) => ({
+    workflow: yes(0.1),
+    call_path: yes(callPath),
+    c1_accurate: yes(0.9),
+    c1_whole: yes(0.9),
+    c1_easy: yes(0.9),
+    c2_accurate: yes(treeAccurate),
+    c2_whole: yes(0.6),
+    c2_easy: yes(0.6),
+  });
+  it.each([
+    ['the call tree when the change is a call path', sketchAndTree(0.9), 1],
+    ['the sketch when Jev is unsure it is a call path', sketchAndTree(0.6), 0],
+    ['the sketch when the call tree is wrong', sketchAndTree(0.9, 0.1), 0],
+  ] as const)('shows %s', (_, answers, expected) => {
+    expect(pickVisual(['svg', 'callstack'], answers)).toBe(expected);
+  });
+
   it('ranks text-only answers without the picture question', () => {
-    expect(Object.keys(visualQuestions(1, false))).toEqual(['workflow', 'c1_accurate', 'c1_beyond_text', 'c1_whole']);
+    expect(Object.keys(visualQuestions(1, false))).toEqual([
+      'workflow',
+      'call_path',
+      'c1_accurate',
+      'c1_beyond_text',
+      'c1_whole',
+    ]);
     expect(
       pickVisual(['mermaid', 'mermaid'], {
         c1_accurate: yes(0.9),

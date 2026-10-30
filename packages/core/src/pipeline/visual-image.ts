@@ -1,4 +1,4 @@
-import type { Visual } from '@gloss/protocol';
+import { callLocations, callParents, type Visual } from '@gloss/protocol';
 import { Resvg } from '@resvg/resvg-js';
 import { renderMermaidSVG } from 'beautiful-mermaid';
 
@@ -12,6 +12,7 @@ const TINT = '#cfc8f5';
 const WASH = '#f3f1fd';
 const BAD = '#cf222e';
 const GOOD = '#1a7f37';
+const CHANGED = '#bf8700';
 const WIDTH = 760;
 const MIN_SIDE = 400;
 const MAX_SIDE = 1200;
@@ -108,6 +109,78 @@ function timelineSvg(visual: Extract<Visual, { kind: 'timeline' }>): string {
   );
 }
 
+const MONO = 'font-family="monospace"';
+/** Call tree geometry, shared with the web app's `.visual-callstack`: px per row, per level, per character. */
+const ROW = 28;
+const INDENT = 22;
+const CHAR = 7.8;
+const MARK = 9;
+const ROOT_GAP = 10;
+
+/** The call tree: rows of receiver.name(args), connectors from each caller, file:line on the right. */
+function callstackSvg(visual: Extract<Visual, { kind: 'callstack' }>): string {
+  const { frames } = visual;
+  const parents = callParents(frames);
+  const locations = callLocations(frames);
+  // Entry points after the first sit a little apart, as in the web app.
+  let roots = 0;
+  const tops = frames.map((frame, index) => 8 + index * ROW + ROOT_GAP * (index && !frame.depth ? ++roots : roots));
+  const height = tops.at(-1)! + ROW + 8;
+  const left = 14;
+  const markX = (depth: number) => left + depth * INDENT;
+  const midY = (index: number) => tops[index]! + ROW / 2;
+  const rows = frames
+    .map((frame, index) => {
+      const y = midY(index);
+      const x = markX(frame.depth);
+      const mark =
+        frame.status === 'same'
+          ? `<rect x="${x + 0.5}" y="${y - MARK / 2 + 0.5}" width="${MARK - 1}" height="${MARK - 1}" rx="2" fill="none" stroke="${INK.muted}"/>`
+          : `<rect x="${x}" y="${y - MARK / 2}" width="${MARK}" height="${MARK}" rx="2" fill="${frame.status === 'new' ? GOOD : CHANGED}"/>`;
+      const location = locations[index]!;
+      const room = WIDTH - 14 - location.length * CHAR - 16 - (x + MARK + 8);
+      const receiver = frame.receiver ? `${frame.receiver}.` : '';
+      const args = `(${frame.args ?? ''})`;
+      const budget = Math.max(0, Math.floor(room / CHAR));
+      const full = receiver + frame.name + args;
+      const cut = full.length > budget ? `${full.slice(0, Math.max(0, budget - 1))}…` : full;
+      // The cut text, split back into its dim receiver, bold name and dim arguments.
+      const parts = [
+        [cut.slice(0, receiver.length), INK.muted, ''],
+        [cut.slice(receiver.length, receiver.length + frame.name.length), INK.fg, ' font-weight="600"'],
+        [cut.slice(receiver.length + frame.name.length), INK.muted, ''],
+      ]
+        .filter(([text]) => text)
+        .map(([text, fill, weight]) => `<tspan fill="${fill}"${weight}>${escape(text!)}</tspan>`)
+        .join('');
+      const file = location.startsWith(':') ? '' : location.replace(/:\d+$/, '');
+      const at = location.slice(file.length);
+      return (
+        mark +
+        `<text x="${x + MARK + 8}" y="${y + 4.5}" font-size="13" ${MONO} xml:space="preserve">${parts}</text>` +
+        `<text x="${WIDTH - 14}" y="${y + 4.5}" font-size="13" text-anchor="end" ${MONO}><tspan fill="${INK.fg}">${escape(file)}</tspan><tspan fill="${INK.muted}">${escape(at)}</tspan></text>`
+      );
+    })
+    .join('');
+  const connectors = frames
+    .map((frame, index) => {
+      const parent = parents[index]!;
+      if (parent < 0) {
+        return '';
+      }
+      const x = markX(frames[parent]!.depth) + MARK / 2;
+      const y = midY(index);
+      return `<path d="M${x} ${midY(parent) + MARK / 2 + 2}V${y - 6}Q${x} ${y} ${x + 6} ${y}H${markX(frame.depth) - 3}" fill="none" stroke="${INK.line}" stroke-width="1.5"/>`;
+    })
+    .join('');
+  return svg(
+    height,
+    `<rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" fill="${INK.bg}" stroke="${INK.line}"/>` +
+      connectors +
+      rows,
+  );
+}
+
 const svg = (height: number, body: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">${body}</svg>`;
 
@@ -168,9 +241,11 @@ export function visualPng(visual: Visual): Uint8Array | undefined {
         ? beforeAfterSvg(visual)
         : visual.kind === 'timeline'
           ? timelineSvg(visual)
-          : visual.kind === 'svg'
-            ? visual.svg.replace(/^<svg(?![^>]*\sfont-family=)/, `<svg ${FONT}`)
-            : mermaidSvg(visual.source);
+          : visual.kind === 'callstack'
+            ? callstackSvg(visual)
+            : visual.kind === 'svg'
+              ? visual.svg.replace(/^<svg(?![^>]*\sfont-family=)/, `<svg ${FONT}`)
+              : mermaidSvg(visual.source);
     const natural = new Resvg(source);
     // The web app never draws a diagram wider than its natural size.
     const width = visual.kind === 'mermaid' ? Math.min(WIDTH, natural.width) : WIDTH;
