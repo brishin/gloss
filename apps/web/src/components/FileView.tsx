@@ -38,7 +38,7 @@ function NoteCard({ text, critical, className }: { text: string; critical?: bool
   );
 }
 
-function DecisionCard({ decision, className }: { decision: Decision; className?: string }) {
+export function DecisionCard({ decision, className }: { decision: Decision; className?: string }) {
   return (
     <div className={`note decision ${className ?? ''}`}>
       <PriorityIcon priority={decision.priority} />

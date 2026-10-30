@@ -171,8 +171,9 @@ export type DecisionPriority = v.InferOutput<typeof DecisionPrioritySchema>;
 
 /**
  * A choice the change makes that a reviewer should agree with on purpose. With no
- * `fileId` it is about the change as a whole; with `fileId` but no `line` it is about
- * that file; with all of them it sits on that line.
+ * `fileId` it is not tied to code: with `groupKey` it belongs to that group's section,
+ * without it to the change as a whole. With `fileId` but no `line` it is about that file;
+ * with all of them it sits on that line.
  */
 export const DecisionSchema = v.object({
   text: v.string(),
@@ -181,6 +182,7 @@ export const DecisionSchema = v.object({
   hunkId: v.optional(v.string()),
   side: v.optional(DiffSideSchema),
   line: v.optional(v.number()),
+  groupKey: v.optional(v.string()),
 });
 export type Decision = v.InferOutput<typeof DecisionSchema>;
 

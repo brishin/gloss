@@ -68,7 +68,10 @@ async function tour(options: {
 
 const groupsAnswer = {
   overallSummary: 'Tightens the auth check.',
-  decisions: [{ text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent' }],
+  decisions: [
+    { text: 'Only admins pass, with no migration for existing sessions.', priority: 'urgent', groupKey: 'auth' },
+    { text: 'Ship docs with the check.', priority: 'low', groupKey: 'not-a-group' },
+  ],
   visuals: {
     first: {
       kind: 'timeline',
@@ -188,7 +191,11 @@ describe('runTour', () => {
     expect(finished.groups.find((group) => group.key === 'auth')?.critical).toBe(true);
     expect(finished.groups.map((group) => group.key)).toEqual(['docs', 'auth', 'tests', 'generated']);
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
-    expect(finished.decisions).toEqual(groupsAnswer.decisions);
+    // A decision keeps its group when the group exists; an unknown key leaves it change-wide.
+    expect(finished.decisions).toEqual([
+      groupsAnswer.decisions[0],
+      { text: 'Ship docs with the check.', priority: 'low' },
+    ]);
     expect(finished.visual).toEqual(groupsAnswer.visuals.first);
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.

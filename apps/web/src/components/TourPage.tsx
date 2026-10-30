@@ -249,7 +249,13 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
 
             <section className="stop" id={`group-${OVERVIEW}`} data-group-key={OVERVIEW}>
               {state.meta || !running ? (
-                <Overview state={state} groups={groups} running={running} onJumpToFile={jumpToFile} />
+                <Overview
+                  state={state}
+                  groups={groups}
+                  running={running}
+                  onJumpToFile={jumpToFile}
+                  onSelectGroup={select}
+                />
               ) : (
                 <Skeleton height={160} />
               )}

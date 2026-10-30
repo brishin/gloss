@@ -799,6 +799,14 @@
     gap: var(--spacing-2);
   }
 
+  .section-decisions {
+    margin-top: var(--spacing-1-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    max-width: 72ch;
+  }
+
   /* The icon sits on the first line of text. */
   .note.decision .priority-icon {
     align-self: flex-start;
@@ -981,6 +989,11 @@
   .decision-ref {
     font-family: var(--font-family-code);
     color: var(--color-text-secondary);
+  }
+
+  /* A section is named by its label, not a path. */
+  .decision-section {
+    font-family: var(--font-family-body);
   }
 
   .line-note {

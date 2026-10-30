@@ -1,4 +1,4 @@
-import type { FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
+import type { Decision, FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
 import type * as v from 'valibot';
 import type { DefineSchema, NotesSchema, SketchSchema } from './prompts.ts';
 import { sanitizeSvg } from './svg-sanitize.ts';
@@ -31,6 +31,17 @@ function pinnedHunk(file: FileChange, hunkId: string, side: 'additions' | 'delet
   const named = file.hunks.find((candidate) => candidate.id === hunkId);
   const hunk = named ?? file.hunks.find((candidate) => visibleLines(candidate)[side].has(line));
   return hunk && visibleLines(hunk)[side].has(line) ? hunk : undefined;
+}
+
+/**
+ * Change-wide decisions from the define call, with each `groupKey` checked against the
+ * defined groups: an unknown key is dropped, so the decision stays change-wide.
+ */
+export function normalizeDecisionGroups(decisions: readonly Decision[], groupKeys: readonly string[]): Decision[] {
+  const known = new Set(groupKeys);
+  return decisions.map(({ groupKey, ...decision }) =>
+    groupKey !== undefined && known.has(groupKey) ? { ...decision, groupKey } : decision,
+  );
 }
 
 /**

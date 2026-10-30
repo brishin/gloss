@@ -39,7 +39,7 @@ import {
   visualQuestions,
   visualState,
 } from './judge-questions.ts';
-import { normalizeNotes, normalizeSketch, normalizeVisuals } from './normalize.ts';
+import { normalizeDecisionGroups, normalizeNotes, normalizeSketch, normalizeVisuals } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
   buildDefinePrompt,
@@ -227,16 +227,20 @@ const tourProgram = Effect.fnUntraced(function* (
     for (const message of warnings) {
       warn('define', message);
     }
+    const decisions = normalizeDecisionGroups(
+      definition.decisions,
+      definition.groups.map((group) => group.key),
+    );
     // With Jev, the picture waits for its pick; without, the first data visual shows until the sketch lands.
     send({
       type: 'tour.summary',
       overallSummary: definition.overallSummary,
-      decisions: definition.decisions,
+      decisions,
       visual: judge ? undefined : visuals[0],
     });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
-    return { ...definition, visuals, definePrompt };
+    return { ...definition, decisions, visuals, definePrompt };
   });
 
   /**

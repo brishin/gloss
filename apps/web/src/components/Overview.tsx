@@ -19,11 +19,13 @@ export const Overview = memo(function Overview({
   groups,
   running,
   onJumpToFile,
+  onSelectGroup,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
+  onSelectGroup: (key: string) => void;
 }) {
   const files = new Map(state.files.map((file) => [file.id, file]));
   const totals = (fileIds: readonly string[]) =>
@@ -93,6 +95,8 @@ export const Overview = memo(function Overview({
             <tbody>
               {decisions.map(({ decision, groupKey }, index) => {
                 const path = decision.fileId ? files.get(decision.fileId)?.path : undefined;
+                const section =
+                  !decision.fileId && groupKey ? groups.find((group) => group.key === groupKey) : undefined;
                 return (
                   <tr key={index}>
                     <td className="decision-priority">
@@ -112,6 +116,18 @@ export const Overview = memo(function Overview({
                         >
                           {splitPath(path).base}
                           {decision.line !== undefined && `:${decision.line}`}
+                        </a>
+                      )}
+                      {section && (
+                        <a
+                          className="decision-ref decision-section"
+                          href={`#group-${section.key}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelectGroup(section.key);
+                          }}
+                        >
+                          {section.label}
                         </a>
                       )}
                     </td>

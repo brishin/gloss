@@ -5,6 +5,7 @@ import {
   looseEnds,
   normalizeSketch,
   sketchGap,
+  normalizeDecisionGroups,
   normalizeNotes,
   normalizeVisual,
   normalizeVisuals,
@@ -69,6 +70,25 @@ describe('normalizeNotes', () => {
       { text: 'off the hunk', priority: 'low', fileId: 'f1' },
     ]);
     expect(warnings).toHaveLength(2);
+  });
+});
+
+describe('normalizeDecisionGroups', () => {
+  it('keeps a known group key and drops an unknown one, so the decision stays change-wide', () => {
+    expect(
+      normalizeDecisionGroups(
+        [
+          { text: 'a', priority: 'high', groupKey: 'auth' },
+          { text: 'b', priority: 'low', groupKey: 'invented' },
+          { text: 'c', priority: 'medium' },
+        ],
+        ['auth', 'docs'],
+      ),
+    ).toEqual([
+      { text: 'a', priority: 'high', groupKey: 'auth' },
+      { text: 'b', priority: 'low' },
+      { text: 'c', priority: 'medium' },
+    ]);
   });
 });
 

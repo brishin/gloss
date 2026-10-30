@@ -43,14 +43,23 @@ export function notedFileIds(group: GroupView | undefined): Set<string> {
 
 export interface DecisionEntry {
   decision: Decision;
-  /** The group holding the decision's file; absent for a decision about the whole change. */
+  /** The group holding the decision's file or section; absent for a decision about the whole change. */
   groupKey?: string;
+}
+
+/** Change-wide decisions the define call matched to this group's section. */
+export function sectionDecisions(state: TourState, groupKey: string): Decision[] {
+  return (state.decisions ?? []).filter((decision) => decision.groupKey === groupKey);
 }
 
 /** Every decision, most urgent first. Within a priority, change-wide ones lead, then tour order. */
 export function decisionsInOrder(state: TourState, groups: readonly GroupView[]): DecisionEntry[] {
+  const keys = new Set(groups.map((group) => group.key));
   const entries: DecisionEntry[] = [
-    ...(state.decisions ?? []).map((decision) => ({ decision })),
+    ...(state.decisions ?? []).map((decision) => ({
+      decision,
+      groupKey: decision.groupKey && keys.has(decision.groupKey) ? decision.groupKey : undefined,
+    })),
     ...groups.flatMap((group) => (group.notes?.decisions ?? []).map((decision) => ({ decision, groupKey: group.key }))),
   ];
   const rank = (entry: DecisionEntry) => DECISION_PRIORITIES.indexOf(entry.decision.priority);
