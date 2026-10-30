@@ -1,11 +1,12 @@
 /**
  * The gloss lockup: the twist mark and the outlined "gloss" wordmark (Schibsted Grotesk).
+ * The mark is centered on the x-height, not the ascender, so it lines up with lowercase text.
  * The mark's faces use the note hue; the wordmark takes the surrounding text color.
  */
 export function Logo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="6 16 293 81" role="img" aria-label="gloss">
-      <g transform="scale(3)">
+      <g transform="translate(0 8.4) scale(3)">
         <path
           className="logo-back"
           d="M 26.5,8.5 C 22,8.5 20.5,14 17,15.6 L 17,16.4 C 20.5,18 22,23.5 26.5,23.5 A 2.5,2.5 0 0 0 29,21 V 11 A 2.5,2.5 0 0 0 26.5,8.5 Z"
