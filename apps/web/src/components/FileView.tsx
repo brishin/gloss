@@ -6,6 +6,7 @@ import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { memo, type ReactNode, useMemo } from 'react';
+import { loadFileContents } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
 import { decisionFlag, type FlagLevel, noteFlag, RISK_SHORT, splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
@@ -71,6 +72,7 @@ function Chevron() {
 }
 
 export const FileView = memo(function FileView({
+  diffId,
   summary,
   change,
   fileNotes,
@@ -86,6 +88,8 @@ export const FileView = memo(function FileView({
   composing,
   reviewer,
 }: {
+  /** The diff this file is in; unchanged lines can be expanded once it is known. */
+  diffId: string | undefined;
   summary: FileSummary;
   /** Undefined until the diff body has loaded. */
   change: FileChange | undefined;
@@ -151,8 +155,18 @@ export const FileView = memo(function FileView({
       onGutterUtilityClick: reviewer
         ? (range: Parameters<typeof anchorFromRange>[1]) => reviewer.start(anchorFromRange(summary.id, range))
         : undefined,
+      // The separators between hunks expand unchanged lines; pierre fetches the whole file on the first one.
+      loadDiffFiles: diffId
+        ? async (diff: FileDiffMetadata) => {
+            const { oldContents, newContents } = await loadFileContents(diffId, summary.id);
+            return {
+              oldFile: { name: diff.prevName ?? diff.name, contents: oldContents },
+              newFile: { name: diff.name, contents: newContents },
+            };
+          }
+        : undefined,
     }),
-    [reviewer, summary.id],
+    [reviewer, summary.id, diffId],
   );
   const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);

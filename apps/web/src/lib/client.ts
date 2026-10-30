@@ -1,6 +1,7 @@
 import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
+  type FileContents,
   type GlossClient,
   initialTourState,
   type RecentTour,
@@ -111,3 +112,9 @@ export const pipelineAtom = Atom.family((key: string) =>
     ),
   ),
 );
+/**
+ * A changed file in full. pierre asks for it the first time the reviewer expands unchanged
+ * lines, and keeps it, so this is a promise rather than an atom.
+ */
+export const loadFileContents = (diffId: string, fileId: string): Promise<FileContents> =>
+  Effect.runPromise(request((client) => client.fileContents(diffId, fileId)).pipe(Effect.provide(Gloss.layer)));
