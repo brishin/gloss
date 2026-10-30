@@ -54,10 +54,14 @@ export const assetAtom = Atom.family((src: string) =>
   glossRuntime.atom(request((client): Promise<ResolvedAsset> => client.asset(src))),
 );
 
-/** A tour's pipeline trace, and the change's title once the tour has said it. */
+/** A tour's pipeline trace, with what the tour's events say about the run around it. */
 export interface Pipeline {
   trace: Trace;
   title?: string;
+  /** The run replayed a cached tour. */
+  cached: boolean;
+  /** A fatal error, e.g. the diff could not be fetched before any step ran. */
+  error?: { message: string; stage?: string };
 }
 
 /**
@@ -90,7 +94,12 @@ export const pipelineAtom = Atom.family((key: string) =>
         return states.pipe(
           Stream.mapEffect((state) =>
             request((client) => client.trace(jobId)).pipe(
-              Effect.map((trace): Pipeline => ({ trace, title: state.meta?.title })),
+              Effect.map((trace): Pipeline => ({
+                trace,
+                title: state.meta?.title,
+                cached: state.cached,
+                error: state.error,
+              })),
             ),
           ),
         );

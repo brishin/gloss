@@ -87,13 +87,23 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
           </div>
         )
       ) : steps.length === 0 ? (
-        <div className="pipeline-empty">
-          <Text color="secondary">
-            {pipeline.trace.done
-              ? 'This tour was cached before gloss kept pipeline traces. Re-run the tour to record one.'
-              : 'Starting…'}
-          </Text>
-        </div>
+        pipeline.error ? (
+          <Banner
+            status="error"
+            title={`Tour failed (${pipeline.error.stage ?? 'pipeline'}) before any step ran`}
+            description={pipeline.error.message}
+          />
+        ) : (
+          <div className="pipeline-empty">
+            <Text color="secondary">
+              {!pipeline.trace.done
+                ? 'Starting…'
+                : pipeline.cached
+                  ? 'This tour was cached before gloss kept pipeline traces. Re-run the tour to record one.'
+                  : 'No steps ran.'}
+            </Text>
+          </div>
+        )
       ) : (
         <div className="pipeline">
           <aside className="pipeline-graph">
