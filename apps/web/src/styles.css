@@ -675,17 +675,6 @@
     border-radius: var(--radius-element);
   }
 
-  .commit {
-    display: flex;
-    gap: var(--spacing-2);
-    font-size: 12px;
-  }
-
-  .commit code {
-    font-family: var(--font-family-code);
-    color: var(--color-text-secondary);
-  }
-
   /* Files */
 
   .file {

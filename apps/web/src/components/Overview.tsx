@@ -153,17 +153,6 @@ export const Overview = memo(function Overview({
           </div>
         </section>
       )}
-      {meta && meta.commits.length > 0 && (
-        <section className="section">
-          <Heading level={2}>Commits ({meta.commits.length})</Heading>
-          {meta.commits.map((commit) => (
-            <div className="commit" key={commit.sha}>
-              <code>{commit.sha.slice(0, 7)}</code>
-              <span>{commit.subject}</span>
-            </div>
-          ))}
-        </section>
-      )}
     </div>
   );
 });
