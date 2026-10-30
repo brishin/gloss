@@ -1,6 +1,7 @@
 import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
+  type FileContents,
   type GlossClient,
   initialTourState,
   type RecentTour,
@@ -109,5 +110,17 @@ export const pipelineAtom = Atom.family((key: string) =>
         );
       }),
     ),
+  ),
+);
+/**
+ * A changed file in full, keyed by `JSON.stringify({ diffId, fileId })`. pierre asks for it
+ * the first time the reviewer expands unchanged lines in the file, and keeps what it gets.
+ */
+export const fileContentsAtom = Atom.family((key: string) =>
+  glossRuntime.atom(
+    request((client): Promise<FileContents> => {
+      const { diffId, fileId } = JSON.parse(key) as { diffId: string; fileId: string };
+      return client.fileContents(diffId, fileId);
+    }),
   ),
 );

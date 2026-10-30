@@ -157,6 +157,7 @@ export const GroupPanel = memo(function GroupPanel({
           return (
             <FileView
               key={fileId}
+              diffId={diff?.id}
               summary={summary}
               change={changes.get(fileId)}
               fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}

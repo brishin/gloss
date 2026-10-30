@@ -1,8 +1,8 @@
 import * as v from 'valibot';
 import { type ResolvedAsset, ResolvedAssetSchema } from './asset.ts';
 import { parseSseStream } from './codec.ts';
-import type { DiffPayload } from './diff.ts';
-import { DiffPayloadSchema } from './diff.ts';
+import type { DiffPayload, FileContents } from './diff.ts';
+import { DiffPayloadSchema, FileContentsSchema } from './diff.ts';
 import { isTerminal, type TourEvent } from './events.ts';
 import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
 import type { SourceRef } from './source-ref.ts';
@@ -47,6 +47,8 @@ export interface GlossClient {
   diff(diffId: string): Promise<DiffPayload>;
   /** What each pipeline step of the job read and returned, for the pipeline debug view. */
   trace(jobId: string): Promise<Trace>;
+  /** One changed file of a diff in full, for expanding the unchanged lines around its hunks. */
+  fileContents(diffId: string, fileId: string): Promise<FileContents>;
   health(): Promise<Health>;
   recent(): Promise<RecentTour[]>;
   /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
@@ -139,6 +141,8 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     },
     diff: (diffId) => json(DiffPayloadSchema, `/api/diffs/${encodeURIComponent(diffId)}`),
     trace: (jobId) => json(TraceSchema, `/api/tours/${encodeURIComponent(jobId)}/trace`),
+    fileContents: (diffId, fileId) =>
+      json(FileContentsSchema, `/api/diffs/${encodeURIComponent(diffId)}/files/${encodeURIComponent(fileId)}`),
     health: () => json(HealthSchema, '/api/health'),
     recent: () => json(v.array(RecentTourSchema), '/api/recent'),
     asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),

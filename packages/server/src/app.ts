@@ -1,6 +1,15 @@
-import { resolveGithubAsset, resolveGithubStack, submitGithubReview, TourCache } from '@gloss/core';
+import {
+  readFileContents,
+  resolveGithubAsset,
+  StaleFileError,
+  resolveGithubStack,
+  submitGithubReview,
+  TourCache,
+} from '@gloss/core';
 import type {
   DiffPayload,
+  FileChange,
+  FileContents,
   Health,
   ResolvedAsset,
   ReviewRequest,
@@ -31,6 +40,8 @@ export interface AppOptions {
   resolveAsset?: (url: string, signal?: AbortSignal) => Promise<ResolvedAsset | undefined>;
   /** Finds the stack a PR sits in; defaults to walking branches through the `gh` login. */
   resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
+  /** Reads a changed file in full; defaults to `gh` for PRs and git for local repositories. */
+  readContents?: (diff: DiffPayload, file: FileChange, signal?: AbortSignal) => Promise<FileContents | undefined>;
   /** Posts a review to GitHub; defaults to the `gh` login. */
   submitReview?: (review: ReviewRequest, signal?: AbortSignal) => Promise<ReviewResult>;
 }
@@ -48,6 +59,7 @@ export function createApp({
   resolveAsset = resolveGithubAsset,
   resolveStack = resolveGithubStack,
   submitReview = submitGithubReview,
+  readContents = readFileContents,
 }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
@@ -141,6 +153,24 @@ export function createApp({
     const id = c.req.param('id');
     const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(id))));
     return diff ? c.json(diff) : c.json({ error: 'Unknown diff' }, 404);
+  });
+
+  app.get('/api/diffs/:id/files/:fileId', async (c) => {
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(c.req.param('id')))));
+    const file = diff?.files.find((candidate) => candidate.id === c.req.param('fileId'));
+    if (!diff || !file) {
+      return c.json({ error: 'Unknown diff or file' }, 404);
+    }
+    try {
+      // Not cached: a PR's head is a fixed sha, and the page keeps what it loaded.
+      const contents = await readContents(diff, file, c.req.raw.signal);
+      return contents ? c.json(contents) : c.json({ error: 'This file has no unchanged lines to show' }, 404);
+    } catch (error) {
+      if (error instanceof StaleFileError) {
+        return c.json({ error: error.message }, 409);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'Reading the file failed' }, 502);
+    }
   });
 
   app.get('/api/assets', async (c) => {

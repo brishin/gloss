@@ -70,6 +70,10 @@ export const DiffPayloadSchema = v.object({
 });
 export type DiffPayload = v.InferOutput<typeof DiffPayloadSchema>;
 
+/** A changed file in full on both sides: what the page needs to show the unchanged lines between hunks. */
+export const FileContentsSchema = v.object({ oldContents: v.string(), newContents: v.string() });
+export type FileContents = v.InferOutput<typeof FileContentsSchema>;
+
 export function summarizeFile(file: FileChange): FileSummary {
   const { hunks, ...rest } = file;
   return { ...rest, hunkIds: hunks.map((hunk) => hunk.id) };

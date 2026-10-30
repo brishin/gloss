@@ -63,7 +63,7 @@ function setup(run: ReturnType<typeof scripted>['run'], options: Partial<Paramet
     fetch: async (input, init) =>
       app.request(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, init),
   });
-  return { client, app };
+  return { client, app, runtime };
 }
 
 async function take(events: AsyncIterable<TourEvent>, count: number): Promise<TourEvent[]> {
@@ -172,6 +172,45 @@ describe('stack API', () => {
     const response = await app.request('/api/stack?owner=o&repo=r&number=1');
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'gh is not signed in' });
+  });
+});
+
+describe('file contents API', () => {
+  const file = {
+    id: 'f1',
+    path: 'a.ts',
+    status: 'modified' as const,
+    additions: 1,
+    deletions: 1,
+    isBinary: false,
+    truncated: false,
+    hunks: [{ id: 'h1', header: '@@ -2 +2 @@', oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, patch: '-b\n+B' }],
+  };
+  const diff = { id: 'd1', ref, sourceKey: 'k', fingerprint: 'f', meta: tour.meta, files: [file] };
+
+  it('reads a cached diff file through the client', async () => {
+    const asked: unknown[] = [];
+    const { client, runtime } = setup(scripted().run, {
+      readContents: async (fromDiff, fromFile) => {
+        asked.push([fromDiff.id, fromFile.id]);
+        return { oldContents: 'a\nb\n', newContents: 'a\nB\n' };
+      },
+    });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
+    expect(await client.fileContents('d1', 'f1')).toEqual({ oldContents: 'a\nb\n', newContents: 'a\nB\n' });
+    expect(asked).toEqual([['d1', 'f1']]);
+  });
+
+  it('answers 404 for an unknown diff or file, and 502 when the read fails', async () => {
+    const { app, runtime } = setup(scripted().run, {
+      readContents: async () => {
+        throw new Error('gh is not signed in');
+      },
+    });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
+    expect((await app.request('/api/diffs/nope/files/f1')).status).toBe(404);
+    expect((await app.request('/api/diffs/d1/files/nope')).status).toBe(404);
+    expect((await app.request('/api/diffs/d1/files/f1')).status).toBe(502);
   });
 });
 
