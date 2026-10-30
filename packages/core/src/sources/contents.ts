@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/protocol';
 import { git } from './exec.ts';
 import { gh } from './github.ts';
@@ -86,10 +84,12 @@ async function readHead(diff: DiffPayload, path: string, signal?: AbortSignal): 
       signal,
     );
   }
-  // No head sha is the working tree.
-  return meta.headSha
-    ? git(ref.repo, ['cat-file', 'blob', `${meta.headSha}:${path}`], { signal })
-    : readFile(join(ref.repo, path), { encoding: 'utf8', signal });
+  if (meta.headSha) {
+    return git(ref.repo, ['cat-file', 'blob', `${meta.headSha}:${path}`], { signal });
+  }
+  // The working tree, through git's clean filters (CRLF, LFS) as the diff saw it, not the raw checkout.
+  const blob = (await git(ref.repo, ['hash-object', '-w', '--', path], { signal })).trim();
+  return git(ref.repo, ['cat-file', 'blob', blob], { signal });
 }
 
 /**
