@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reverseApply } from './contents.ts';
+import { reverseApply, StaleFileError } from './contents.ts';
 import { parseHunks } from './patch-parser.ts';
 
 const hunks = (patch: string) => parseHunks(patch.split('\n'));
@@ -31,5 +31,15 @@ describe('reverseApply', () => {
     ],
   ])('rebuilds the old side: %s', (_, newContents, oldContents, patch) => {
     expect(reverseApply(newContents, hunks(patch))).toBe(oldContents);
+  });
+
+  it('refuses a new side that no longer matches the patch', () => {
+    const patch = hunks('@@ -2,3 +2,3 @@\n 2\n-3\n+TWO\n 4');
+    expect(() => reverseApply('1\ninserted\n2\nTWO\n4\n', patch)).toThrow(StaleFileError);
+  });
+
+  it('rebuilds a large file', () => {
+    const tail = Array.from({ length: 200_000 }, (_, i) => `line ${i}`).join('\n');
+    expect(reverseApply(`NEW\n${tail}\n`, hunks('@@ -1 +1 @@\n-old\n+NEW'))).toBe(`old\n${tail}\n`);
   });
 });

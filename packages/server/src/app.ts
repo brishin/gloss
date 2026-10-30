@@ -1,4 +1,11 @@
-import { readFileContents, resolveGithubAsset, resolveGithubStack, submitGithubReview, TourCache } from '@gloss/core';
+import {
+  readFileContents,
+  resolveGithubAsset,
+  StaleFileError,
+  resolveGithubStack,
+  submitGithubReview,
+  TourCache,
+} from '@gloss/core';
 import type {
   DiffPayload,
   FileChange,
@@ -159,6 +166,9 @@ export function createApp({
       const contents = await readContents(diff, file, c.req.raw.signal);
       return contents ? c.json(contents) : c.json({ error: 'This file has no unchanged lines to show' }, 404);
     } catch (error) {
+      if (error instanceof StaleFileError) {
+        return c.json({ error: error.message }, 409);
+      }
       return c.json({ error: error instanceof Error ? error.message : 'Reading the file failed' }, 502);
     }
   });

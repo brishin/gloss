@@ -4,10 +4,25 @@ import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/pro
 import { git } from './exec.ts';
 import { gh } from './github.ts';
 
+export class StaleFileError extends Error {
+  constructor() {
+    super('The file has changed since the diff was read. Reload the tour to see it.');
+    this.name = 'StaleFileError';
+  }
+}
+
+/** Appends `from[start..end)` one by one: a spread overflows the call stack on a large file. */
+function copy(from: readonly string[], start: number, end: number, to: string[]) {
+  for (let i = start; i < end; i++) {
+    to.push(from[i]!);
+  }
+}
+
 /**
  * The old side of a file, rebuilt from its new side by undoing the hunks. Only the head
  * is fetched: a PR's old side is the merge base, which `base.sha` is not once the base
- * branch moves, and the patch already says exactly what changed.
+ * branch moves, and the patch already says exactly what changed. Throws `StaleFileError`
+ * when the new side no longer matches the patch.
  */
 export function reverseApply(
   newContents: string,
@@ -26,7 +41,10 @@ export function reverseApply(
   for (const hunk of hunks) {
     // A hunk with no new lines names the line it follows; any other start is 1-based.
     const start = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
-    oldLines.push(...newLines.slice(next, start));
+    if (start < next) {
+      throw new StaleFileError();
+    }
+    copy(newLines, next, start, oldLines);
     next = start;
     let previous = '';
     for (const line of hunk.patch.split('\n')) {
@@ -41,12 +59,16 @@ export function reverseApply(
         oldLines.push(line.slice(1));
       }
       if (kind === '+' || kind === ' ' || line === '') {
+        // The file must still read as the patch says; a working tree may have moved on.
+        if (newLines[next] !== line.slice(1)) {
+          throw new StaleFileError();
+        }
         next++;
       }
       previous = kind ?? ' ';
     }
   }
-  oldLines.push(...newLines.slice(next));
+  copy(newLines, next, newLines.length, oldLines);
   const oldEol = !oldMarker && (newMarker || newEol);
   return oldLines.join('\n') + (oldEol && oldLines.length ? '\n' : '');
 }
