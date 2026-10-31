@@ -125,6 +125,10 @@
     gap: var(--spacing-1);
   }
 
+  .shortcuts-button {
+    display: contents;
+  }
+
   /* Layout */
 
   .tour {
@@ -719,13 +723,22 @@
     border-bottom: none;
   }
 
+  /* The name is what you read: when the row is short, the directory gives way first. */
   .file-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: flex;
+    min-width: 0;
     white-space: nowrap;
   }
 
+  .file-path strong {
+    flex: none;
+  }
+
   .file-dir {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--color-text-secondary);
   }
 
@@ -1260,6 +1273,76 @@
     .target-form {
       flex-direction: column;
     }
+
+    /* Shortcuts need a keyboard; a phone has none to press. */
+    .shortcuts-button {
+      display: none;
+    }
+
+    /* The file name keeps the room; the risk's name is in the group head and the title. */
+    .file-head .risk-kind-label {
+      display: none;
+    }
+
+    /* Kind and file on one line, the text under them at full width. */
+    .risk-row {
+      flex-wrap: wrap;
+      row-gap: 0;
+    }
+
+    .risk-row > :last-child {
+      flex-basis: 100%;
+    }
+
+    /* A decision reads at full width; where it points sits under it. */
+    .decisions tr {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr);
+      column-gap: 8px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .decisions tr:first-child {
+      border-top: 1px solid var(--color-border);
+    }
+
+    .overview-table.decisions td,
+    .overview-table.decisions tr:first-child td {
+      padding: 0;
+      border: none;
+    }
+
+    .overview-table.decisions td.stat {
+      grid-column: 2;
+      width: auto;
+      text-align: left;
+    }
+
+    .pipeline-graph {
+      padding: var(--spacing-3) var(--spacing-2);
+    }
+  }
+
+  /* iOS zooms into any field under 16px when it takes focus. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox'], [type='radio']),
+    textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* The DAG is laid out 420px wide: shrink it to fit a phone, not crop it. */
+  @media (max-width: 440px) {
+    .graph {
+      zoom: 0.85;
+    }
+  }
+
+  @media (max-width: 370px) {
+    .graph {
+      zoom: 0.75;
+    }
   }
 
   /* Pipeline debug view: the DAG on the left, one step's prompt and output on the right. */
@@ -1559,7 +1642,12 @@
     .pipeline-graph {
       border-right: none;
       border-bottom: 1px solid var(--color-border);
-      align-items: center;
+      text-align: center;
+    }
+
+    /* Auto margins, not align-items: a graph wider than the pane stays scrollable from its left edge. */
+    .graph {
+      margin-inline: auto;
     }
 
     .inspector-pane + .inspector-pane {
