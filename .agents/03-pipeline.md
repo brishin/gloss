@@ -33,6 +33,11 @@ the submit tool. Budgets are 60k characters per prompt and 12k per file, and gen
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
 
+Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
+notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define
+lists only its rollout across files. Define sees only that rollout rule; given the full rule it
+restated the schema change change-wide, and notes then skipped it as covered.
+
 The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
 every time. A third candidate, the `sketch`, is an SVG the model draws itself (hand-drawn
