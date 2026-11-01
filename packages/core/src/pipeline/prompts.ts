@@ -394,10 +394,16 @@ export const PROMPTS_VERSION = hashOf({
   SCHEMA_VERSION,
 }).slice(0, 12);
 
-function header(meta: DiffMeta): string {
+/** The diff's meta, plus an optional stack context from a coordinator (experimental). */
+export type PromptMeta = DiffMeta & { context?: string };
+
+function header(meta: PromptMeta): string {
   const lines = [`# ${meta.title}`, `${meta.baseRef} <- ${meta.headRef}`];
   if (meta.description?.trim()) {
     lines.push('', '## Description', meta.description.trim().slice(0, 4000));
+  }
+  if (meta.context?.trim()) {
+    lines.push('', '## Stack context', meta.context.trim());
   }
   if (meta.commits.length) {
     lines.push('', '## Commits', ...meta.commits.slice(-30).map((commit) => `- ${commit.subject}`));
@@ -434,7 +440,7 @@ function plainDiff(file: FileChange, budget: number): string {
 }
 
 /** The prompt for defining groups: a manifest of every file, then as many diffs as fit the budget. */
-export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
+export function buildDefinePrompt(meta: PromptMeta, files: readonly FileChange[], withFiles: boolean): string {
   const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
   let remaining = TOTAL_BUDGET;
   const diffs: string[] = [];
@@ -467,7 +473,7 @@ export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], 
 }
 
 export function buildFollowupPrompt(
-  meta: DiffMeta,
+  meta: PromptMeta,
   groups: readonly GroupDefinition[],
   files: readonly FileChange[],
 ): string {
@@ -525,7 +531,7 @@ export function buildSketchPrompt(
 }
 
 export function buildNotesPrompt(
-  meta: DiffMeta,
+  meta: PromptMeta,
   overallSummary: string | undefined,
   group: ResolvedGroup,
   files: readonly FileChange[],

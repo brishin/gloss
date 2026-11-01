@@ -69,6 +69,11 @@ export interface RunTourOptions {
   concurrency?: { judge?: number; notes?: number };
   /** Called with each new or changed pipeline step, for the debug view (`trace.ts`). */
   onStep?: (step: TraceStep) => void;
+  /**
+   * Experimental: what a stack coordinator says about this PR's place in its stack. Prompts
+   * show it after the description, and it joins the tour's cache key.
+   */
+  context?: string;
 }
 
 /** A failure that ends the tour; it becomes a fatal `job.error`. Per-file and per-group failures are warnings instead. */
@@ -162,7 +167,9 @@ const tourProgram = Effect.fnUntraced(function* (
 
   // Stage 0: fetch. A finished tour for this exact head and config replays at once.
   const fingerprint = yield* Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError });
-  const tourKey = tourCacheKey(sourceKey, fingerprint, models);
+  const tourKey = options.context
+    ? hashOf({ tourKey: tourCacheKey(sourceKey, fingerprint, models), context: options.context })
+    : tourCacheKey(sourceKey, fingerprint, models);
   const cachedTour = options.force ? undefined : cache.get<Tour>(tourKey);
   send({ type: 'job.started', ref, sourceKey, pipelineVersion: PIPELINE_VERSION, models, cached: !!cachedTour });
   if (cachedTour) {
@@ -186,6 +193,8 @@ const tourProgram = Effect.fnUntraced(function* (
     cache.put(diffKey, 'diff', diff);
   }
   const { meta, files } = diff;
+  /** What prompts see: the diff's meta plus the stack context, if any. Events carry `meta`. */
+  const promptMeta = options.context ? { ...meta, context: options.context } : meta;
   cache.recordRecent(ref, sourceKey, meta.title);
   send({ type: 'diff.ready', diffId: diff.id, meta, files: files.map(summarizeFile) });
   send({ type: 'groups.provisional', groups: provisionalGroups(files) });
@@ -225,7 +234,7 @@ const tourProgram = Effect.fnUntraced(function* (
   const defineGroups = Effect.gen(function* () {
     const listFiles = !judge;
     stage('define', 'running');
-    const definePrompt = buildDefinePrompt(meta, files, listFiles);
+    const definePrompt = buildDefinePrompt(promptMeta, files, listFiles);
     trace.begin('define', 'define', {
       inputs: ['fetch'],
       model: models.define,
@@ -521,7 +530,7 @@ const tourProgram = Effect.fnUntraced(function* (
       const uncertain = new Set(outcome.uncertain);
       const pending = files.filter((file) => uncertain.has(file.id));
       stage('place', 'running', `Asking the model about ${pending.length} files`);
-      const followupPrompt = buildFollowupPrompt(meta, definitions, pending);
+      const followupPrompt = buildFollowupPrompt(promptMeta, definitions, pending);
       trace.begin('followup', 'followup', {
         inputs: ['place', 'define'],
         model: models.followup,
@@ -571,7 +580,7 @@ const tourProgram = Effect.fnUntraced(function* (
           Effect.suspend(() => {
             const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
             const notesPrompt = buildNotesPrompt(
-              meta,
+              promptMeta,
               state.overallSummary,
               group,
               members,

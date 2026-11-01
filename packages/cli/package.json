@@ -18,6 +18,7 @@
     "@gloss/server": "workspace:*",
     "@hono/node-server": "catalog:",
     "effect": "catalog:",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "valibot": "catalog:"
   }
 }
