@@ -2,14 +2,19 @@ import {
   createHttpGlossClient,
   DEFAULT_BACKEND_URL,
   type GlossClient,
+  type Health,
   initialTourState,
+  isLoginFinished,
+  type LoginMethod,
+  type LoginSession,
   type RecentTour,
   reduceTourEvent,
   type ResolvedAsset,
   type SourceRef,
+  type Subscription,
   type Trace,
 } from '@gloss/protocol';
-import { Context, Data, Duration, Effect, Layer, Stream } from 'effect';
+import { Context, Data, Duration, Effect, Layer, Schedule, Stream } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
 import { settled } from './trace-view.ts';
 
@@ -48,6 +53,37 @@ export const glossRuntime = Atom.runtime(Gloss.layer);
 /** Recent tours, newest first; fetched again whenever a page mounts it afresh. */
 export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], GlossRequestError>> = glossRuntime.atom(
   request((client) => client.recent()),
+);
+
+/** The backend's models and which of their providers are signed in; refresh it after a login. */
+export const healthAtom: Atom.Atom<AsyncResult.AsyncResult<Health, GlossRequestError>> = glossRuntime.atom(
+  request((client) => client.health()),
+);
+
+/**
+ * A provider login, written `{ subscription, method }` to start one: starts it on the backend,
+ * then polls it until it ends. Resetting the atom (or starting another) cancels it there.
+ */
+export const loginAtom = glossRuntime.fn((start: { subscription: Subscription; method: LoginMethod }) =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const first = yield* Effect.acquireRelease(
+        request((client) => client.startLogin(start.subscription, start.method)),
+        // A no-op on the backend once the login has ended.
+        (session) => Effect.ignore(request((client) => client.cancelLogin(session.id))),
+      );
+      // The first poll runs at once, so the stream starts with the login's current state.
+      return Stream.fromEffectSchedule(
+        request((client) => client.login(first.id)),
+        Schedule.spaced(Duration.millis(750)),
+      ).pipe(Stream.takeUntil((session: LoginSession) => isLoginFinished(session)));
+    }),
+  ),
+);
+
+/** Answers the running login's current question. */
+export const answerLoginAtom = glossRuntime.fn((answer: { loginId: string; promptId: number; value: string }) =>
+  request((client) => client.answerLogin(answer.loginId, answer.promptId, answer.value)),
 );
 
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */

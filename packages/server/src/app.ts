@@ -10,14 +10,22 @@ import type {
   TourEvent,
   Trace,
 } from '@gloss/protocol';
-import { encodeNdjson, ReviewRequestSchema, reviewProblem, SourceRefSchema } from '@gloss/protocol';
+import {
+  encodeNdjson,
+  LoginAnswerSchema,
+  ReviewRequestSchema,
+  reviewProblem,
+  SourceRefSchema,
+  StartLoginRequestSchema,
+} from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
 import { cors } from 'hono/cors';
 import { stream, streamSSE } from 'hono/streaming';
 import * as v from 'valibot';
 import { Jobs } from './jobs.ts';
+import { LoginSessions } from './logins.ts';
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs and the cache, with the pipeline's services behind them. */
@@ -33,6 +41,8 @@ export interface AppOptions {
   resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
   /** Posts a review to GitHub; defaults to the `gh` login. */
   submitReview?: (review: ReviewRequest, signal?: AbortSignal) => Promise<ReviewResult>;
+  /** Provider logins the app drives; defaults to pi-ai's flows storing into `~/.gloss/auth.json`. */
+  logins?: LoginSessions;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -48,6 +58,7 @@ export function createApp({
   resolveAsset = resolveGithubAsset,
   resolveStack = resolveGithubStack,
   submitReview = submitGithubReview,
+  logins = new LoginSessions(runModelsLogin),
 }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
@@ -168,14 +179,21 @@ export function createApp({
     }
   });
 
-  app.post('/api/reviews', async (c) => {
-    // A review acts as the user on GitHub, so only this app or an allowed origin may send one.
-    // JSON is not a "simple" content type: a browser asks first, and CORS turns other sites away.
+  /**
+   * A review acts as the user on GitHub, and a login writes their credentials, so only this app
+   * or an allowed origin may send one. JSON is not a "simple" content type: a browser asks
+   * first, and CORS turns other sites away.
+   */
+  const fromApp = (c: Context) => {
     const origin = c.req.header('Origin');
-    if (
-      !c.req.header('Content-Type')?.startsWith('application/json') ||
-      (origin !== undefined && origin !== new URL(c.req.url).origin && !corsOrigins.includes(origin))
-    ) {
+    return (
+      !!c.req.header('Content-Type')?.startsWith('application/json') &&
+      (origin === undefined || origin === new URL(c.req.url).origin || corsOrigins.includes(origin))
+    );
+  };
+
+  app.post('/api/reviews', async (c) => {
+    if (!fromApp(c)) {
       return c.json({ error: 'Reviews are accepted only as JSON from the gloss app' }, 403);
     }
     const parsed = v.safeParse(ReviewRequestSchema, await c.req.json().catch(() => undefined));
@@ -194,5 +212,53 @@ export function createApp({
     }
   });
 
+  app.post('/api/logins', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(StartLoginRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid login', issues: v.flatten(parsed.issues) }, 400);
+    }
+    return c.json(logins.start(parsed.output.subscription, parsed.output.method), 201);
+  });
+
+  app.get('/api/logins/:id', (c) => {
+    const session = logins.get(c.req.param('id'));
+    c.header('Cache-Control', 'no-store');
+    return session ? c.json(session) : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
+  app.post('/api/logins/:id/answer', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    const id = c.req.param('id');
+    const parsed = v.safeParse(LoginAnswerSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answer', issues: v.flatten(parsed.issues) }, 400);
+    }
+    if (!logins.get(id)) {
+      return c.json({ error: 'Unknown or expired login' }, 404);
+    }
+    if (!logins.answer(id, parsed.output.promptId, parsed.output.value)) {
+      return c.json({ error: 'That question is no longer open' }, 409);
+    }
+    return c.json(logins.get(id));
+  });
+
+  app.post('/api/logins/:id/cancel', (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    return logins.cancel(c.req.param('id')) ? c.body(null, 204) : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
   return app;
 }
+
+/** Signs in through `@gloss/models`, which owns pi-ai and the credential store. */
+const runModelsLogin: ConstructorParameters<typeof LoginSessions>[0] = async (subscription, method, io, signal) => {
+  const { login } = await import('@gloss/models');
+  await login(subscription, io, { method, signal });
+};

@@ -28,7 +28,7 @@ background on the new code (`gloss restart` does only the last step).
 ## Models and keys
 
 - **LLM** (group definitions, follow-up placement, notes) runs through a [Flue](https://flueframework.com) agent on the backend. Defaults: Claude Haiku 5.5 for the fast tiers, Sonnet 5.5 for notes. Set `"profile": "openai"` in `~/.gloss/config.json` for GPT.
-  - Subscriptions: `gloss login claude` (Claude Pro/Max) or `gloss login chatgpt` (ChatGPT Plus/Pro), using pi-ai's OAuth. Tokens live in `~/.gloss/auth.json`.
+  - Subscriptions: `gloss login claude` (Claude Pro/Max) or `gloss login chatgpt` (ChatGPT Plus/Pro), using pi-ai's OAuth. Tokens live in `~/.gloss/auth.json`. The web app also prompts for this by itself when a provider your models use is not signed in, and runs the same sign-in (or takes an API key) from the page.
   - API keys also work: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, in the environment or `~/.gloss/.env`.
   - Third-party pi provider packages: `"providerPackages": ["some-pi-provider"]` in config.
 - **Jev** (TypeSafe's classifier) makes the per-file judgments: which group, generated, tests-only, and whether a file touches auth, stored data, secrets or personal data. Set `TYPESAFE_API_KEY` (or `OPENROUTER_API_KEY`). Without it the LLM places files itself.

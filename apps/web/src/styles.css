@@ -533,6 +533,22 @@
     gap: var(--spacing-2);
   }
 
+  /* The sign-in dialog (LoginPrompt). */
+  .login-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+  }
+  .login-choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+  }
+  .login-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
   .files {
     display: flex;
     flex-direction: column;
