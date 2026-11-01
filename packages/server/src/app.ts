@@ -10,18 +10,26 @@ import type {
   TourEvent,
   Trace,
 } from '@gloss/protocol';
-import { encodeNdjson, ReviewRequestSchema, reviewProblem, SourceRefSchema } from '@gloss/protocol';
+import {
+  encodeNdjson,
+  LoginAnswerSchema,
+  ReviewRequestSchema,
+  reviewProblem,
+  SourceRefSchema,
+  StartLoginRequestSchema,
+} from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
 import { cors } from 'hono/cors';
 import { stream, streamSSE } from 'hono/streaming';
 import * as v from 'valibot';
 import { Jobs } from './jobs.ts';
+import { Logins } from './logins.ts';
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs and the cache, with the pipeline's services behind them. */
-  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache, never>;
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
@@ -50,7 +58,7 @@ export function createApp({
   submitReview = submitGithubReview,
 }: AppOptions): Hono {
   const app = new Hono();
-  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
+  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins>, signal?: AbortSignal) =>
     runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
@@ -168,14 +176,21 @@ export function createApp({
     }
   });
 
-  app.post('/api/reviews', async (c) => {
-    // A review acts as the user on GitHub, so only this app or an allowed origin may send one.
-    // JSON is not a "simple" content type: a browser asks first, and CORS turns other sites away.
+  /**
+   * A review acts as the user on GitHub, and a login writes their credentials, so only this app
+   * or an allowed origin may send one. JSON is not a "simple" content type: a browser asks
+   * first, and CORS turns other sites away.
+   */
+  const fromApp = (c: Context) => {
     const origin = c.req.header('Origin');
-    if (
-      !c.req.header('Content-Type')?.startsWith('application/json') ||
-      (origin !== undefined && origin !== new URL(c.req.url).origin && !corsOrigins.includes(origin))
-    ) {
+    return (
+      !!c.req.header('Content-Type')?.startsWith('application/json') &&
+      (origin === undefined || origin === new URL(c.req.url).origin || corsOrigins.includes(origin))
+    );
+  };
+
+  app.post('/api/reviews', async (c) => {
+    if (!fromApp(c)) {
       return c.json({ error: 'Reviews are accepted only as JSON from the gloss app' }, 403);
     }
     const parsed = v.safeParse(ReviewRequestSchema, await c.req.json().catch(() => undefined));
@@ -192,6 +207,61 @@ export function createApp({
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'Review failed' }, 502);
     }
+  });
+
+  /** The provider logins, as the runtime's `Logins` layer scopes them. */
+  const withLogins = <A>(f: (logins: Logins['Service']) => A) =>
+    run(Logins.use((logins) => Effect.sync(() => f(logins))));
+
+  app.post('/api/logins', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(StartLoginRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid login', issues: v.flatten(parsed.issues) }, 400);
+    }
+    const { subscription, method } = parsed.output;
+    return c.json(await withLogins((logins) => logins.start(subscription, method)), 201);
+  });
+
+  app.get('/api/logins/:id', async (c) => {
+    const id = c.req.param('id');
+    const session = await withLogins((logins) => logins.get(id));
+    c.header('Cache-Control', 'no-store');
+    return session ? c.json(session) : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
+  app.post('/api/logins/:id/answer', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    const id = c.req.param('id');
+    const parsed = v.safeParse(LoginAnswerSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answer', issues: v.flatten(parsed.issues) }, 400);
+    }
+    const { promptId, value } = parsed.output;
+    const answered = await withLogins((logins) =>
+      logins.get(id) ? (logins.answer(id, promptId, value) ? logins.get(id) : ('closed' as const)) : undefined,
+    );
+    if (!answered) {
+      return c.json({ error: 'Unknown or expired login' }, 404);
+    }
+    if (answered === 'closed') {
+      return c.json({ error: 'That question is no longer open' }, 409);
+    }
+    return c.json(answered);
+  });
+
+  app.post('/api/logins/:id/cancel', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
+    }
+    const id = c.req.param('id');
+    return (await withLogins((logins) => logins.cancel(id)))
+      ? c.body(null, 204)
+      : c.json({ error: 'Unknown or expired login' }, 404);
   });
 
   return app;

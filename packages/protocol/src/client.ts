@@ -4,6 +4,13 @@ import { parseSseStream } from './codec.ts';
 import type { DiffPayload } from './diff.ts';
 import { DiffPayloadSchema } from './diff.ts';
 import { isTerminal, type TourEvent } from './events.ts';
+import {
+  type LoginMethod,
+  type LoginSession,
+  LoginSessionSchema,
+  ProviderLoginSchema,
+  type Subscription,
+} from './login.ts';
 import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
@@ -24,7 +31,15 @@ export const HealthSchema = v.object({
   pipelineVersion: v.string(),
   judge: v.object({ available: v.boolean(), model: v.optional(v.string()) }),
   models: v.object({ define: v.string(), followup: v.string(), notes: v.string() }),
-  providers: v.array(v.object({ id: v.string(), configured: v.boolean(), source: v.optional(v.string()) })),
+  providers: v.array(
+    v.object({
+      id: v.string(),
+      configured: v.boolean(),
+      source: v.optional(v.string()),
+      /** Set when the app can sign this provider in (`startLogin`). */
+      login: v.optional(ProviderLoginSchema),
+    }),
+  ),
 });
 export type Health = v.InferOutput<typeof HealthSchema>;
 
@@ -55,6 +70,13 @@ export interface GlossClient {
   stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<Stack>;
   /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
   review(review: ReviewRequest): Promise<ReviewResult>;
+  /** Starts signing a provider in on the backend (replacing any login already running for it). */
+  startLogin(subscription: Subscription, method: LoginMethod): Promise<LoginSession>;
+  /** The login's current state: the page to open, the question it waits on, or how it ended. */
+  login(loginId: string): Promise<LoginSession>;
+  /** Answers the login's current question (`prompt.id`). */
+  answerLogin(loginId: string, promptId: number, value: string): Promise<LoginSession>;
+  cancelLogin(loginId: string): Promise<void>;
 }
 
 export interface HttpGlossClientOptions {
@@ -153,5 +175,24 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(review),
       }),
+    startLogin: (subscription, method) =>
+      json(LoginSessionSchema, '/api/logins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription, method }),
+      }),
+    login: (loginId) => json(LoginSessionSchema, `/api/logins/${encodeURIComponent(loginId)}`),
+    answerLogin: (loginId, promptId, value) =>
+      json(LoginSessionSchema, `/api/logins/${encodeURIComponent(loginId)}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptId, value }),
+      }),
+    async cancelLogin(loginId) {
+      await request(`/api/logins/${encodeURIComponent(loginId)}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
   };
 }
