@@ -1,8 +1,9 @@
 import type { LoginSession } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
+import { ManagedRuntime } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app.ts';
-import { type LoginInteraction, LoginSessions, type RunLogin } from './logins.ts';
+import { type LoginInteraction, Logins, type RunLogin } from './logins.ts';
 
 /** A login flow the test steps through: it reports a URL, asks a question, then ends as told. */
 function scripted() {
@@ -31,14 +32,15 @@ function scripted() {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function setup(run: RunLogin) {
-  const logins = new LoginSessions(run);
-  const app = createApp({ runtime: undefined as never, health: async () => ({}) as never, logins });
+  const runtime = ManagedRuntime.make(Logins.layer(run));
+  // Only the login routes run here, so the runtime needs only `Logins`.
+  const app = createApp({ runtime: runtime as never, health: async () => ({}) as never });
   const client = createHttpGlossClient({
     baseUrl: 'http://gloss.test',
     fetch: async (input, init) =>
       app.request(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, init),
   });
-  return { client, app, logins };
+  return { client, app, runtime };
 }
 
 describe('login API', () => {
@@ -105,6 +107,14 @@ describe('login API', () => {
     const after = await client.login(id);
     expect(after.prompt).toBeUndefined();
     expect(after.state).toBe('succeeded');
+  });
+
+  it('aborts running logins when the backend closes', async () => {
+    const flow = scripted();
+    const { client, runtime } = setup(flow.run);
+    await client.startLogin('claude', 'oauth');
+    await runtime.dispose();
+    expect(flow.calls[0]?.signal.aborted).toBe(true);
   });
 
   it('accepts logins only as JSON from the app', async () => {

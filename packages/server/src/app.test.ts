@@ -5,6 +5,7 @@ import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app.ts';
 import { Jobs, type RunTour } from './jobs.ts';
+import { Logins } from './logins.ts';
 
 const ref = { kind: 'github-pr' as const, owner: 'o', repo: 'r', number: 1 };
 const models = { define: 'a', followup: 'a', notes: 'a' };
@@ -56,7 +57,9 @@ function setup(run: ReturnType<typeof scripted>['run'], options: Partial<Paramet
     Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
     DiffSources.layer,
   );
-  const runtime = ManagedRuntime.make(Jobs.layer({ run }).pipe(Layer.provideMerge(services)));
+  const runtime = ManagedRuntime.make(
+    Layer.merge(Jobs.layer({ run }), Logins.layer()).pipe(Layer.provideMerge(services)),
+  );
   const app = createApp({ runtime, health: async () => ({}) as never, ...options });
   const client = createHttpGlossClient({
     baseUrl: 'http://gloss.test',

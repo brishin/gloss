@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createApp, Jobs } from '@gloss/server';
+import { createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
@@ -59,7 +59,7 @@ function shellHtml(): string | undefined {
 export async function startServer(
   options: ServeOptions,
 ): Promise<{ url: string; judge?: string; close: () => Promise<void> }> {
-  const runtime = ManagedRuntime.make(Jobs.layer().pipe(Layer.provideMerge(BackendLayer)));
+  const runtime = ManagedRuntime.make(Layer.merge(Jobs.layer(), Logins.layer()).pipe(Layer.provideMerge(BackendLayer)));
   const info = await runtime.runPromise(
     Effect.gen(function* () {
       return yield* BackendInfo;

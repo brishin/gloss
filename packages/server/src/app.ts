@@ -25,11 +25,11 @@ import { cors } from 'hono/cors';
 import { stream, streamSSE } from 'hono/streaming';
 import * as v from 'valibot';
 import { Jobs } from './jobs.ts';
-import { LoginSessions } from './logins.ts';
+import { Logins } from './logins.ts';
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs and the cache, with the pipeline's services behind them. */
-  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache, never>;
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
@@ -41,8 +41,6 @@ export interface AppOptions {
   resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
   /** Posts a review to GitHub; defaults to the `gh` login. */
   submitReview?: (review: ReviewRequest, signal?: AbortSignal) => Promise<ReviewResult>;
-  /** Provider logins the app drives; defaults to pi-ai's flows storing into `~/.gloss/auth.json`. */
-  logins?: LoginSessions;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -58,10 +56,9 @@ export function createApp({
   resolveAsset = resolveGithubAsset,
   resolveStack = resolveGithubStack,
   submitReview = submitGithubReview,
-  logins = new LoginSessions(runModelsLogin),
 }: AppOptions): Hono {
   const app = new Hono();
-  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache>, signal?: AbortSignal) =>
+  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins>, signal?: AbortSignal) =>
     runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
@@ -212,6 +209,10 @@ export function createApp({
     }
   });
 
+  /** The provider logins, as the runtime's `Logins` layer scopes them. */
+  const withLogins = <A>(f: (logins: Logins['Service']) => A) =>
+    run(Logins.use((logins) => Effect.sync(() => f(logins))));
+
   app.post('/api/logins', async (c) => {
     if (!fromApp(c)) {
       return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
@@ -220,11 +221,13 @@ export function createApp({
     if (!parsed.success) {
       return c.json({ error: 'Invalid login', issues: v.flatten(parsed.issues) }, 400);
     }
-    return c.json(logins.start(parsed.output.subscription, parsed.output.method), 201);
+    const { subscription, method } = parsed.output;
+    return c.json(await withLogins((logins) => logins.start(subscription, method)), 201);
   });
 
-  app.get('/api/logins/:id', (c) => {
-    const session = logins.get(c.req.param('id'));
+  app.get('/api/logins/:id', async (c) => {
+    const id = c.req.param('id');
+    const session = await withLogins((logins) => logins.get(id));
     c.header('Cache-Control', 'no-store');
     return session ? c.json(session) : c.json({ error: 'Unknown or expired login' }, 404);
   });
@@ -238,27 +241,28 @@ export function createApp({
     if (!parsed.success) {
       return c.json({ error: 'Invalid answer', issues: v.flatten(parsed.issues) }, 400);
     }
-    if (!logins.get(id)) {
+    const { promptId, value } = parsed.output;
+    const answered = await withLogins((logins) =>
+      logins.get(id) ? (logins.answer(id, promptId, value) ? logins.get(id) : ('closed' as const)) : undefined,
+    );
+    if (!answered) {
       return c.json({ error: 'Unknown or expired login' }, 404);
     }
-    if (!logins.answer(id, parsed.output.promptId, parsed.output.value)) {
+    if (answered === 'closed') {
       return c.json({ error: 'That question is no longer open' }, 409);
     }
-    return c.json(logins.get(id));
+    return c.json(answered);
   });
 
-  app.post('/api/logins/:id/cancel', (c) => {
+  app.post('/api/logins/:id/cancel', async (c) => {
     if (!fromApp(c)) {
       return c.json({ error: 'Logins are accepted only as JSON from the gloss app' }, 403);
     }
-    return logins.cancel(c.req.param('id')) ? c.body(null, 204) : c.json({ error: 'Unknown or expired login' }, 404);
+    const id = c.req.param('id');
+    return (await withLogins((logins) => logins.cancel(id)))
+      ? c.body(null, 204)
+      : c.json({ error: 'Unknown or expired login' }, 404);
   });
 
   return app;
 }
-
-/** Signs in through `@gloss/models`, which owns pi-ai and the credential store. */
-const runModelsLogin: ConstructorParameters<typeof LoginSessions>[0] = async (subscription, method, io, signal) => {
-  const { login } = await import('@gloss/models');
-  await login(subscription, io, { method, signal });
-};

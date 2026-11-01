@@ -55,7 +55,15 @@ export function LoginPrompt() {
             onDone={reset}
           />
         ) : session ? (
-          <Progress session={session} onCancel={reset} onDone={missing.length > 1 || !succeeded ? reset : close} />
+          <Progress
+            session={session}
+            onCancel={reset}
+            onDone={
+              // Back to the choices while another provider still needs signing in; health may not have
+              // caught up with this sign-in yet, so it does not count.
+              !succeeded || missing.some((login) => login.subscription !== session.subscription) ? reset : close
+            }
+          />
         ) : (
           <Spinner label="Starting sign-in…" />
         )}

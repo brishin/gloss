@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LoginIO as LoginInteraction } from '@gloss/models';
 import type { LoginMethod, LoginPrompt, LoginSession, Subscription } from '@gloss/protocol';
+import { Context, Effect, Layer } from 'effect';
 
 export type { LoginInteraction };
 
@@ -172,5 +173,27 @@ export class LoginSessions {
         this.#entries.delete(id);
       }
     }
+  }
+}
+
+/** Signs in through `@gloss/models`, which owns pi-ai and the credential store. */
+const runModelsLogin: RunLogin = async (subscription, method, io, signal) => {
+  const { login } = await import('@gloss/models');
+  await login(subscription, io, { method, signal });
+};
+
+/**
+ * The backend's provider logins. They live in the layer's scope: closing it (server shutdown)
+ * aborts every running flow, its OAuth callback server included.
+ */
+export class Logins extends Context.Service<Logins, LoginSessions>()('@gloss/server/Logins') {
+  static layer(run: RunLogin = runModelsLogin): Layer.Layer<Logins> {
+    return Layer.effect(
+      Logins,
+      Effect.acquireRelease(
+        Effect.sync(() => new LoginSessions(run)),
+        (logins) => Effect.sync(() => logins.close()),
+      ),
+    );
   }
 }
