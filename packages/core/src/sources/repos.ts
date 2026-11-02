@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -87,13 +87,30 @@ export class Repos extends Context.Service<
 /** At most this many LFS downloads at once. */
 const LFS_DOWNLOADS = 4;
 
+/** The temp folder for this user's LFS objects; private repositories' images must not be readable by others. */
+function lfsDir(): string {
+  return join(tmpdir(), `gloss-lfs-${process.getuid?.() ?? 'user'}`);
+}
+
+/** Creates the folder for the owner only, and refuses one that another user owns or can read. */
+async function privateDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const stats = await stat(dir);
+  if (process.getuid && stats.uid !== process.getuid()) {
+    throw new Error(`${dir} belongs to another user`);
+  }
+  if (stats.mode & 0o077) {
+    await chmod(dir, 0o700);
+  }
+}
+
 /**
- * Git LFS objects saved by oid in a temp folder, so a restart or another tour reads them from disk.
+ * Git LFS objects saved by oid in a private temp folder, so a restart or another tour reads them from disk.
  * Requests for one oid share a download: the page asks for every image when the tour opens, and
  * again when it shows one. A download runs in the service's scope, not the request's, so a reader
  * who leaves the page does not cancel it for the others; closing the service interrupts it.
  */
-export const makeLfsCache = (dir = join(tmpdir(), 'gloss-lfs')) =>
+export const makeLfsCache = (dir = lfsDir()) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const downloads = yield* Semaphore.make(LFS_DOWNLOADS);
@@ -101,10 +118,10 @@ export const makeLfsCache = (dir = join(tmpdir(), 'gloss-lfs')) =>
 
     const save = (path: string, bytes: Uint8Array) =>
       Effect.tryPromise(async () => {
-        await mkdir(dir, { recursive: true });
+        await privateDir(dir);
         // Written aside, then renamed, so a reader never sees half a file.
         const partial = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}`;
-        await writeFile(partial, bytes);
+        await writeFile(partial, bytes, { mode: 0o600 });
         await rename(partial, path);
       }).pipe(Effect.ignore);
 
@@ -118,7 +135,10 @@ export const makeLfsCache = (dir = join(tmpdir(), 'gloss-lfs')) =>
         const deferred = Deferred.makeUnsafe<Uint8Array, RepoError>();
         running.set(oid, deferred);
         const fetched = downloads.withPermit(download).pipe(Effect.tap((bytes) => save(path, bytes)));
-        return Effect.tryPromise(() => readFile(path)).pipe(
+        return Effect.tryPromise(async () => {
+          await privateDir(dir);
+          return readFile(path);
+        }).pipe(
           Effect.map((bytes) => new Uint8Array(bytes)),
           Effect.catch(() => fetched),
           Effect.exit,
