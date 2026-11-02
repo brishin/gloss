@@ -4,6 +4,18 @@ import * as v from 'valibot';
 export const PullStateSchema = v.picklist(['open', 'draft', 'queued', 'merged', 'closed']);
 export type PullState = v.InferOutput<typeof PullStateSchema>;
 
+/** A reviewer's latest word on the PR; `pending` is a review requested and not yet given. */
+export const ReviewStateSchema = v.picklist(['approved', 'changes', 'commented', 'pending']);
+export type ReviewState = v.InferOutput<typeof ReviewStateSchema>;
+
+export const ReviewerSchema = v.object({
+  /** A user's login, or a team's `org/slug`. */
+  login: v.string(),
+  team: v.optional(v.boolean()),
+  state: ReviewStateSchema,
+});
+export type Reviewer = v.InferOutput<typeof ReviewerSchema>;
+
 export const StackMemberSchema = v.object({
   number: v.number(),
   title: v.string(),
@@ -19,6 +31,8 @@ export const StackMemberSchema = v.object({
   since: v.optional(v.string()),
   mergedBy: v.optional(v.string()),
   queuePosition: v.optional(v.number()),
+  /** Who reviewed or is asked to review, reviews first. Only the PR asked about has it. */
+  reviewers: v.optional(v.array(ReviewerSchema)),
   /** The opening words of the PR's description, without its template lines; context for naming the stack. */
   blurb: v.optional(v.string()),
 });

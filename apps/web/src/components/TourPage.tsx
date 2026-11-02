@@ -7,7 +7,7 @@ import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import { useAtomMount, useAtomSet, useAtomValue } from '@effect/atom-react';
 import type { SourceRef } from '@gloss/protocol';
-import { describeRef, groupsInOrder } from '@gloss/protocol';
+import { groupsInOrder } from '@gloss/protocol';
 import { Link, useRouter } from '@tanstack/react-router';
 import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon, WorkflowIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
@@ -18,7 +18,7 @@ import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
-import { Overview } from './Overview.tsx';
+import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
@@ -86,24 +86,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         <Link to="/" className="brand">
           <Logo />
         </Link>
-        <div className="topbar-meta">
-          <span className="topbar-ref">
-            <Text color="secondary" size="sm">
-              {describeRef(sourceRef)}
-            </Text>
-          </span>
-          <span className="topbar-title">
-            {state.meta ? (
-              state.meta.url ? (
-                <a href={state.meta.url} target="_blank" rel="noreferrer">
-                  {state.meta.title}
-                </a>
-              ) : (
-                state.meta.title
-              )
-            ) : null}
-          </span>
-        </div>
         {state.cached && (
           <span className="topbar-cached">
             <Text color="secondary" size="sm">
@@ -179,6 +161,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           dispatch={dispatch}
         />
         <main className="main">
+          <PullHead state={state} pull={currentPull(model)} groups={groups} />
           <div className="subbar">
             <span className="nav-toggle">
               <Button
@@ -262,7 +245,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               {state.meta || !running ? (
                 <Overview
                   state={state}
-                  pull={currentPull(model)}
                   groups={groups}
                   running={running}
                   onJumpToFile={jumpToFile}

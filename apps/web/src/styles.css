@@ -59,8 +59,9 @@
 
   .app {
     --topbar-h: 40px;
+    --head-h: 64px;
     --subbar-h: 32px;
-    --sticky-h: calc(var(--topbar-h) + var(--subbar-h));
+    --sticky-h: calc(var(--topbar-h) + var(--head-h) + var(--subbar-h));
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -123,6 +124,7 @@
   }
 
   .toolbar {
+    margin-left: auto;
     display: flex;
     align-items: center;
     gap: var(--spacing-1);
@@ -462,9 +464,95 @@
     flex-direction: column;
   }
 
-  .subbar {
+  /* The PR's title and numbers, pinned above the sub-bar at a fixed height: one line each, cut to fit. */
+  .pull-head {
     position: sticky;
     top: var(--topbar-h);
+    z-index: 15;
+    height: var(--head-h);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-6) 0 var(--spacing-6);
+    background: var(--color-background-body);
+  }
+
+  .pull-head h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pull-head .stats {
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .pull-head .stats > * {
+    flex: none;
+  }
+
+  .reviewers {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .reviewer {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .reviewer-avatar,
+  .reviewer-team {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--color-background-muted);
+  }
+
+  .reviewer-team {
+    display: inline-grid;
+    place-items: center;
+    color: var(--color-text-secondary);
+  }
+
+  /* A small filled badge on the face's corner, ringed in the page colour so it reads on any avatar. */
+  .review-mark {
+    position: absolute;
+    right: -4px;
+    bottom: -3px;
+    width: 11px;
+    height: 11px;
+    box-sizing: border-box;
+    padding: 1px;
+    border-radius: 50%;
+    color: var(--color-background-body);
+    box-shadow: 0 0 0 1.5px var(--color-background-body);
+  }
+
+  .review-mark[data-state='approved'] {
+    background: var(--color-text-green);
+  }
+
+  .review-mark[data-state='changes'] {
+    background: var(--color-text-red);
+  }
+
+  .review-mark[data-state='commented'] {
+    background: var(--color-text-secondary);
+  }
+
+  .review-mark[data-state='pending'] {
+    background: var(--color-text-orange);
+  }
+
+  .subbar {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--head-h));
     z-index: 15;
     height: var(--subbar-h);
     box-sizing: border-box;
@@ -1664,6 +1752,10 @@
     .topbar-ref,
     .topbar-cached {
       display: none;
+    }
+
+    .pull-head {
+      padding: 0 var(--spacing-2);
     }
 
     .tour {

@@ -1,4 +1,4 @@
-import type { PullState, SourceRef, Stack, StackMember } from '@gloss/protocol';
+import type { PullState, Reviewer, SourceRef, Stack, StackMember } from '@gloss/protocol';
 import { ghJson, ghPaginated, pullState } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
@@ -77,7 +77,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     headRef,
     ...(blurb ? { blurb } : {}),
   });
-  const { since, mergedBy, queuePosition } = current;
+  const { since, mergedBy, queuePosition, reviewers } = current;
   return [
     ...below.map(member),
     {
@@ -85,6 +85,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
       ...(since ? { since } : {}),
       ...(mergedBy ? { mergedBy } : {}),
       ...(queuePosition ? { queuePosition } : {}),
+      ...(reviewers?.length ? { reviewers } : {}),
     },
     ...above.map(member),
   ];
@@ -167,9 +168,51 @@ interface PullGraphJson {
         baseRefName: string;
         headRefName: string;
         headRepository: { nameWithOwner: string } | null;
+        latestReviews: { nodes: ReviewJson[] } | null;
+        reviewRequests: { nodes: ReviewRequestJson[] } | null;
       } | null;
     } | null;
   };
+}
+
+interface ReviewJson {
+  author: { login: string } | null;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
+}
+
+interface ReviewRequestJson {
+  requestedReviewer: { login?: string; combinedSlug?: string } | null;
+}
+
+const REVIEW_STATE: Partial<Record<ReviewJson['state'], Reviewer['state']>> = {
+  APPROVED: 'approved',
+  CHANGES_REQUESTED: 'changes',
+  COMMENTED: 'commented',
+};
+
+/**
+ * Each reviewer once: their latest review, unless a review is asked of them again (then they
+ * are pending, as GitHub shows it). Dismissed reviews, the viewer's own unsent draft and the
+ * PR's author are left out.
+ */
+export function reviewersOf(
+  reviews: readonly ReviewJson[],
+  requests: readonly ReviewRequestJson[],
+  author?: string,
+): Reviewer[] {
+  const pending: Reviewer[] = requests.flatMap(({ requestedReviewer: who }) =>
+    who?.login
+      ? [{ login: who.login, state: 'pending' as const }]
+      : who?.combinedSlug
+        ? [{ login: who.combinedSlug, team: true, state: 'pending' as const }]
+        : [],
+  );
+  const asked = new Set(pending.map((reviewer) => reviewer.login));
+  const reviewed: Reviewer[] = reviews.flatMap(({ author: by, state }) => {
+    const mapped = REVIEW_STATE[state];
+    return by && mapped && by.login !== author && !asked.has(by.login) ? [{ login: by.login, state: mapped }] : [];
+  });
+  return [...reviewed, ...pending];
 }
 
 const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
@@ -178,6 +221,10 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner }
+      latestReviews(first: 20) { nodes { author { login } state } }
+      reviewRequests(first: 20) {
+        nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
+      }
     }
   }
 }`;
@@ -223,6 +270,11 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
       });
       const queue = state === 'queued' ? pull.mergeQueueEntry : null;
       const blurb = blurbOf(pull.body);
+      const reviewers = reviewersOf(
+        pull.latestReviews?.nodes ?? [],
+        pull.reviewRequests?.nodes ?? [],
+        pull.author?.login,
+      );
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
@@ -232,6 +284,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         ...(since ? { since } : {}),
         ...(state === 'merged' && pull.mergedBy?.login ? { mergedBy: pull.mergedBy.login } : {}),
         ...(queue ? { queuePosition: queue.position } : {}),
+        ...(reviewers.length ? { reviewers } : {}),
         ...(pull.author?.login ? { author: pull.author.login } : {}),
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,
