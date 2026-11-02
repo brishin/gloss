@@ -63,6 +63,7 @@ function scripted() {
 const unscripted = (): Repos['Service'] => ({
   pulls: () => Effect.succeed(new Map()),
   viewer: Effect.succeed(undefined),
+  inbox: Effect.succeed(undefined),
   asset: () => Effect.succeed(undefined),
   stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   review: () => Effect.fail(new RepoError({ message: 'unscripted' })),

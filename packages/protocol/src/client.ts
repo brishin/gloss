@@ -64,6 +64,10 @@ export const RecentToursSchema = v.object({
   /** The backend's GitHub login, so the app can tell the user's PRs from others'. */
   viewer: v.optional(v.string()),
   tours: v.array(RecentTourSchema),
+  /** Open PRs waiting on the viewer's review, newest first; missing when GitHub won't say. */
+  reviewRequested: v.optional(v.array(RecentTourSchema)),
+  /** The viewer's open PRs, newest first; missing when GitHub won't say. */
+  authored: v.optional(v.array(RecentTourSchema)),
 });
 export type RecentTours = v.InferOutput<typeof RecentToursSchema>;
 

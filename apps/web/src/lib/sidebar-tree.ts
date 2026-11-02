@@ -1,4 +1,13 @@
-import type { Category, FileSummary, GroupView, RecentTour, SourceRef, Stack } from '@gloss/protocol';
+import type {
+  Category,
+  FileSummary,
+  GroupView,
+  PullState,
+  RecentTour,
+  RecentTours,
+  SourceRef,
+  Stack,
+} from '@gloss/protocol';
 import { serializeRef } from '@gloss/protocol';
 
 /** Sidebar tree node ids: the PR's stack, the toured PR, its categories (category nesting only) and its groups. */
@@ -7,6 +16,8 @@ export const PR_NODE = 'pr';
 export const groupNode = (key: string) => `group:${key}`;
 export const categoryNode = (category: Category) => `category:${category}`;
 export const recentStackNode = (key: string) => `recent-stack:${key}`;
+/** Shows a stack's merged and closed PRs; folded (hidden) until opened. */
+export const closedNode = (stackNode: string) => `closed:${stackNode}`;
 
 export type Nesting = 'tour' | 'category';
 
@@ -89,11 +100,13 @@ export interface SidebarState {
 
 export const initialSidebar: SidebarState = { folded: new Set(), opened: new Set(), nesting: 'tour', query: '' };
 
-/** PR and categories start open, groups start folded; a filter opens everything it keeps. */
+/** PR, stacks and categories start open; groups and closed PRs start folded; a filter opens everything it keeps. */
 export function isNodeOpen(sidebar: SidebarState, id: string): boolean {
   return (
     sidebar.query.trim() !== '' ||
-    (id.startsWith('group:') ? sidebar.opened.has(id) && !sidebar.folded.has(id) : !sidebar.folded.has(id))
+    (id.startsWith('group:') || id.startsWith('closed:')
+      ? sidebar.opened.has(id) && !sidebar.folded.has(id)
+      : !sidebar.folded.has(id))
   );
 }
 
@@ -193,4 +206,41 @@ export function splitByViewer(
       ? entry.stack.members.some((member) => member.author === viewer)
       : entry.tour.ref.kind === 'local' || !entry.tour.author || entry.tour.author === viewer);
   return { mine: entries.filter(isMine), others: entries.filter((entry) => !isMine(entry)) };
+}
+
+export const isClosed = (state: PullState | undefined) => state === 'merged' || state === 'closed';
+
+/** The rows below the toured PR's stack, by section. Each PR shows once, in the first section that has it. */
+export interface RailSections {
+  reviewRequested: RecentEntry[];
+  mine: RecentEntry[];
+  /** Other recent tours that are still open (and local diffs), when GitHub could list the two above. */
+  recent: RecentEntry[];
+}
+
+/**
+ * Splits the rail into PRs waiting on the viewer's review, the viewer's open PRs, then other
+ * open recent tours. Closed and merged tours drop out; a stack drops out once none of its PRs
+ * is open. Without GitHub's lists, recent tours split into the viewer's and the rest.
+ */
+export function railSections(recent: RecentTours, skip: ReadonlySet<string>): RailSections {
+  const shown = new Set(skip);
+  const take = (tours: readonly RecentTour[]) => {
+    const entries = recentEntries(tours, shown).filter((entry) =>
+      entry.kind === 'tour'
+        ? !isClosed(entry.tour.state)
+        : entry.stack.members.some((member) => !isClosed(member.state)),
+    );
+    for (const entry of entries) {
+      for (const ref of entry.kind === 'tour' ? [entry.tour.ref] : stackRefs(entry.stack)) {
+        shown.add(serializeRef(ref));
+      }
+    }
+    return entries;
+  };
+  if (!recent.reviewRequested || !recent.authored) {
+    const { mine, others } = splitByViewer(take(recent.tours), recent.viewer);
+    return { reviewRequested: [], mine, recent: others };
+  }
+  return { reviewRequested: take(recent.reviewRequested), mine: take(recent.authored), recent: take(recent.tours) };
 }

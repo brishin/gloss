@@ -12,7 +12,7 @@ import { Context, Data, Effect, Exit, Layer } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
 import { submitGithubReview } from './github-review.ts';
 import { resolveGithubStack } from './github-stack.ts';
-import { githubPulls, githubViewer, type PullSummary, resolveGithubAsset } from './github.ts';
+import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
 
 /** A `gh` or git call failed; `message` is what the API answers with. */
 export class RepoError extends Data.TaggedError('RepoError')<{ message: string; cause?: unknown }> {}
@@ -31,6 +31,8 @@ export class Repos extends Context.Service<
     asset(url: string): Effect.Effect<ResolvedAsset | undefined>;
     /** Each PR's author and current state, keyed by `serializeRef`; PRs GitHub won't say are left out. */
     pulls(refs: readonly Extract<SourceRef, { kind: 'github-pr' }>[]): Effect.Effect<ReadonlyMap<string, PullSummary>>;
+    /** Open PRs waiting on the `gh` login's review, and its own; undefined when GitHub won't say. */
+    inbox: Effect.Effect<Inbox | undefined>;
     /** The `gh` login, kept for an hour once known; undefined when `gh` is not signed in. */
     viewer: Effect.Effect<string | undefined>;
     /** The stack a PR sits in (a stack of one when it has no neighbours). */
@@ -51,6 +53,7 @@ export class Repos extends Context.Service<
       return {
         pulls: (refs) =>
           Effect.tryPromise((signal) => githubPulls(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
+        inbox: Effect.tryPromise((signal) => githubInbox(signal)).pipe(Effect.orElseSucceed(() => undefined)),
         viewer: viewer.pipe(Effect.orElseSucceed(() => undefined)),
         asset: (url) =>
           Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),

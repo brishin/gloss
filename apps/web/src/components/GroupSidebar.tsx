@@ -4,7 +4,7 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { useAtomValue } from '@effect/atom-react';
-import type { FileSummary, GroupView, SourceRef, Stack, StackMember } from '@gloss/protocol';
+import type { FileSummary, GroupView, RecentTours, SourceRef, Stack, StackMember } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
 import { Fragment, type KeyboardEvent, type ReactNode } from 'react';
@@ -19,12 +19,13 @@ import {
   isNodeOpen,
   type Nesting,
   PR_NODE,
+  closedNode,
+  isClosed,
+  railSections,
   type RecentEntry,
-  recentEntries,
   recentStackNode,
   type SidebarState,
   STACK_NODE,
-  splitByViewer,
   stackRefs,
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
@@ -71,10 +72,8 @@ export function GroupSidebar({
   dispatch: (msg: Msg) => void;
 }) {
   const { nesting, query } = sidebar;
-  const { viewer, tours: recent } = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => ({
-    viewer: undefined,
-    tours: [],
-  }));
+  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), (): RecentTours => ({ tours: [] }));
+  const { viewer } = recent;
   // Only a chain of two or more is worth its own row.
   const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   const currentMember =
@@ -290,8 +289,43 @@ export function GroupSidebar({
     </div>
   );
 
-  const { mine, others } = splitByViewer(recentEntries(recent, shown), viewer);
-  const renderRecent = (entry: RecentEntry) => {
+  const sections = railSections(recent, shown);
+
+  /**
+   * A stack's PRs, bottom first. Merged and closed PRs (other than the toured one) hide behind
+   * a row that counts them, folded until opened.
+   */
+  const stackMembers = (stack: Stack, parent: string, hideAuthor: string | undefined) => {
+    const closedId = closedNode(parent);
+    const showClosed = isOpen(closedId);
+    const closed = stack.members.filter((member) => member !== currentMember && isClosed(member.state));
+    return (
+      <div className="tree-kids" role="group">
+        {closed.length > 0 && (
+          <TreeRow
+            id={closedId}
+            parent={parent}
+            current={false}
+            expanded={showClosed}
+            label={`${closed.length} closed`}
+            onToggle={(deep) => toggle(closedId, deep)}
+            onClick={() => toggle(closedId, false)}
+          >
+            <span className="nav-label tree-closed">{closed.length} closed</span>
+          </TreeRow>
+        )}
+        {stack.members.map((member) =>
+          member === currentMember ? (
+            <Fragment key={member.number}>{prNode}</Fragment>
+          ) : showClosed || !isClosed(member.state) ? (
+            <MemberRow key={member.number} stack={stack} member={member} parent={parent} hideAuthor={hideAuthor} />
+          ) : null,
+        )}
+      </div>
+    );
+  };
+
+  const renderRecent = (hideAuthor: string | undefined) => (entry: RecentEntry) => {
     if (entry.kind === 'tour') {
       const item = entry.tour;
       return (
@@ -307,7 +341,7 @@ export function GroupSidebar({
             <RefIcon kind={item.ref.kind} state={item.state} />
           </span>
           <RefLabel sourceRef={item.ref} title={item.title} />
-          <Avatar login={item.author} />
+          <Avatar login={item.author === hideAuthor ? undefined : item.author} />
         </TreeRow>
       );
     }
@@ -316,13 +350,7 @@ export function GroupSidebar({
     return (
       <div key={id} className="tree-node">
         <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
-        {open && (
-          <div className="tree-kids" role="group">
-            {entry.stack.members.map((member) => (
-              <MemberRow key={member.number} stack={entry.stack} member={member} parent={id} />
-            ))}
-          </div>
-        )}
+        {open && stackMembers(entry.stack, id, hideAuthor)}
       </div>
     );
   };
@@ -364,28 +392,14 @@ export function GroupSidebar({
                 </span>
               )}
             </StackHead>
-            {stackOpen && (
-              <div className="tree-kids" role="group">
-                {stack.members.map((member) =>
-                  member === currentMember ? (
-                    <Fragment key={member.number}>{prNode}</Fragment>
-                  ) : (
-                    <MemberRow key={member.number} stack={stack} member={member} parent={STACK_NODE} />
-                  ),
-                )}
-              </div>
-            )}
+            {stackOpen && stackMembers(stack, STACK_NODE, undefined)}
           </div>
         ) : (
           prNode
         )}
-        {mine.map(renderRecent)}
-        {others.length > 0 && (
-          <div className="tree-section" role="presentation">
-            Others
-          </div>
-        )}
-        {others.map(renderRecent)}
+        <RailSection label="Review requested" entries={sections.reviewRequested} render={renderRecent(undefined)} />
+        <RailSection label="My PRs" entries={sections.mine} render={renderRecent(viewer)} />
+        <RailSection label="Recent" entries={sections.recent} render={renderRecent(undefined)} />
       </div>
     </nav>
   );
@@ -431,7 +445,18 @@ function StackHead({
 }
 
 /** A PR in a stack other than the toured one: opens it. */
-function MemberRow({ stack, member, parent }: { stack: Stack; member: StackMember; parent: string }) {
+function MemberRow({
+  stack,
+  member,
+  parent,
+  hideAuthor,
+}: {
+  stack: Stack;
+  member: StackMember;
+  parent: string;
+  /** Leaves this login's avatar off: in "My PRs" it would be on every row. */
+  hideAuthor?: string | undefined;
+}) {
   const navigateToRef = useNavigateToRef();
   return (
     <TreeRow
@@ -450,8 +475,31 @@ function MemberRow({ stack, member, parent }: { stack: Stack; member: StackMembe
         <span className="tree-number">#{member.number}</span>
         {member.title}
       </span>
-      <Avatar login={member.author} />
+      <Avatar login={member.author === hideAuthor ? undefined : member.author} />
     </TreeRow>
+  );
+}
+
+/** A labelled run of rows below the toured PR; nothing when it is empty. */
+function RailSection({
+  label,
+  entries,
+  render,
+}: {
+  label: string;
+  entries: readonly RecentEntry[];
+  render: (entry: RecentEntry) => ReactNode;
+}) {
+  if (entries.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <div className="tree-section" role="presentation">
+        {label}
+      </div>
+      {entries.map(render)}
+    </>
   );
 }
 

@@ -1,6 +1,6 @@
 import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { byCategory, countViewed, filterGroups, recentEntries, splitByViewer } from './sidebar-tree.ts';
+import { byCategory, countViewed, filterGroups, railSections, recentEntries, splitByViewer } from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
   return { key, label, category, critical: false, fileIds, phase: 'resolved', synthetic: false };
@@ -142,5 +142,56 @@ describe('splitByViewer', () => {
   test('splits nothing without a viewer', () => {
     const { mine, others } = splitByViewer(recentEntries([tour(2, 'ana')], new Set()), undefined);
     expect([titles(mine), titles(others)]).toEqual([['#2'], []]);
+  });
+});
+
+describe('railSections', () => {
+  const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
+    ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
+    title: `#${number}`,
+    updatedAt: '',
+    ...extra,
+  });
+  const member = (number: number, state: 'open' | 'merged') => ({
+    number,
+    title: '',
+    state,
+    baseRef: 'b',
+    headRef: 'h',
+  });
+  const titles = (entries: ReturnType<typeof recentEntries>) =>
+    entries.map((entry) => (entry.kind === 'tour' ? entry.tour.title : `stack ${entry.stack.members.length}`));
+
+  test('orders review requests, then mine, then other open recent tours, each PR once', () => {
+    const local: RecentTour = { ref: { kind: 'local', repo: '/r', target: 'HEAD' }, title: 'local', updatedAt: '' };
+    const sections = railSections(
+      {
+        viewer: 'me',
+        reviewRequested: [pr(1), pr(9)],
+        authored: [
+          pr(2, { stack: { owner: 'o', repo: 'r', base: 'main', members: [member(2, 'open'), member(3, 'open')] } }),
+        ],
+        tours: [pr(3), pr(1), pr(4, { state: 'merged' }), pr(5, { state: 'open' }), local],
+      },
+      new Set(['github:o/r#9']),
+    );
+    expect([titles(sections.reviewRequested), titles(sections.mine), titles(sections.recent)]).toEqual([
+      ['#1'],
+      ['stack 2'],
+      ['#5', 'local'],
+    ]);
+  });
+
+  test("drops a stack once none of its PRs is open, and splits recent tours by author without GitHub's lists", () => {
+    const merged = { owner: 'o', repo: 'r', base: 'main', members: [member(6, 'merged'), member(7, 'merged')] };
+    const sections = railSections(
+      { viewer: 'me', tours: [pr(6, { stack: merged }), pr(8, { author: 'ana' }), pr(10, { author: 'me' })] },
+      new Set(),
+    );
+    expect([titles(sections.reviewRequested), titles(sections.mine), titles(sections.recent)]).toEqual([
+      [],
+      ['#10'],
+      ['#8'],
+    ]);
   });
 });
