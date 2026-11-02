@@ -2,6 +2,7 @@ import type {
   Decision,
   DecisionPriority,
   FileSummary,
+  LfsSizes,
   GroupView,
   PullState,
   RiskKey,
@@ -126,9 +127,26 @@ export function isGeneratedFile(group: GroupView | undefined, file: FileSummary)
   return group?.key === 'generated' || file.generated === 'gitattributes';
 }
 
-/** Generated, binary, oversized and already-viewed files start collapsed. */
+/** Generated, binary, Git LFS, oversized and already-viewed files start collapsed. */
 export function defaultExpanded(file: FileSummary, generated: boolean, viewed: boolean): boolean {
-  return !(viewed || generated || file.isBinary || file.truncated || file.additions + file.deletions > 800);
+  return !(viewed || generated || file.isBinary || file.lfs || file.truncated || file.additions + file.deletions > 800);
+}
+
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
+}
+
+/** What a Git LFS file shows in place of its pointer diff: the object's size, or how it changed. */
+export function lfsLabel({ oldSize, newSize }: LfsSizes): string {
+  const sizes = [...new Set([oldSize, newSize])].filter((size) => size !== undefined);
+  return ['Stored with Git LFS', ...(sizes.length ? [sizes.map(formatBytes).join(' → ')] : [])].join(' · ');
 }
 
 export function splitPath(path: string): { dir: string; base: string } {

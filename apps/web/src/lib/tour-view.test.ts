@@ -1,6 +1,6 @@
 import type { Decision, GroupView, StackMember, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { ago, decisionFlag, pullStateDetail, sectionFlagCounts } from './tour-view.ts';
+import { ago, decisionFlag, lfsLabel, pullStateDetail, sectionFlagCounts } from './tour-view.ts';
 
 const decision = (priority: Decision['priority'], extra: Partial<Decision> = {}): Decision => ({
   text: priority,
@@ -82,5 +82,17 @@ describe('pullStateDetail', () => {
   test('ago picks the largest whole unit', () => {
     expect(ago('2025-10-01T12:00:00Z', now)).toBe('last year');
     expect(ago('2026-11-02T12:00:00Z', now)).toBe('just now');
+  });
+});
+
+describe('lfsLabel', () => {
+  test.each([
+    [{ newSize: 82070 }, 'Stored with Git LFS · 80.1 KB'],
+    [{ oldSize: 86536 }, 'Stored with Git LFS · 84.5 KB'],
+    [{ oldSize: 132063, newSize: 84765 }, 'Stored with Git LFS · 129.0 KB → 82.8 KB'],
+    [{ oldSize: 512, newSize: 512 }, 'Stored with Git LFS · 512 B'],
+    [{}, 'Stored with Git LFS'],
+  ])('%o', (sizes, label) => {
+    expect(lfsLabel(sizes)).toBe(label);
   });
 });
