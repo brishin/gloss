@@ -450,13 +450,16 @@ type RawFrame = v.InferOutput<typeof WalkthroughResultSchema>['frames'][number];
 function normalizeFrames(
   raw: readonly Partial<RawFrame>[],
   byKey: ReadonlyMap<string, FileChange>,
-): { frames: CallFrame[]; why?: string } {
+): { frames: CallFrame[]; kept: Map<number, number>; why?: string } {
   const frames: CallFrame[] = [];
-  for (const frame of raw.slice(0, MAX_FRAMES)) {
+  /** Each kept frame's position in `raw` to its position in `frames`, for steps to point by. */
+  const kept = new Map<number, number>();
+  for (const [index, frame] of raw.slice(0, MAX_FRAMES).entries()) {
     const name = clip(String(frame.name ?? ''), 48).replace(/\(.*$/, '');
     if (!name) {
       continue;
     }
+    kept.set(index, frames.length);
     const wanted = Number.isFinite(frame.depth) ? Math.max(0, Math.floor(frame.depth!)) : 0;
     const depth = Math.min(wanted, frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
     const file = byKey.get(String(frame.fileId ?? ''));
@@ -476,12 +479,12 @@ function normalizeFrames(
     });
   }
   if (!frames.some((frame) => frame.depth > 0)) {
-    return { frames, why: 'its call tree has no calls, which a list says as well' };
+    return { frames, kept, why: 'its call tree has no calls, which a list says as well' };
   }
   if (!frames.some((frame) => frame.status !== 'same')) {
-    return { frames, why: 'nothing on its call tree is new or changed' };
+    return { frames, kept, why: 'nothing on its call tree is new or changed' };
   }
-  return { frames };
+  return { frames, kept };
 }
 
 const MAX_STEPS = 5;
@@ -605,7 +608,7 @@ export function normalizeWalkthrough(
     return { warnings: [] };
   }
   const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
-  const { frames, why } = normalizeFrames(raw.frames, byKey);
+  const { frames, kept, why } = normalizeFrames(raw.frames, byKey);
   if (why) {
     return { warnings: [`Dropped the walkthrough: ${why}.`] };
   }
@@ -632,9 +635,11 @@ export function normalizeWalkthrough(
     if (!title || excerpts.length === 0) {
       continue;
     }
-    const picked = (Array.isArray(step.frames) ? step.frames : []).filter(
-      (index) => Number.isInteger(index) && index >= 0 && index < frames.length,
-    );
+    // Step frames index the model's frames: follow them to the kept ones, and drop the rest.
+    const picked = (Array.isArray(step.frames) ? step.frames : []).flatMap((index) => {
+      const at = kept.get(index);
+      return at === undefined ? [] : [at];
+    });
     steps.push({
       title,
       text: clip(String(step.text ?? ''), 400),

@@ -459,6 +459,21 @@ describe('normalizeWalkthrough', () => {
     expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
   });
 
+  it('follows step frames past a dropped unnamed frame', () => {
+    const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
+    const { walkthrough } = walk({
+      frames: [
+        frame(0, 'root', 'same'),
+        frame(1, '', 'same'),
+        frame(1, 'caller', 'changed'),
+        frame(2, 'callee', 'new'),
+      ],
+      steps: [step(at, [2]), step(at, [3, 1])],
+    });
+    expect(walkthrough!.frames.map((frame) => frame.name)).toEqual(['root', 'caller', 'callee']);
+    expect(walkthrough!.steps.map((step) => step.frames)).toEqual([[1], [2]]);
+  });
+
   it('keeps lines removed at the end of a hunk, and counts removed rows toward the cap', () => {
     const trailing: FileChange = {
       ...file,
