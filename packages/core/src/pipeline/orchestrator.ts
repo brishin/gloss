@@ -446,9 +446,8 @@ const tourProgram = Effect.fnUntraced(function* (
   /**
    * The walkthrough: its own call on the define model once groups are defined, with a numbered
    * diff so its call tree and excerpts can point at lines. The model returns nothing for a
-   * change with no call path, and the normalizer drops a weak one; a Jev gate was tried and
-   * hid most good walkthroughs (full-stack features score low on "is the main decision a call
-   * path"). A failed call is only a warning; the tour reads the same without it.
+   * change with no call path, and the normalizer drops a weak one. A failed call is only a
+   * warning; the tour reads the same without it.
    */
   const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
     Effect.suspend(() => {
@@ -731,17 +730,17 @@ const tourProgram = Effect.fnUntraced(function* (
     );
   const [definition] = yield* Effect.all(
     [
-      judge
-        ? defineGroups.pipe(
-            Effect.tap(startWalkthrough),
-            Effect.tap((defined) =>
-              Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
+      defineGroups.pipe(
+        Effect.tap(startWalkthrough),
+        Effect.tap((defined) =>
+          judge
+            ? Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
                 concurrency: 'unbounded',
                 discard: true,
-              }),
-            ),
-          )
-        : defineGroups.pipe(Effect.tap(startWalkthrough), Effect.tap(showVisual)),
+              })
+            : showVisual(defined),
+        ),
+      ),
       judge ? judgeFiles(judge) : Effect.void,
     ],
     { concurrency: 'unbounded' },

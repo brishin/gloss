@@ -1,18 +1,10 @@
-import type { CallFrame, DiffHunk, FileChange } from '@gloss/protocol';
-
-/** A slice of one hunk: new-side lines `from`..`to` (the whole hunk when absent). */
-export interface ExcerptRef {
-  fileId: string;
-  hunkId: string;
-  from?: number;
-  to?: number;
-}
+import type { CallFrame, DiffHunk, Excerpt, FileChange } from '@gloss/protocol';
 
 /**
  * The lines of `hunk` whose new-side number is in `from`..`to`, with the removed lines that sit
  * between them, as a hunk of its own (header recomputed so line numbers stay true).
  */
-export function sliceHunk(hunk: DiffHunk, from = -Infinity, to = Infinity): DiffHunk {
+export function sliceHunk(hunk: DiffHunk, from: number, to: number): DiffHunk {
   let oldLine = hunk.oldStart;
   let newLine = hunk.newStart;
   const kept: string[] = [];
@@ -61,7 +53,7 @@ export function sliceHunk(hunk: DiffHunk, from = -Infinity, to = Infinity): Diff
 }
 
 /** The excerpt as a one-hunk file, ready for pierre. */
-export function excerptFile(files: ReadonlyMap<string, FileChange>, excerpt: ExcerptRef): FileChange | undefined {
+export function excerptFile(files: ReadonlyMap<string, FileChange>, excerpt: Excerpt): FileChange | undefined {
   const file = files.get(excerpt.fileId);
   const hunk = file?.hunks.find((candidate) => candidate.id === excerpt.hunkId);
   if (!file || !hunk) {
@@ -82,21 +74,39 @@ export function excerptLabel(file: FileChange): { dir: string; base: string; lin
   };
 }
 
-/** A frame's ancestors, root first, ending with the frame itself. */
-export function framePath(parents: readonly number[], index: number): number[] {
-  const path: number[] = [];
-  for (let at = index; at >= 0; at = parents[at]!) {
-    path.unshift(at);
-  }
-  return path;
-}
-
 /** The frames a step covers plus their callers, in tree order. */
 export function stepFrames(
   frames: readonly CallFrame[],
   parents: readonly number[],
   picked: readonly number[],
 ): number[] {
-  const keep = new Set(picked.flatMap((index) => framePath(parents, index)));
+  const keep = new Set<number>();
+  for (const index of picked) {
+    for (let at = index; at >= 0; at = parents[at]!) {
+      keep.add(at);
+    }
+  }
   return frames.map((_, index) => index).filter((index) => keep.has(index));
+}
+
+/** Each frame's caller: the nearest frame before it one level up, or -1 for an entry point. */
+export function callParents(frames: readonly CallFrame[]): number[] {
+  return frames.map((frame, index) => {
+    for (let at = index - 1; at >= 0; at--) {
+      if (frames[at]!.depth < frame.depth) {
+        return at;
+      }
+    }
+    return -1;
+  });
+}
+
+/** Where each frame's definition is: the file only when it differs from the frame above. */
+export function callLocations(frames: readonly CallFrame[]): string[] {
+  return frames.map((frame, index) => {
+    const file = frame.path?.split('/').at(-1) ?? '';
+    const sameFile = index > 0 && frame.path !== undefined && frames[index - 1]!.path === frame.path;
+    const line = frame.line === undefined ? '' : `:${frame.line}`;
+    return sameFile && line ? line : `${file}${file ? line : ''}`;
+  });
 }

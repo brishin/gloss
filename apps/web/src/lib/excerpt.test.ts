@@ -1,7 +1,6 @@
 import type { CallFrame, DiffHunk } from '@gloss/protocol';
-import { callParents } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { sliceHunk, stepFrames } from './excerpt.ts';
+import { callParents, sliceHunk, stepFrames } from './excerpt.ts';
 
 describe('sliceHunk', () => {
   const hunk: DiffHunk = {
@@ -22,7 +21,6 @@ describe('sliceHunk', () => {
       patch: '-b\n+c\n+d',
     });
     expect(sliceHunk(hunk, 13, 14)).toMatchObject({ header: '@@ -12,2 +13,2 @@', patch: ' e\n f' });
-    expect(sliceHunk(hunk).patch).toBe(hunk.patch);
     // Lines removed at the end of a hunk come with the last line before them.
     const trailing = { ...hunk, patch: ' a\n b\n c\n-oldCall()', newLines: 3, oldLines: 4 };
     expect(sliceHunk(trailing, 10, 12).patch).toBe(' a\n b\n c\n-oldCall()');

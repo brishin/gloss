@@ -220,28 +220,6 @@ export const CallFrameSchema = v.object({
 });
 export type CallFrame = v.InferOutput<typeof CallFrameSchema>;
 
-/** Each frame's caller: the nearest frame before it one level up, or -1 for an entry point. */
-export function callParents(frames: readonly CallFrame[]): number[] {
-  return frames.map((frame, index) => {
-    for (let at = index - 1; at >= 0; at--) {
-      if (frames[at]!.depth < frame.depth) {
-        return at;
-      }
-    }
-    return -1;
-  });
-}
-
-/** Where each frame's definition is: the file only when it differs from the frame above. */
-export function callLocations(frames: readonly CallFrame[]): string[] {
-  return frames.map((frame, index) => {
-    const file = frame.path?.split('/').at(-1) ?? '';
-    const sameFile = index > 0 && frame.path !== undefined && frames[index - 1]!.path === frame.path;
-    const line = frame.line === undefined ? '' : `:${frame.line}`;
-    return sameFile && line ? line : `${file}${file ? line : ''}`;
-  });
-}
-
 /** A slice of one hunk: its new-side lines `from`..`to`, both shown in the hunk. */
 export const ExcerptSchema = v.object({
   fileId: v.string(),

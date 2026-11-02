@@ -1170,10 +1170,6 @@
     opacity: 0.38;
   }
 
-  .walk-row[data-clickable] {
-    cursor: pointer;
-  }
-
   .walk-excerpt {
     margin: 0;
     border: 1px solid var(--color-border);
