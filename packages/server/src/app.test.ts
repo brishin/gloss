@@ -410,3 +410,47 @@ describe('setup API', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('update API', () => {
+  const status = { running: 'a', head: 'a', behind: 2 };
+
+  it('reports the status and applies an update through the client', async () => {
+    let applied = 0;
+    const { client } = setup(scripted().run, {
+      update: { status: async () => status, apply: async () => void applied++ },
+    });
+    expect(await client.updateStatus()).toEqual(status);
+    await client.update();
+    expect(applied).toBe(1);
+  });
+
+  it('answers 404 when the backend does not update itself, and 500 with the reason when an update fails', async () => {
+    expect((await setup(scripted().run).app.request('/api/update')).status).toBe(404);
+    const { client } = setup(scripted().run, {
+      update: {
+        status: async () => status,
+        apply: async () => {
+          throw new Error('Not possible to fast-forward');
+        },
+      },
+    });
+    await expect(client.update()).rejects.toMatchObject({
+      status: 500,
+      message: expect.stringContaining('fast-forward'),
+    });
+  });
+
+  it('refuses an update that is not JSON from the app', async () => {
+    let applied = 0;
+    const { app } = setup(scripted().run, {
+      update: { status: async () => status, apply: async () => void applied++ },
+    });
+    const form = await app.request('/api/update', { method: 'POST' });
+    const other = await app.request('http://gloss.test/api/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.test' },
+      body: '{}',
+    });
+    expect([form.status, other.status, applied]).toEqual([403, 403, 0]);
+  });
+});

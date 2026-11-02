@@ -553,6 +553,23 @@
     gap: var(--spacing-2);
   }
 
+  /* The update notice (UpdatePrompt), above the page in a corner. */
+  .update-prompt {
+    position: fixed;
+    left: var(--spacing-4);
+    bottom: var(--spacing-4);
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    max-width: calc(100vw - 2 * var(--spacing-4));
+    padding: var(--spacing-2) var(--spacing-2) var(--spacing-2) var(--spacing-3);
+    background: var(--color-background-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-inner);
+    box-shadow: var(--shadow-high);
+  }
+
   /* The sign-in dialog (LoginPrompt). */
   .login-prompt {
     display: flex;
