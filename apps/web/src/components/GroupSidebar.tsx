@@ -21,14 +21,12 @@ import {
   PR_NODE,
   closedNode,
   isClosed,
-  railSections,
+  railAround,
   type RecentEntry,
   recentStackNode,
   type SidebarState,
   STACK_NODE,
-  stackRefs,
 } from '../lib/sidebar-tree.ts';
-import { useNavigateToRef } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
@@ -74,14 +72,27 @@ export function GroupSidebar({
   const { nesting, query } = sidebar;
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), (): RecentTours => ({ tours: [] }));
   const { viewer } = recent;
+  const currentKey = serializeRef(sourceRef);
   // Only a chain of two or more is worth its own row.
-  const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
+  const fetched = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
+  // The toured PR shows in place, in the first section that has it.
+  const { sections, home } = railAround(recent, currentKey, fetched);
+  // The live stack once fetched; until then the one the toured PR's row already has, so the rail
+  // does not move while it loads.
+  const stack = fetched ?? (home?.kind === 'stack' ? home.stack : undefined);
   const currentMember =
     sourceRef.kind === 'github-pr'
-      ? fetchedStack?.members.find((member) => member.number === sourceRef.number)
+      ? (stack ?? fetchedStack)?.members.find((member) => member.number === sourceRef.number)
       : undefined;
-  const shown = new Set([serializeRef(sourceRef), ...(stack ? stackRefs(stack).map(serializeRef) : [])]);
-  const navigateToRef = useNavigateToRef();
+  /** Opens a PR from its rail row, noting where the row is so the next page keeps it there. */
+  const openFromRail = (ref: SourceRef, row: HTMLElement) => {
+    const rail = row.closest<HTMLElement>('nav.sidebar');
+    dispatch({
+      type: 'RailOpened',
+      ref,
+      offset: rail ? row.getBoundingClientRect().top - rail.getBoundingClientRect().top : 0,
+    });
+  };
 
   const kept = filterGroups(groups, files, query);
   const isOpen = (id: string) => isNodeOpen(sidebar, id);
@@ -248,7 +259,8 @@ export function GroupSidebar({
             {critical}
           </span>
         )}
-        <Avatar login={author ?? currentMember?.author} />
+        {/* Your own PR sits in "My PRs", which shows no avatar of yours. */}
+        <Avatar login={(author ?? currentMember?.author) === viewer ? undefined : (author ?? currentMember?.author)} />
         {loading ? (
           <Spinner size="sm" shade="subtle" aria-label="Tour running" />
         ) : (
@@ -289,16 +301,15 @@ export function GroupSidebar({
     </div>
   );
 
-  const sections = railSections(recent, shown);
-
   /**
    * A stack's PRs, bottom first. Merged and closed PRs (other than the toured one) hide behind
    * a row that counts them, folded until opened.
    */
-  const stackMembers = (stack: Stack, parent: string, hideAuthor: string | undefined) => {
+  const stackMembers = (stack: Stack, parent: string, hideAuthor: string | undefined, holdsCurrent: boolean) => {
     const closedId = closedNode(parent);
     const showClosed = isOpen(closedId);
-    const closed = stack.members.filter((member) => member !== currentMember && isClosed(member.state));
+    const isCurrent = (member: StackMember) => holdsCurrent && member === currentMember;
+    const closed = stack.members.filter((member) => !isCurrent(member) && isClosed(member.state));
     return (
       <div className="tree-kids" role="group">
         {closed.length > 0 && (
@@ -315,17 +326,51 @@ export function GroupSidebar({
           </TreeRow>
         )}
         {stack.members.map((member) =>
-          member === currentMember ? (
+          isCurrent(member) ? (
             <Fragment key={member.number}>{prNode}</Fragment>
           ) : showClosed || !isClosed(member.state) ? (
-            <MemberRow key={member.number} stack={stack} member={member} parent={parent} hideAuthor={hideAuthor} />
+            <MemberRow
+              key={member.number}
+              stack={stack}
+              member={member}
+              parent={parent}
+              hideAuthor={hideAuthor}
+              onOpen={openFromRail}
+            />
           ) : null,
         )}
       </div>
     );
   };
 
+  /** The toured PR, in its stack when it has one. */
+  const currentBlock = (hideAuthor: string | undefined) =>
+    stack ? (
+      <div className="tree-node">
+        <StackHead
+          id={STACK_NODE}
+          stack={stack}
+          open={stackOpen}
+          tabbable
+          onToggle={(deep) => toggle(STACK_NODE, deep)}
+        >
+          {!stackOpen && critical > 0 && (
+            <span className="tree-critical" aria-label={`${critical} critical groups`}>
+              <span className="marker marker-critical" />
+              {critical}
+            </span>
+          )}
+        </StackHead>
+        {stackOpen && stackMembers(stack, STACK_NODE, hideAuthor, true)}
+      </div>
+    ) : (
+      prNode
+    );
+
   const renderRecent = (hideAuthor: string | undefined) => (entry: RecentEntry) => {
+    if (entry === home) {
+      return <Fragment key={currentKey}>{currentBlock(hideAuthor)}</Fragment>;
+    }
     if (entry.kind === 'tour') {
       const item = entry.tour;
       return (
@@ -335,7 +380,7 @@ export function GroupSidebar({
           parent=""
           current={false}
           label={`${item.title} · ${describeRef(item.ref)}`}
-          onClick={() => void navigateToRef(item.ref)}
+          onClick={(event) => openFromRail(item.ref, event.currentTarget)}
         >
           <span className="tree-lead">
             <RefIcon kind={item.ref.kind} state={item.state} />
@@ -350,7 +395,7 @@ export function GroupSidebar({
     return (
       <div key={id} className="tree-node">
         <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
-        {open && stackMembers(entry.stack, id, hideAuthor)}
+        {open && stackMembers(entry.stack, id, hideAuthor, false)}
       </div>
     );
   };
@@ -376,27 +421,7 @@ export function GroupSidebar({
         </SegmentedControl>
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
-        {stack ? (
-          <div className="tree-node">
-            <StackHead
-              id={STACK_NODE}
-              stack={stack}
-              open={stackOpen}
-              tabbable
-              onToggle={(deep) => toggle(STACK_NODE, deep)}
-            >
-              {!stackOpen && critical > 0 && (
-                <span className="tree-critical" aria-label={`${critical} critical groups`}>
-                  <span className="marker marker-critical" />
-                  {critical}
-                </span>
-              )}
-            </StackHead>
-            {stackOpen && stackMembers(stack, STACK_NODE, undefined)}
-          </div>
-        ) : (
-          prNode
-        )}
+        {!home && currentBlock(undefined)}
         <RailSection label="Review requested" entries={sections.reviewRequested} render={renderRecent(undefined)} />
         <RailSection label="My PRs" entries={sections.mine} render={renderRecent(viewer)} />
         <RailSection label="Recent" entries={sections.recent} render={renderRecent(undefined)} />
@@ -450,22 +475,23 @@ function MemberRow({
   member,
   parent,
   hideAuthor,
+  onOpen,
 }: {
   stack: Stack;
   member: StackMember;
   parent: string;
+  onOpen: (ref: SourceRef, row: HTMLElement) => void;
   /** Leaves this login's avatar off: in "My PRs" it would be on every row. */
   hideAuthor?: string | undefined;
 }) {
-  const navigateToRef = useNavigateToRef();
   return (
     <TreeRow
       id={`member:${parent}:${member.number}`}
       parent={parent}
       current={false}
       label={`#${member.number} ${member.title} (${member.state})`}
-      onClick={() =>
-        void navigateToRef({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number })
+      onClick={(event) =>
+        onOpen({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number }, event.currentTarget)
       }
     >
       <span className="tree-lead">

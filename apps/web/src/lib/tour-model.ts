@@ -10,7 +10,14 @@ import type {
   TourEvent,
   TourState,
 } from '@gloss/protocol';
-import { describeRef, groupsInOrder, initialTourState, reduceTourEvent, reviewProblem } from '@gloss/protocol';
+import {
+  describeRef,
+  groupsInOrder,
+  initialTourState,
+  reduceTourEvent,
+  reviewProblem,
+  serializeRef,
+} from '@gloss/protocol';
 import {
   type CommentAnchor,
   emptyReview,
@@ -106,6 +113,11 @@ export type Msg =
   | { type: 'GroupSelected'; key: string }
   | { type: 'GroupStepped'; by: Step }
   | { type: 'StackLoaded'; stack: Stack }
+  /**
+   * A click on a PR row in the side rail: `offset` is how far below the rail's top the row
+   * was, so the next page can put that PR's row back under the pointer.
+   */
+  | { type: 'RailOpened'; ref: SourceRef; offset: number }
   /** Shift+J/K: opens the next or previous PR in the stack. */
   | { type: 'StackStepped'; by: Step }
   | { type: 'FileJumped'; fileId: string }
@@ -154,6 +166,12 @@ export type Msg =
   | { type: 'CommentSaved' }
   | { type: 'CommentRemoved'; id: string };
 
+/** Where a rail click left the rail: the PR it opened and its row's offset. */
+export interface RailAnchor {
+  key: string;
+  offset: number;
+}
+
 export type Cmd =
   | { type: 'StartTour'; ref: SourceRef; force: boolean }
   | { type: 'AbortTour'; jobId: string }
@@ -181,6 +199,13 @@ export type Cmd =
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
   | { type: 'SubmitReview'; diffId: string; request: ReviewRequest }
   | { type: 'FetchStack'; ref: Extract<SourceRef, { kind: 'github-pr' }> }
+  /** Keeps where a rail click left the rail, for the page it opens (session storage). */
+  | { type: 'SaveRailAnchor'; anchor: RailAnchor }
+  /**
+   * Puts the side rail back the way the rail click that opened this page left it, with this
+   * PR's row where the clicked row was; nothing when the page was opened another way.
+   */
+  | { type: 'RestoreRailScroll'; ref: SourceRef }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
@@ -206,7 +231,11 @@ export function initialModel(ref: SourceRef, position: Position): Model {
 export function init(ref: SourceRef, position: Position): Next {
   const model = initialModel(ref, position);
   const stack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
-  return settle(undefined, model, [{ type: 'StartTour', ref, force: false }, ...stack]);
+  return settle(undefined, model, [
+    { type: 'StartTour', ref, force: false },
+    ...stack,
+    { type: 'RestoreRailScroll', ref },
+  ]);
 }
 
 export const groupsOf = (model: Model): GroupView[] => groupsInOrder(model.tour);
@@ -384,6 +413,17 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'StackLoaded':
       return [{ ...model, stack: msg.stack }, []];
+    case 'RailOpened':
+      return [
+        model,
+        [
+          {
+            type: 'SaveRailAnchor',
+            anchor: { key: serializeRef(msg.ref), offset: msg.offset },
+          },
+          { type: 'OpenRef', ref: msg.ref },
+        ],
+      ];
     case 'StackStepped': {
       const target = stackNeighbour(model, msg.by);
       return target ? [model, [{ type: 'OpenRef', ref: target }]] : [model, []];
