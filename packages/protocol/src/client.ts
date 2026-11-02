@@ -85,6 +85,8 @@ export interface GlossClient {
   trace(jobId: string): Promise<Trace>;
   /** One changed file of a diff in full, for expanding the unchanged lines around its hunks. */
   fileContents(diffId: string, fileId: string): Promise<FileContents>;
+  /** A Git LFS object the diff names, such as one side of a changed image. */
+  lfsObject(diffId: string, oid: string): Promise<Blob>;
   health(): Promise<Health>;
   recent(): Promise<RecentTours>;
   /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
@@ -200,6 +202,8 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     trace: (jobId) => json(TraceSchema, `/api/tours/${encodeURIComponent(jobId)}/trace`),
     fileContents: (diffId, fileId) =>
       json(FileContentsSchema, `/api/diffs/${encodeURIComponent(diffId)}/files/${encodeURIComponent(fileId)}`),
+    lfsObject: async (diffId, oid) =>
+      (await request(`/api/diffs/${encodeURIComponent(diffId)}/lfs/${encodeURIComponent(oid)}`)).blob(),
     health: () => json(HealthSchema, '/api/health'),
     recent: () => json(RecentToursSchema, '/api/recent'),
     asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),

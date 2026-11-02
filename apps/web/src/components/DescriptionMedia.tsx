@@ -60,7 +60,17 @@ function GithubAsset({ src, alt }: { src: string; alt: string }) {
  * Click to see the image at full size; a click anywhere or Esc closes it. Clicks stop here,
  * so a link around the image (`[![shot](img)](url)`) does not also navigate.
  */
-function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+export function ZoomableImage({
+  src,
+  alt,
+  className = 'description-media',
+  onLoad,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  onLoad?: (image: HTMLImageElement) => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const handle = (open: boolean) => (event: MouseEvent) => {
     event.preventDefault();
@@ -74,7 +84,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   return (
     <>
       <button type="button" className="description-zoom" onClick={handle(true)}>
-        <img className="description-media" src={src} alt={alt} />
+        <img className={className} src={src} alt={alt} onLoad={(event) => onLoad?.(event.currentTarget)} />
       </button>
       {/* Keys stay inside, so tour shortcuts don't move the page behind it. */}
       <dialog

@@ -36,7 +36,7 @@ import {
   STACK_NODE,
   toggleNode,
 } from './sidebar-tree.ts';
-import { defaultExpanded, isGeneratedFile, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
+import { defaultExpanded, isGeneratedFile, lfsImageOids, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
 
 /**
  * The tour page as an Elm program: one `Model`, changed only by `update`. Everything the
@@ -176,6 +176,8 @@ export type Cmd =
   | { type: 'StartTour'; ref: SourceRef; force: boolean }
   | { type: 'AbortTour'; jobId: string }
   | { type: 'FetchDiff'; diffId: string }
+  /** Fetches the diff's LFS images in the background, so they show at once when the reader gets there. */
+  | { type: 'PrefetchLfs'; diffId: string; oids: readonly string[] }
   | { type: 'LoadViewed'; diffId: string }
   | { type: 'SaveViewed'; diffId: string; fileIds: readonly string[] }
   /**
@@ -728,6 +730,10 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[], fro
   }
   if (diffId && prev?.tour.diffId !== diffId) {
     out.push({ type: 'LoadViewed', diffId }, { type: 'LoadReview', diffId });
+    const oids = lfsImageOids(next.tour.files);
+    if (oids.length) {
+      out.push({ type: 'PrefetchLfs', diffId, oids });
+    }
     // A draft belongs to the lines of the diff it was written on (and stays saved under it).
     if (prev?.tour.diffId) {
       next = { ...next, review: { ...emptyReview, sent: next.review.sent } };

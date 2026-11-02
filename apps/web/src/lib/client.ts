@@ -192,6 +192,23 @@ export const stackNameAtom = Atom.family((key: string) =>
   glossRuntime.atom(request((client) => client.stackName(JSON.parse(key) as Stack))).pipe(Atom.keepAlive),
 );
 
+/**
+ * A Git LFS object as an object URL, keyed by `JSON.stringify({ diffId, oid })`. The URL is
+ * revoked when no image shows it any more; showing it again reads the browser's HTTP cache,
+ * since the backend serves an oid as immutable.
+ */
+export const lfsObjectAtom = Atom.family((key: string) =>
+  glossRuntime.atom(
+    Effect.acquireRelease(
+      request((client) => {
+        const { diffId, oid } = JSON.parse(key) as { diffId: string; oid: string };
+        return client.lfsObject(diffId, oid);
+      }).pipe(Effect.map((blob) => URL.createObjectURL(blob))),
+      (url) => Effect.sync(() => URL.revokeObjectURL(url)),
+    ),
+  ),
+);
+
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */
 export const assetAtom = Atom.family((src: string) =>
   glossRuntime.atom(request((client): Promise<ResolvedAsset> => client.asset(src))),

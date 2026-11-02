@@ -90,6 +90,14 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(
         request((client) => client.diff(cmd.diffId)).pipe(Effect.map((diff): Msg => ({ type: 'DiffLoaded', diff }))),
       );
+    case 'PrefetchLfs':
+      // The responses are immutable, so the browser keeps them for when the images render.
+      return once(
+        Effect.forEach(cmd.oids, (oid) => request((client) => client.lfsObject(cmd.diffId, oid)).pipe(Effect.ignore), {
+          concurrency: 4,
+          discard: true,
+        }),
+      );
     case 'LoadViewed':
       return once(
         Effect.sync((): Msg => {

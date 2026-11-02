@@ -2,6 +2,7 @@ import type {
   Decision,
   DecisionPriority,
   FileSummary,
+  LfsPointer,
   GroupView,
   PullState,
   ReviewState,
@@ -127,9 +128,46 @@ export function isGeneratedFile(group: GroupView | undefined, file: FileSummary)
   return group?.key === 'generated' || file.generated === 'gitattributes';
 }
 
-/** Generated, binary, oversized and already-viewed files start collapsed. */
+const IMAGE_PATH = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
+
+/** A Git LFS image: the page shows both sides of it instead of the pointer diff. */
+export function isLfsImage(file: Pick<FileSummary, 'path' | 'lfs'>): boolean {
+  return Boolean(file.lfs) && IMAGE_PATH.test(file.path);
+}
+
+/** The LFS images to fetch as soon as the tour opens, so they are there when the reader gets to them. */
+export function lfsImageOids(files: readonly Pick<FileSummary, 'path' | 'lfs'>[]): string[] {
+  return files
+    .filter(isLfsImage)
+    .flatMap((file) => [file.lfs?.old?.oid, file.lfs?.new?.oid].filter((oid) => oid !== undefined));
+}
+
+/**
+ * Generated, binary, Git LFS, oversized and already-viewed files start collapsed. An LFS image
+ * opens even when generated: its picture is what there is to review (snapshots, say).
+ */
 export function defaultExpanded(file: FileSummary, generated: boolean, viewed: boolean): boolean {
-  return !(viewed || generated || file.isBinary || file.truncated || file.additions + file.deletions > 800);
+  if (isLfsImage(file)) {
+    return !viewed;
+  }
+  return !(viewed || generated || file.isBinary || file.lfs || file.truncated || file.additions + file.deletions > 800);
+}
+
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
+}
+
+/** What a Git LFS file shows in place of its pointer diff: the object's size, or how it changed. */
+export function lfsLabel(pointer: LfsPointer): string {
+  const sizes = [...new Set([pointer.old?.size, pointer.new?.size])].filter((size) => size !== undefined);
+  return ['Stored with Git LFS', ...(sizes.length ? [sizes.map(formatBytes).join(' → ')] : [])].join(' · ');
 }
 
 export function splitPath(path: string): { dir: string; base: string } {

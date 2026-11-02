@@ -266,6 +266,17 @@ describe('data', () => {
     expect([...stale.viewed]).toEqual(['f1']);
   });
 
+  test('prefetches the LFS images of a new diff', () => {
+    const oid = 'a'.repeat(64);
+    const image = { ...file('f9'), path: 'snap/home.png', lfs: { new: { oid, size: 1 } } } as FileSummary;
+    const start = model({ tour: tour({ diffId: undefined }), diff: undefined, diffRequested: undefined });
+    const event = { ...(diffReady('d2') as object), files: [...tour().files, image] } as never;
+    const [, cmds] = run(start, { type: 'EventReceived', event });
+    expect(cmds).toContainEqual({ type: 'PrefetchLfs', diffId: 'd2', oids: [oid] });
+    const [, none] = run(start, { type: 'EventReceived', event: diffReady('d2') });
+    expect(types(none)).not.toContain('PrefetchLfs');
+  });
+
   test('re-run restarts the session with force; stop aborts the job', () => {
     const [next, cmds] = run(model({ jobId: 'j1', connection: 'error' }), { type: 'RerunClicked' });
     expect(next.connection).toBe('connecting');

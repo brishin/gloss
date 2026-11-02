@@ -2,7 +2,15 @@ import { Badge } from '@astryxdesign/core/Badge';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { RegistryContext } from '@effect/atom-react';
-import type { Decision, FileChange, FileNote, FileSummary, LineNote, RiskNote } from '@gloss/protocol';
+import {
+  type Decision,
+  type FileChange,
+  type FileNote,
+  type FileSummary,
+  type LineNote,
+  lfsPointer,
+  type RiskNote,
+} from '@gloss/protocol';
 import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
@@ -11,8 +19,17 @@ import { AtomRegistry } from 'effect/reactivity';
 import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
-import { decisionFlag, type FlagLevel, noteFlag, RISK_SHORT, splitPath } from '../lib/tour-view.ts';
+import {
+  decisionFlag,
+  type FlagLevel,
+  isLfsImage,
+  lfsLabel,
+  noteFlag,
+  RISK_SHORT,
+  splitPath,
+} from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
+import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
 export function unifiedText(file: FileChange): string {
@@ -184,6 +201,8 @@ export const FileView = memo(function FileView({
     }),
     [reviewer, summary.id, diffId, registry],
   );
+  // A tour cached before LFS detection has no `lfs` on its summaries; the loaded diff still tells.
+  const lfs = useMemo(() => summary.lfs ?? (change && lfsPointer(change)), [summary.lfs, change]);
   const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);
   const riskKinds = [...new Set(risks.map((risk) => risk.risk))];
@@ -234,7 +253,14 @@ export const FileView = memo(function FileView({
         </div>
       )}
       {expanded &&
-        (summary.isBinary ? (
+        // A pointer diff is noise, unless something is pinned to its lines.
+        (lfs && !annotations.length ? (
+          diffId && isLfsImage({ path: summary.path, lfs }) ? (
+            <LfsImageDiff diffId={diffId} pointer={lfs} path={summary.path} />
+          ) : (
+            <div className="collapsed">{lfsLabel(lfs)}</div>
+          )
+        ) : summary.isBinary ? (
           <div className="collapsed">Binary file</div>
         ) : summary.truncated ? (
           <div className="collapsed">Diff too large to show</div>

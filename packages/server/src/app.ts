@@ -14,6 +14,7 @@ import type {
 } from '@gloss/protocol';
 import {
   encodeNdjson,
+  lfsPointer,
   JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
@@ -255,6 +256,37 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     );
   });
 
+  app.get('/api/diffs/:id/lfs/:oid', async (c) => {
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(c.req.param('id')))));
+    const oid = c.req.param('oid');
+    // Only objects the diff names: the route must not fetch arbitrary objects from the repository.
+    const found = diff?.files.flatMap((file) => {
+      const pointer = lfsPointer(file);
+      const object = [pointer?.old, pointer?.new].find((side) => side?.oid === oid);
+      return object ? [{ file, object }] : [];
+    })[0];
+    if (!diff || !found) {
+      return c.json({ error: 'Unknown diff or LFS object' }, 404);
+    }
+    return run(
+      Repos.use((repos) => repos.lfs(diff, found.object)).pipe(
+        Effect.match({
+          onSuccess: (bytes) =>
+            c.body(bytes as Uint8Array<ArrayBuffer>, 200, {
+              'Content-Type': mediaType(found.file.path),
+              // Content-addressed: the same oid is always the same bytes.
+              'Cache-Control': 'private, max-age=31536000, immutable',
+              // An SVG opened on its own must not run script on the API's origin.
+              'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              'X-Content-Type-Options': 'nosniff',
+            }),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
+
   app.get('/api/assets', async (c) => {
     const asset = await run(
       Repos.use((repos) => repos.asset(c.req.query('url') ?? '')),
@@ -459,4 +491,20 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
   });
 
   return app;
+}
+
+const MEDIA_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+};
+
+function mediaType(path: string): string {
+  return MEDIA_TYPES[path.slice(path.lastIndexOf('.') + 1).toLowerCase()] ?? 'application/octet-stream';
 }
