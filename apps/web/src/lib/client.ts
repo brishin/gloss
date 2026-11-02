@@ -13,6 +13,7 @@ import {
   type ResolvedAsset,
   type SetupStatus,
   type SourceRef,
+  type Stack,
   type Subscription,
   type Trace,
   type UpdateStatus,
@@ -181,6 +182,14 @@ export const extensionAtom = Atom.family((id: string) =>
       Schedule.spaced(Duration.seconds(2)),
     ).pipe(Stream.takeUntil((found) => found)),
   ),
+);
+
+/**
+ * A stack's name from the backend's fast model, keyed by `JSON.stringify(stack)`. Kept for the
+ * page's life, so opening another PR of the stack does not flash the fallback again.
+ */
+export const stackNameAtom = Atom.family((key: string) =>
+  glossRuntime.atom(request((client) => client.stackName(JSON.parse(key) as Stack))).pipe(Atom.keepAlive),
 );
 
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */

@@ -15,6 +15,10 @@
   debug view. Each step names its `inputs` (the DAG's edges), its prompt with `sections`
   saying which input step each part came from, and its raw output. Kept out of the event
   log because prompts are large; the web app fetches it again as events settle.
+- `GET /api/stack?owner&repo&number` → `Stack` (walked fresh each time). `POST /api/stack/name`
+  with a `Stack` of two or more PRs → `{name}`: the side rail's name for it, from the define
+  (fast) tier reading titles, head branches and description blurbs, never diffs. Cached
+  under the exact prompt, which leaves out states and authors, so a merge keeps the name.
 
 Events (`events.ts`), in the order a fresh tour emits them: `job.started`,
 `stage.status`, `diff.ready`, `groups.provisional`, then `group.defined` (one per

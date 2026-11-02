@@ -72,13 +72,16 @@ const unscripted = (): Repos['Service'] => ({
 
 function setup(
   run: ReturnType<typeof scripted>['run'],
-  { repos, ...options }: Partial<Parameters<typeof createApp>[0]> & { repos?: Partial<Repos['Service']> } = {},
+  {
+    repos,
+    model = createFakeModelClient({ answers: {} }),
+    ...options
+  }: Partial<Parameters<typeof createApp>[0]> & {
+    repos?: Partial<Repos['Service']>;
+    model?: ModelClient['Service'];
+  } = {},
 ) {
-  const services = Layer.mergeAll(
-    TourCache.memory,
-    Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
-    DiffSources.layer,
-  );
+  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer);
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
       Layer.provideMerge(services),
@@ -249,6 +252,49 @@ describe('stack API', () => {
     const response = await app.request('/api/stack?owner=o&repo=r&number=1');
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'gh is not signed in' });
+  });
+
+  const pair = {
+    ...stack,
+    members: [
+      { ...stack.members[0]!, title: 'Add the name call', blurb: 'Names stacks with the fast model.' },
+      { ...stack.members[0]!, number: 2, title: 'Show names in the rail', baseRef: 'feature', headRef: 'rail' },
+    ],
+  };
+
+  it('names a stack with the fast tier once, then from the cache even after a PR merges', async () => {
+    const model = createFakeModelClient({ answers: { define: { name: '"Stack names in the rail."' } } });
+    const { client } = setup(scripted().run, { model });
+    expect(await client.stackName(pair)).toBe('Stack names in the rail');
+    const merged = { ...pair, members: [{ ...pair.members[0]!, state: 'merged' as const }, pair.members[1]!] };
+    expect(await client.stackName(merged)).toBe('Stack names in the rail');
+    expect(model.calls).toHaveLength(1);
+    expect(model.calls[0]!.prompt).toContain(
+      '#1 Add the name call (branch feature)\n  Names stacks with the fast model.',
+    );
+    expect(model.calls[0]!.prompt).toContain('#2 Show names in the rail (branch rail)');
+  });
+
+  it('does not name a stack of one, or a request from another site', async () => {
+    const { app } = setup(scripted().run);
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      app.request('/api/stack/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+    expect((await post(stack)).status).toBe(400);
+    expect((await post(pair, { Origin: 'https://evil.example' })).status).toBe(403);
+  });
+
+  it('reports a failed model call as a bad gateway', async () => {
+    const { app } = setup(scripted().run);
+    const response = await app.request('/api/stack/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pair),
+    });
+    expect(response.status).toBe(502);
   });
 });
 

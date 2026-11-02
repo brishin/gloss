@@ -15,7 +15,7 @@ import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './rev
 import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
-import { PullStateSchema, type Stack, StackSchema } from './stack.ts';
+import { PullStateSchema, type Stack, StackNameSchema, StackSchema } from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
 import { type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
@@ -91,6 +91,8 @@ export interface GlossClient {
   asset(url: string): Promise<ResolvedAsset>;
   /** The stack a GitHub PR sits in (a stack of one when it has no neighbours). */
   stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<Stack>;
+  /** A short name for a stack of two or more PRs, from its titles, branches and descriptions (cached on the backend). */
+  stackName(stack: Stack): Promise<string>;
   /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
   review(review: ReviewRequest): Promise<ReviewResult>;
   /** Starts signing a provider in on the backend (replacing any login already running for it). */
@@ -206,6 +208,14 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         StackSchema,
         `/api/stack?${new URLSearchParams({ owner: ref.owner, repo: ref.repo, number: String(ref.number) })}`,
       ),
+    stackName: async (stack) =>
+      (
+        await json(StackNameSchema, '/api/stack/name', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stack),
+        })
+      ).name,
     review: (review) =>
       json(ReviewResultSchema, '/api/reviews', {
         method: 'POST',

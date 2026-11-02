@@ -19,6 +19,8 @@ export const StackMemberSchema = v.object({
   since: v.optional(v.string()),
   mergedBy: v.optional(v.string()),
   queuePosition: v.optional(v.number()),
+  /** The opening words of the PR's description, without its template lines; context for naming the stack. */
+  blurb: v.optional(v.string()),
 });
 export type StackMember = v.InferOutput<typeof StackMemberSchema>;
 
@@ -34,3 +36,7 @@ export const StackSchema = v.object({
   members: v.array(StackMemberSchema),
 });
 export type Stack = v.InferOutput<typeof StackSchema>;
+
+/** A stack's short name, as the backend's fast model gives it for the side rail. */
+export const StackNameSchema = v.object({ name: v.string() });
+export type StackName = v.InferOutput<typeof StackNameSchema>;

@@ -8,7 +8,7 @@ import type { FileSummary, GroupView, RecentTours, SourceRef, Stack, StackMember
 import { describeRef, serializeRef } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
 import { Fragment, type KeyboardEvent, type ReactNode } from 'react';
-import { recentToursAtom } from '../lib/client.ts';
+import { recentToursAtom, stackNameAtom } from '../lib/client.ts';
 import {
   byCategory,
   CATEGORY_LABEL,
@@ -405,7 +405,7 @@ export function GroupSidebar({
   );
 }
 
-/** A stack's row: the branch it goes onto and how many PRs it has. Clicking it folds it. */
+/** A stack's row: its name (the branch it goes onto until the name comes) and how many PRs it has. Clicking it folds it. */
 function StackHead({
   id,
   stack,
@@ -421,6 +421,7 @@ function StackHead({
   onToggle: (deep: boolean) => void;
   children?: ReactNode;
 }) {
+  const name = AsyncResult.getOrElse(useAtomValue(stackNameAtom(JSON.stringify(stack))), () => undefined);
   return (
     <TreeRow
       id={id}
@@ -428,16 +429,22 @@ function StackHead({
       tabbable={tabbable}
       current={false}
       expanded={open}
-      label={`Stack of ${stack.members.length} PRs onto ${stack.base}`}
+      label={[name, `Stack of ${stack.members.length} PRs onto ${stack.base}`].filter(Boolean).join(': ')}
       onToggle={onToggle}
       onClick={() => onToggle(false)}
     >
       <span className="tree-lead">
         <StackIcon />
       </span>
-      <span className="nav-label">
-        Stack onto <code className="tree-branch">{stack.base}</code>
-      </span>
+      {name ? (
+        <span className="nav-label" title={`Onto ${stack.base}`}>
+          {name}
+        </span>
+      ) : (
+        <span className="nav-label">
+          Stack onto <code className="tree-branch">{stack.base}</code>
+        </span>
+      )}
       {children}
       <span className="nav-count">{stack.members.length} PRs</span>
     </TreeRow>

@@ -68,13 +68,14 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     above.push(next);
     at = next;
   }
-  const member = ({ number, title, state, author, baseRef, headRef }: StackPull): StackMember => ({
+  const member = ({ number, title, state, author, baseRef, headRef, blurb }: StackPull): StackMember => ({
     number,
     title,
     state,
     ...(author ? { author } : {}),
     baseRef,
     headRef,
+    ...(blurb ? { blurb } : {}),
   });
   const { since, mergedBy, queuePosition } = current;
   return [
@@ -89,9 +90,42 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
   ];
 }
 
+/** Longest blurb kept: a sentence or two is enough to name a stack. */
+const BLURB_CHARS = 200;
+
+/**
+ * The opening prose of a PR description: HTML comments, headings, lines that are all emphasis
+ * (bot and template bylines) and images left out, and markdown links reduced to their text.
+ */
+export function blurbOf(body: string | null | undefined): string | undefined {
+  const prose = (body ?? '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !/^#{1,6}\s/.test(line) && !/^([_*]).*\1$/.test(line) && !/^(!\[|<img|---|\|)/.test(line))
+    .map((line) =>
+      line
+        .replace(/^([-*+]|\d+\.)\s+/, '')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/`/g, ''),
+    )
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!prose) {
+    return undefined;
+  }
+  if (prose.length <= BLURB_CHARS) {
+    return prose;
+  }
+  const cut = prose.slice(0, BLURB_CHARS);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : BLURB_CHARS)}…`;
+}
+
 interface PullJson {
   number: number;
   title: string;
+  body?: string | null;
   state: 'open' | 'closed';
   draft?: boolean;
   merged_at: string | null;
@@ -101,6 +135,7 @@ interface PullJson {
 }
 
 function toPull(pull: PullJson, repo: string): StackPull {
+  const blurb = blurbOf(pull.body);
   return {
     number: pull.number,
     title: pull.title,
@@ -109,6 +144,7 @@ function toPull(pull: PullJson, repo: string): StackPull {
     baseRef: pull.base.ref,
     headRef: pull.head.ref,
     headInRepo: pull.head.repo?.full_name.toLowerCase() === repo,
+    ...(blurb ? { blurb } : {}),
   };
 }
 
@@ -118,6 +154,7 @@ interface PullGraphJson {
       pullRequest?: {
         number: number;
         title: string;
+        body: string | null;
         state: 'OPEN' | 'CLOSED' | 'MERGED';
         isDraft: boolean;
         isInMergeQueue: boolean;
@@ -138,7 +175,7 @@ interface PullGraphJson {
 const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      number title state isDraft isInMergeQueue author { login } baseRefName headRefName
+      number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner }
     }
@@ -185,6 +222,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         queued: pull.isInMergeQueue,
       });
       const queue = state === 'queued' ? pull.mergeQueueEntry : null;
+      const blurb = blurbOf(pull.body);
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
@@ -198,6 +236,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,
         headInRepo: pull.headRepository?.nameWithOwner.toLowerCase() === repo,
+        ...(blurb ? { blurb } : {}),
       };
     },
     byHead: (branch) => list({ head: `${ref.owner}:${branch}`, state: 'all' }),

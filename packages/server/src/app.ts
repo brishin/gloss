@@ -1,4 +1,4 @@
-import { type PullSummary, Repos, TourCache } from '@gloss/core';
+import { type ModelClient, nameStack, type PullSummary, Repos, TourCache } from '@gloss/core';
 import type {
   DiffPayload,
   GithubLogin,
@@ -20,6 +20,7 @@ import {
   reviewProblem,
   serializeRef,
   SourceRefSchema,
+  StackSchema,
   StartLoginRequestSchema,
 } from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
@@ -36,7 +37,7 @@ const RECENT_LIMIT = 20;
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs, the cache and repository access, with the pipeline's services behind them. */
-  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins | Repos, never>;
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins | Repos | ModelClient, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
@@ -97,8 +98,10 @@ export function withPullStates(tour: RecentTour, pulls: ReadonlyMap<string, Pull
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
 export function createApp({ runtime, health, token, corsOrigins = [], setup, update }: AppOptions): Hono {
   const app = new Hono();
-  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos>, signal?: AbortSignal) =>
-    runtime.runPromise(effect, { signal });
+  const run = <A>(
+    effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos | ModelClient>,
+    signal?: AbortSignal,
+  ) => runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
   }
@@ -298,6 +301,26 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       (origin === undefined || origin === new URL(c.req.url).origin || corsOrigins.includes(origin))
     );
   };
+
+  // A POST only so the stack can ride in the body; it spends model tokens, so only the app may ask.
+  app.post('/api/stack/name', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Stack names are given only as JSON to the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(StackSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success || parsed.output.members.length < 2) {
+      return c.json({ error: 'Expected a stack of two or more PRs' }, 400);
+    }
+    return run(
+      nameStack(parsed.output).pipe(
+        Effect.match({
+          onSuccess: (name) => c.json({ name }),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
 
   app.post('/api/reviews', async (c) => {
     if (!fromApp(c)) {
