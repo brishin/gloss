@@ -7,6 +7,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import { BackendInfo, BackendLayer } from './backend.ts';
+import { createSetup } from './setup.ts';
 
 export const DEFAULT_PORT = 4777;
 
@@ -73,6 +74,7 @@ export async function startServer(
     health: () => info.health(),
     token: options.token,
     corsOrigins: options.corsOrigins,
+    setup: createSetup({ port: options.port }),
   });
   const shell = shellHtml();
   if (shell) {

@@ -1177,6 +1177,202 @@
     gap: var(--spacing-5);
   }
 
+  .home-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--spacing-3);
+  }
+
+  .home-setup {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+
+  .home-setup:hover {
+    color: var(--color-text-primary);
+  }
+
+  /* Setup: one column of sections, each a status mark and its steps. */
+
+  .setup {
+    max-width: 640px;
+    margin: 10vh auto;
+    padding: 0 var(--spacing-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-6);
+  }
+
+  .setup .home-logo a {
+    color: inherit;
+  }
+
+  .setup-section {
+    display: flex;
+    gap: var(--spacing-3);
+  }
+
+  .setup-mark {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-text-secondary);
+    display: grid;
+    place-items: center;
+  }
+
+  [data-state='optional'] > .setup-mark {
+    border-style: dashed;
+  }
+
+  [data-state='waiting'] > .setup-mark {
+    border-color: var(--color-border);
+    border-top-color: var(--gloss-ink);
+    animation: setup-spin 1s linear infinite;
+  }
+
+  [data-state='done'] > .setup-mark,
+  .setup-steps li[data-done]::before {
+    border-color: var(--actor-jev);
+    background: var(--actor-jev);
+  }
+
+  [data-state='done'] > .setup-mark::after,
+  .setup-steps li[data-done]::after {
+    content: '';
+    width: 7px;
+    height: 4px;
+    border: 1.5px solid var(--color-background-surface);
+    border-top: 0;
+    border-right: 0;
+    transform: translateY(-1px) rotate(-45deg);
+  }
+
+  @keyframes setup-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .setup-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .setup-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--spacing-3);
+  }
+
+  .setup-line h2 {
+    margin: 0;
+    font-size: var(--text-heading-2-size);
+    font-weight: 600;
+  }
+
+  [data-state='done'] .setup-line h2 {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+  }
+
+  .setup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+  }
+
+  .setup-key {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .setup-path,
+  .setup-code {
+    padding: var(--spacing-1) var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-element);
+    background: var(--color-background-surface);
+  }
+
+  .setup-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setup-code {
+    font-size: var(--font-size-lg);
+    letter-spacing: 0.08em;
+  }
+
+  .setup-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+  }
+
+  /* Numbered like an ordered list; a done step's number becomes a check. */
+  .setup-steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .setup-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    color: var(--color-text-secondary);
+    box-sizing: border-box;
+  }
+
+  .setup-steps li[data-done] {
+    color: var(--color-text-secondary);
+  }
+
+  .setup-steps li[data-done]::before {
+    content: '';
+  }
+
+  .setup-steps li[data-done]::after {
+    position: absolute;
+    left: 4.5px;
+    top: 7px;
+  }
+
+  .setup-foot {
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--spacing-4);
+  }
+
   .target-form {
     display: flex;
     gap: var(--spacing-2);
@@ -1295,7 +1491,8 @@
       display: none;
     }
 
-    .home {
+    .home,
+    .setup {
       margin-top: var(--spacing-8);
     }
 

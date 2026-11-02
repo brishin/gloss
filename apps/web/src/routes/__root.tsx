@@ -1,6 +1,6 @@
 import { Theme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
-import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
+import { createRootRoute, HeadContent, Outlet, Scripts, useLocation } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { LoginPrompt } from '../components/LoginPrompt.tsx';
 import appCss from '../styles.css?url';
@@ -36,10 +36,12 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 function Root() {
+  // The setup page signs in inline.
+  const onSetup = useLocation({ select: (location) => location.pathname === '/setup' });
   return (
     <Theme theme={neutralTheme} mode="system">
       <Outlet />
-      <LoginPrompt />
+      {!onSetup && <LoginPrompt />}
     </Theme>
   );
 }

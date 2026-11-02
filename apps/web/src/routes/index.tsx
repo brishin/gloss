@@ -3,11 +3,12 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Text } from '@astryxdesign/core/Text';
 import { useAtomValue } from '@effect/atom-react';
 import { describeRef } from '@gloss/protocol';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { AsyncResult } from 'effect/reactivity';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Logo } from '../components/Logo.tsx';
-import { recentToursAtom } from '../lib/client.ts';
+import { healthAtom, recentToursAtom } from '../lib/client.ts';
+import { missingLogins } from '../lib/login.ts';
 import { parseInput, RefLink, useNavigateToRef } from '../lib/source-routes.tsx';
 
 export const Route = createFileRoute('/')({ component: Home });
@@ -15,6 +16,13 @@ export const Route = createFileRoute('/')({ component: Home });
 function Home() {
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []);
   const navigateToRef = useNavigateToRef();
+  const health = AsyncResult.getOrElse(useAtomValue(healthAtom), () => undefined);
+  const navigate = useNavigate();
+  // First run: nothing can tour until a model is signed in, so setup comes first.
+  const needsSetup = !!health && missingLogins(health).length > 0;
+  useEffect(() => {
+    if (needsSetup) void navigate({ to: '/setup', replace: true });
+  }, [needsSetup, navigate]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string>();
 
@@ -30,11 +38,16 @@ function Home() {
 
   return (
     <main className="home">
-      <div>
-        <h1 className="home-logo">
-          <Logo />
-        </h1>
-        <Text color="secondary">A guided, annotated review tour of a pull request or local diff.</Text>
+      <div className="home-head">
+        <div>
+          <h1 className="home-logo">
+            <Logo />
+          </h1>
+          <Text color="secondary">A guided, annotated review tour of a pull request or local diff.</Text>
+        </div>
+        <Link to="/setup" className="home-setup">
+          Setup
+        </Link>
       </div>
       <form className="target-form" onSubmit={submit}>
         <input

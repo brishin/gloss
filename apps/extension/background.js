@@ -21,6 +21,19 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['link'],
     targetUrlPatterns: ['https://github.com/*/*/pull/*'],
   });
+  // An open setup page sees the extension only after a reload (Chrome sets up `chrome.runtime` per page load).
+  chrome.tabs.query({ url: 'http://127.0.0.1/setup*' }, (tabs) => {
+    for (const tab of tabs) {
+      if (tab.id !== undefined) chrome.tabs.reload(tab.id);
+    }
+  });
+});
+
+// The gloss setup page pings the extension to show that it is loaded.
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'ping') {
+    sendResponse({ version: chrome.runtime.getManifest().version });
+  }
 });
 
 chrome.action.onClicked.addListener((tab) => void openInGloss(tab.url, tab));

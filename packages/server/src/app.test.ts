@@ -325,3 +325,54 @@ describe('review API from other sites', () => {
     expect((await post(headers)).status).toBe(200);
   });
 });
+
+describe('setup API', () => {
+  const status = {
+    github: { state: 'signed-in' as const, login: 'octocat' },
+    extension: { dir: '/x/apps/extension', id: 'a'.repeat(32), hostInstalled: false },
+  };
+  function hooks() {
+    const calls: string[] = [];
+    return {
+      calls,
+      setup: {
+        status: async () => status,
+        githubLogin: async () => ({ code: 'ABCD-1234', url: 'https://github.com/login/device' }),
+        installNativeHost: async () => void calls.push('host'),
+        saveJudgeKey: async (key: string) => void calls.push(`key:${key}`),
+      },
+    };
+  }
+
+  it('round-trips each setup call through the client', async () => {
+    const { calls, setup: setupHooks } = hooks();
+    const { client } = setup(scripted().run, { setup: setupHooks });
+    expect(await client.setup()).toEqual(status);
+    expect(await client.githubLogin()).toEqual({ code: 'ABCD-1234', url: 'https://github.com/login/device' });
+    await client.installNativeHost();
+    await client.saveJudgeKey('  tsk-1  ');
+    expect(calls).toEqual(['host', 'key:tsk-1']);
+  });
+
+  it('has no setup routes when the backend gives no hooks', async () => {
+    const { app } = setup(scripted().run);
+    expect((await app.request('/api/setup')).status).toBe(404);
+  });
+
+  it('takes changes only as JSON from the app, and refuses an empty key', async () => {
+    const { calls, setup: setupHooks } = hooks();
+    const { app } = setup(scripted().run, { setup: setupHooks });
+    const form = await app.request('/api/setup/extension', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    expect(form.status).toBe(403);
+    const empty = await app.request('/api/setup/judge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: ' ' }),
+    });
+    expect(empty.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+});
