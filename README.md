@@ -15,7 +15,8 @@ You need Node 24 or later, [pnpm](https://pnpm.io), and for pull requests the
 ```bash
 git clone https://github.com/brishin/gloss && cd gloss
 pnpm install && pnpm --filter @gloss/web build
-alias gloss="node $PWD/packages/cli/src/bin.ts"   # add this to your shell profile
+echo "alias gloss='node $PWD/packages/cli/src/bin.ts'" >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
 gloss serve
 ```
 
