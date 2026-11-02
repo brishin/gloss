@@ -1,6 +1,6 @@
 import type { StepKind, Trace, TraceStep } from '@gloss/protocol';
 
-/** What a step is called, and who does it (colors the dot): the define-tier LLM, Jev, code, or the notes LLM. */
+/** What a step is called, and who does it (picks the node icon and color): the define-tier LLM, Jev, code, or the notes LLM. */
 export const STEP_KINDS: Record<StepKind, { label: string; tag: string; actor: 'code' | 'llm' | 'jev' | 'notes' }> = {
   fetch: { label: 'Diff', tag: 'Diff', actor: 'code' },
   define: { label: 'Define', tag: 'Define', actor: 'llm' },

@@ -1484,32 +1484,30 @@
     text-overflow: ellipsis;
   }
 
-  .actor-dot {
+  .actor-icon {
     flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--actor-code);
+    display: inline-flex;
+    color: var(--actor-code);
   }
 
-  .actor-dot[data-actor='llm'] {
-    background: var(--actor-llm);
+  .actor-icon[data-actor='llm'] {
+    color: var(--actor-llm);
   }
 
-  .actor-dot[data-actor='jev'] {
-    background: var(--actor-jev);
+  .actor-icon[data-actor='jev'] {
+    color: var(--actor-jev);
   }
 
-  .actor-dot[data-actor='notes'] {
-    background: var(--actor-notes);
+  .actor-icon[data-actor='notes'] {
+    color: var(--actor-notes);
   }
 
-  .graph-node[data-state='running'] .actor-dot {
+  .graph-node[data-state='running'] .actor-icon {
     animation: actor-pulse 1.2s ease-in-out infinite;
   }
 
-  .graph-node[data-state='failed'] .actor-dot {
-    background: var(--flag-severe);
+  .graph-node[data-state='failed'] .actor-icon {
+    color: var(--flag-severe);
   }
 
   @keyframes actor-pulse {
