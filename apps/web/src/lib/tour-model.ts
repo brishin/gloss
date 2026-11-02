@@ -115,10 +115,9 @@ export type Msg =
   | { type: 'StackLoaded'; stack: Stack }
   /**
    * A click on a PR row in the side rail: `offset` is how far below the rail's top the row
-   * was, and `scrollTop` how far the rail was scrolled, so the next page can put that PR's
-   * row back under the pointer.
+   * was, so the next page can put that PR's row back under the pointer.
    */
-  | { type: 'RailOpened'; ref: SourceRef; offset: number; scrollTop: number }
+  | { type: 'RailOpened'; ref: SourceRef; offset: number }
   /** Shift+J/K: opens the next or previous PR in the stack. */
   | { type: 'StackStepped'; by: Step }
   | { type: 'FileJumped'; fileId: string }
@@ -167,11 +166,10 @@ export type Msg =
   | { type: 'CommentSaved' }
   | { type: 'CommentRemoved'; id: string };
 
-/** Where a rail click left the rail: the PR it opened, its row's offset, the rail's scroll. */
+/** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
   key: string;
   offset: number;
-  scrollTop: number;
 }
 
 export type Cmd =
@@ -421,7 +419,7 @@ function step(model: Model, msg: Msg): Next {
         [
           {
             type: 'SaveRailAnchor',
-            anchor: { key: serializeRef(msg.ref), offset: msg.offset, scrollTop: msg.scrollTop },
+            anchor: { key: serializeRef(msg.ref), offset: msg.offset },
           },
           { type: 'OpenRef', ref: msg.ref },
         ],

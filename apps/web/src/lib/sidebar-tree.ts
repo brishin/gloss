@@ -255,13 +255,29 @@ export function findEntry(sections: RailSections, key: string): RecentEntry | un
   );
 }
 
-/** Leaves out the rows holding any of `keys` (the toured PR's live stack), but `keep` (its own row). */
-export function withoutRefs(
-  sections: RailSections,
-  keys: ReadonlySet<string>,
-  keep: RecentEntry | undefined,
-): RailSections {
-  const kept = (entries: RecentEntry[]) =>
-    entries.filter((entry) => entry === keep || !entryKeys(entry).some((key) => keys.has(key)));
-  return { reviewRequested: kept(sections.reviewRequested), mine: kept(sections.mine), recent: kept(sections.recent) };
+/**
+ * The rail around the toured PR. `home` is the row that already holds it, which stays where it
+ * is. Once its live stack is known, that stack's other PRs are skipped elsewhere so none shows
+ * twice; a recorded stack that overlaps them falls back to its own tour, as in `recentEntries`.
+ */
+export function railAround(
+  recent: RecentTours,
+  key: string,
+  live: Stack | undefined,
+): { sections: RailSections; home: RecentEntry | undefined } {
+  const all = railSections(recent, new Set());
+  const found = findEntry(all, key);
+  if (!live) {
+    return { sections: all, home: found };
+  }
+  const kept = new Set(found ? entryKeys(found) : []);
+  const sections = railSections(
+    recent,
+    new Set(
+      stackRefs(live)
+        .map(serializeRef)
+        .filter((ref) => !kept.has(ref)),
+    ),
+  );
+  return { sections, home: findEntry(sections, key) };
 }

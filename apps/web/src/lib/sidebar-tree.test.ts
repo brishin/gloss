@@ -5,10 +5,11 @@ import {
   countViewed,
   filterGroups,
   findEntry,
+  railAround,
   railSections,
+  type RecentEntry,
   recentEntries,
   splitByViewer,
-  withoutRefs,
 } from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
@@ -228,27 +229,35 @@ describe('findEntry', () => {
   });
 });
 
-describe('withoutRefs', () => {
-  test("drops the live stack's other rows but keeps the toured PR's own row", () => {
-    const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
-      ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
-      title: `#${number}`,
-      updatedAt: '',
-      ...extra,
-    });
-    const member = (number: number) => ({ number, title: '', state: 'open' as const, baseRef: 'b', headRef: 'h' });
-    const all = railSections(
-      {
-        reviewRequested: [pr(2)],
-        authored: [pr(3, { stack: { owner: 'o', repo: 'r', base: 'main', members: [member(3), member(4)] } }), pr(5)],
-        tours: [],
-      },
-      new Set(),
-    );
-    const home = findEntry(all, 'github:o/r#4');
-    const live = new Set(['github:o/r#2', 'github:o/r#3', 'github:o/r#4']);
-    const sections = withoutRefs(all, live, home);
-    expect(sections.reviewRequested).toEqual([]);
-    expect(sections.mine).toEqual([home, all.mine[1]]);
+describe('railAround', () => {
+  const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
+    ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
+    title: `#${number}`,
+    updatedAt: '',
+    ...extra,
+  });
+  const member = (number: number) => ({ number, title: '', state: 'open' as const, baseRef: 'b', headRef: 'h' });
+  const stack = (...numbers: number[]): Stack => ({
+    owner: 'o',
+    repo: 'r',
+    base: 'main',
+    members: numbers.map(member),
+  });
+  const titles = (entries: RecentEntry[]) =>
+    entries.map((entry) => (entry.kind === 'tour' ? entry.tour.title : `stack ${entry.key}`));
+
+  test("keeps the toured PR's row in place and drops the live stack's other rows", () => {
+    const recent = { reviewRequested: [pr(2)], authored: [pr(3, { stack: stack(3, 4) }), pr(5)], tours: [] };
+    const { sections, home } = railAround(recent, 'github:o/r#4', stack(2, 3, 4));
+    expect(titles(sections.reviewRequested)).toEqual([]);
+    expect(titles(sections.mine)).toEqual(['stack github:o/r#3', '#5']);
+    expect(home).toBe(sections.mine[0]);
+  });
+
+  test('shows a recorded stack that overlaps the live one as its own tour', () => {
+    const recent = { tours: [pr(3, { stack: stack(2, 3) })] };
+    const { sections, home } = railAround(recent, 'github:o/r#1', stack(1, 2));
+    expect(titles(sections.mine)).toEqual(['#3']);
+    expect(home).toBeUndefined();
   });
 });

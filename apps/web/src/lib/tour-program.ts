@@ -175,12 +175,13 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
             if (!rail) {
               return;
             }
-            rail.scrollTop = saved.scrollTop;
             // The toured PR's groups now sit under it and the last one's are gone, so the rows
-            // above it moved: put the opened PR's row where the clicked row was.
+            // above it moved: put the opened PR's row where the clicked row was. The row is
+            // sticky, so it is measured with the rail at the top, where it is not pinned.
             const row = rail.querySelector<HTMLElement>('[data-node="pr"]');
             if (row) {
-              rail.scrollTop += row.getBoundingClientRect().top - rail.getBoundingClientRect().top - saved.offset;
+              rail.scrollTop = 0;
+              rail.scrollTop = row.getBoundingClientRect().top - rail.getBoundingClientRect().top - saved.offset;
             }
           }),
         ),

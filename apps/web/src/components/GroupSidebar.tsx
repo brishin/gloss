@@ -20,15 +20,12 @@ import {
   type Nesting,
   PR_NODE,
   closedNode,
-  findEntry,
   isClosed,
-  railSections,
+  railAround,
   type RecentEntry,
   recentStackNode,
   type SidebarState,
   STACK_NODE,
-  stackRefs,
-  withoutRefs,
 } from '../lib/sidebar-tree.ts';
 import type { Msg } from '../lib/tour-model.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
@@ -78,11 +75,8 @@ export function GroupSidebar({
   const currentKey = serializeRef(sourceRef);
   // Only a chain of two or more is worth its own row.
   const fetched = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
-  // The toured PR shows in place, in the first section that has it; the live stack's other PRs
-  // are left out of the sections so none shows twice.
-  const all = railSections(recent, new Set());
-  const home = findEntry(all, currentKey);
-  const sections = fetched ? withoutRefs(all, new Set(stackRefs(fetched).map(serializeRef)), home) : all;
+  // The toured PR shows in place, in the first section that has it.
+  const { sections, home } = railAround(recent, currentKey, fetched);
   // The live stack once fetched; until then the one the toured PR's row already has, so the rail
   // does not move while it loads.
   const stack = fetched ?? (home?.kind === 'stack' ? home.stack : undefined);
@@ -97,7 +91,6 @@ export function GroupSidebar({
       type: 'RailOpened',
       ref,
       offset: rail ? row.getBoundingClientRect().top - rail.getBoundingClientRect().top : 0,
-      scrollTop: rail?.scrollTop ?? 0,
     });
   };
 
