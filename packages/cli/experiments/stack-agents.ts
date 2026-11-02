@@ -19,6 +19,7 @@ type Usage = { input: number; output: number; calls: number };
 
 const [out = 'stack-agents', ...stackArgs] = process.argv.slice(2);
 const runtime = ManagedRuntime.make(BackendLayer);
+const control = process.env.CONTROL === '1';
 
 function parseStack(arg: string): Ref[] {
   const match = /^([\w.-]+)\/([\w.-]+)#([\d,]+)$/.exec(arg);
@@ -104,7 +105,7 @@ type Brief = v.InferOutput<typeof BriefSchema>;
 
 const COORDINATOR_SYSTEM = `You coordinate the review of a stack of pull requests: each PR is based on the one before it. A separate agent writes each PR's review tour. That agent sees only its own PR's diff plus the brief you write for it, so your brief is its only view of the rest of the stack.
 
-Write the brief so each agent attributes work to the right PR, does not re-explain what lower PRs already introduced, does not flag as missing what a higher PR adds, and checks what later PRs depend on. State only what the diffs and descriptions show; if a link between PRs is not visible, leave it out. Keep each entry short.
+Write the brief so each agent attributes work to the right PR, does not re-explain what lower PRs already introduced, does not flag as missing what a higher PR adds, and checks what later PRs depend on. State only what the diffs and descriptions show; if a link between PRs is not visible, leave it out. The diffs you see are cut to fit, so never say something is absent from or not defined in a PR. Keep each entry short.
 
 Call the submit tool once with the brief for every PR, bottom first.`;
 
@@ -277,8 +278,11 @@ async function runStack(refs: Ref[]) {
   const startB = Date.now();
   const budget = Math.floor(60_000 / members.length);
   const coordinatorPrompt = members.map((member) => memberSection(member, budget, 4000)).join('\n\n');
-  const coordinator = await ask('define', COORDINATOR_SYSTEM, coordinatorPrompt, BriefSchema);
-  const contexts = members.map((_, i) => renderContext(coordinator.data, members, i));
+  // CONTROL=1: arm B is a second plain run, to measure run-to-run variance and judge bias.
+  const coordinator = control
+    ? { data: { goal: '(control)', members: [] } as Brief, usage: undefined }
+    : await ask('define', COORDINATOR_SYSTEM, coordinatorPrompt, BriefSchema);
+  const contexts = members.map((_, i) => (control ? undefined : renderContext(coordinator.data, members, i)));
   const armB = await Promise.all(refs.map((ref, i) => tourOf(ref, contexts[i])));
   const secondsB = (Date.now() - startB) / 1000;
   writeFileSync(
@@ -387,7 +391,7 @@ md.push('|---|---|---|---|---|---|---|---|---|---|---|');
 for (const stack of results) {
   for (const pr of stack.perPr) {
     md.push(
-      `| ${stack.name.split('-').slice(0, 2).join('/')}#${pr.number} | ${pr.files} | ${pr.A.overall} | ${pr.B.overall} | ${pr.A.scope} | ${pr.B.scope} | ${pr.A.stackFit} | ${pr.B.stackFit} | ${pr.A.errors} | ${pr.B.errors} | ${pr.wins.A}/${pr.wins.B} |`,
+      `| ${stack.name}#${pr.number} | ${pr.files} | ${pr.A.overall} | ${pr.B.overall} | ${pr.A.scope} | ${pr.B.scope} | ${pr.A.stackFit} | ${pr.B.stackFit} | ${pr.A.errors} | ${pr.B.errors} | ${pr.wins.A}/${pr.wins.B} |`,
     );
   }
 }
