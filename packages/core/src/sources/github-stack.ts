@@ -171,6 +171,7 @@ interface PullGraphJson {
         latestReviews: { nodes: ReviewJson[] } | null;
         reviewRequests: { nodes: ReviewRequestJson[] } | null;
       } | null;
+      defaultBranchRef: { name: string } | null;
     } | null;
   };
 }
@@ -217,6 +218,7 @@ export function reviewersOf(
 
 const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
+    defaultBranchRef { name }
     pullRequest(number: $number) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
@@ -239,25 +241,35 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
     (await ghPaginated<PullJson>(`${pulls}?${new URLSearchParams({ ...query, per_page: '100' })}`, signal)).map(
       toMember,
     );
+  // GraphQL, not REST: only GraphQL says whether a PR is in the merge queue. One query also
+  // gives the trunk, so a walk opens with one request, not two.
+  const query = (number: number) =>
+    ghJson<PullGraphJson>(
+      [
+        'graphql',
+        '-f',
+        `query=${PULL_QUERY}`,
+        '-f',
+        `owner=${ref.owner}`,
+        '-f',
+        `repo=${ref.repo}`,
+        '-F',
+        `number=${number}`,
+      ],
+      signal,
+    );
+  let asked: Promise<PullGraphJson> | undefined;
+  const queryOnce = (number: number) => (number === ref.number ? (asked ??= query(number)) : query(number));
   return {
-    trunk: async () =>
-      (await ghJson<{ default_branch: string }>([`repos/${ref.owner}/${ref.repo}`], signal)).default_branch,
-    // GraphQL, not REST: only GraphQL says whether a PR is in the merge queue.
+    trunk: async () => {
+      const trunk = (await queryOnce(ref.number)).data?.repository?.defaultBranchRef?.name;
+      if (!trunk) {
+        throw new Error(`No default branch for ${ref.owner}/${ref.repo}`);
+      }
+      return trunk;
+    },
     pull: async (number) => {
-      const json = await ghJson<PullGraphJson>(
-        [
-          'graphql',
-          '-f',
-          `query=${PULL_QUERY}`,
-          '-f',
-          `owner=${ref.owner}`,
-          '-f',
-          `repo=${ref.repo}`,
-          '-F',
-          `number=${number}`,
-        ],
-        signal,
-      );
+      const json = await queryOnce(number);
       const pull = json.data?.repository?.pullRequest;
       if (!pull) {
         throw new Error(`No pull request #${number} in ${ref.owner}/${ref.repo}`);
