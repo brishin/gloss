@@ -267,8 +267,13 @@ export const ACCURATE = NO;
  */
 export const WORKFLOW = 0.9;
 
-/** How sure Jev must be that the change is a call path to walk it step by step. */
-export const CALL_PATH = 0.8;
+/**
+ * How sure Jev must be that the change is a call path to walk it. Low on purpose: the question
+ * asks about the main decision, so full-stack features with a clear UI-to-query chain score
+ * 0.3-0.6. In an eval of 24 PRs, 0.8 showed 3 of 18 walkthroughs worth showing; 0.25 showed
+ * 16 of them and hid 2 partly useful ones, while still hiding SQL and styling changes.
+ */
+export const CALL_PATH = 0.25;
 
 /** Whether Jev is sure enough the change is a call path to walk it in a walkthrough. */
 export function isCallPath(answers: Record<string, JudgeAnswer>): boolean {

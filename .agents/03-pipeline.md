@@ -55,8 +55,8 @@ A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, ar
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
-The visual pick also asks Jev one `call_path` question for the change. At `CALL_PATH` (0.8)
-or more, one more define-tier call (`WALKTHROUGH_SYSTEM`, a numbered diff) draws the call path
+The visual pick also asks Jev one `call_path` question for the change. At `CALL_PATH` (0.25, low because
+full-stack features score 0.3-0.6 on a question about the main decision) or more, one more define-tier call (`WALKTHROUGH_SYSTEM`, a numbered diff) draws the call path
 as a call tree (flat frames with a depth, each `new`, `changed` or `same`) and writes 2-5
 steps down it, each citing frames and short slices of hunks by file id, hunk id and new-side
 lines. `normalizeWalkthrough` makes the depths a tree, keeps a frame's line only where the
