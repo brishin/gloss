@@ -4,6 +4,7 @@ import type {
   FileSummary,
   GroupView,
   PullState,
+  ReviewState,
   RiskKey,
   RiskNote,
   StackMember,
@@ -17,8 +18,8 @@ export const OVERVIEW = '__overview';
 /** Key of the walkthrough section between the overview and the groups, when the tour has one. */
 export const WALKTHROUGH = '__walkthrough';
 
-/** Matches `--sticky-h` in styles.css (top bar + sub-bar): content scrolled under it is hidden. */
-export const STICKY_OFFSET = 72;
+/** Matches `--sticky-h` in styles.css (top bar + PR head + sub-bar): content scrolled under it is hidden. */
+export const STICKY_OFFSET = 136;
 
 export const RISK_SHORT: Record<RiskKey, string> = {
   authCheck: 'auth',
@@ -142,6 +143,14 @@ export const PULL_STATE_LABEL: Record<PullState, string> = {
   queued: 'In merge queue',
   merged: 'Merged',
   closed: 'Closed',
+};
+
+/** What a reviewer's mark means, after their login in its tooltip. */
+export const REVIEW_STATE_LABEL: Record<ReviewState, string> = {
+  approved: 'approved',
+  changes: 'requested changes',
+  commented: 'commented',
+  pending: 'has not reviewed yet',
 };
 
 const AGO_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

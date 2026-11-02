@@ -1,6 +1,6 @@
 import type { PullState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { isOpen, MAX_STACK, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
+import { isOpen, MAX_STACK, type StackLookup, type StackPull, walkStack, reviewersOf } from './github-stack.ts';
 import { pullState } from './github.ts';
 
 const pr = (
@@ -73,8 +73,13 @@ describe('walkStack', () => {
     ]);
   });
 
-  test('only the PR asked about keeps since, mergedBy and queuePosition', async () => {
-    const detail = { since: '2026-11-02T00:00:00Z', mergedBy: 'a', queuePosition: 2 };
+  test('only the PR asked about keeps since, mergedBy, queuePosition and reviewers', async () => {
+    const detail = {
+      since: '2026-11-02T00:00:00Z',
+      mergedBy: 'a',
+      queuePosition: 2,
+      reviewers: [{ login: 'r', state: 'approved' as const }],
+    };
     const pulls = [
       { ...pr(1, 'main', 'a', 'merged'), ...detail },
       { ...pr(2, 'a', 'b'), ...detail },
@@ -93,6 +98,43 @@ describe('walkStack', () => {
     const members = await numbers(1, long);
     expect(members).toHaveLength(MAX_STACK);
     expect(members[0]).toBe(1);
+  });
+});
+
+describe('reviewersOf', () => {
+  const review = (login: string, state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING') => ({
+    author: { login },
+    state,
+  });
+  const user = (login: string) => ({ requestedReviewer: { login } });
+
+  test('reviews first, then pending requests, teams by org/slug', () => {
+    expect(
+      reviewersOf(
+        [review('a', 'CHANGES_REQUESTED'), review('b', 'APPROVED'), review('c', 'COMMENTED')],
+        [user('d'), { requestedReviewer: { combinedSlug: 'org/web' } }],
+      ),
+    ).toEqual([
+      { login: 'a', state: 'changes' },
+      { login: 'b', state: 'approved' },
+      { login: 'c', state: 'commented' },
+      { login: 'd', state: 'pending' },
+      { login: 'org/web', team: true, state: 'pending' },
+    ]);
+  });
+
+  test('a re-requested reviewer is pending, once', () => {
+    expect(reviewersOf([review('a', 'APPROVED')], [user('a')])).toEqual([{ login: 'a', state: 'pending' }]);
+  });
+
+  test('leaves out dismissed and draft reviews, the author, and requests with no reviewer', () => {
+    expect(
+      reviewersOf(
+        [review('a', 'DISMISSED'), review('b', 'PENDING'), review('me', 'COMMENTED')],
+        [{ requestedReviewer: null }],
+        'me',
+      ),
+    ).toEqual([]);
   });
 });
 
