@@ -1,10 +1,11 @@
-import type { SourceRef } from '@gloss/protocol';
+import type { SourceRef, Stack } from '@gloss/protocol';
 import { GlossHttpError, serializeRef } from '@gloss/protocol';
 import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { Gloss, glossRuntime, request } from './client.ts';
 import type { SavedReview } from './review-draft.ts';
+import { stackRefs } from './sidebar-tree.ts';
 import { navigateToPipeline, navigateToRef } from './source-routes.tsx';
 import { makeProgram } from './tea.ts';
 import {
@@ -45,10 +46,17 @@ export function describeError(error: unknown): ConnectionError {
   return { title: 'Could not reach the gloss backend', message };
 }
 
+/**
+ * Each stack loaded in this tab, by each of its PRs, so a page opened from another PR in the
+ * same stack (Shift+J/K, a rail click) shows the stack at once instead of the rail moving
+ * when the fetch lands.
+ */
+const knownStacks = new Map<string, Stack>();
+
 /** The tour page's program for one ref. The page creates one per mount, so two tours never share state. */
 export function tourProgram(ref: SourceRef, router: AnyRouter) {
   return makeProgram(glossRuntime, {
-    init: init(ref, readPosition(router.state.location.search)),
+    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref))),
     update,
     run: (cmd) => run(cmd, router),
     key: (cmd) =>
@@ -165,32 +173,22 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
         sessionStorage.removeItem(RAIL_ANCHOR_KEY);
         return json ? (JSON.parse(json) as RailAnchor) : undefined;
       });
-      if (!saved || saved.key !== serializeRef(cmd.ref)) {
-        return Stream.empty;
-      }
-      return once(
-        nextFrame.pipe(
-          Effect.map(() => {
-            const rail = document.querySelector<HTMLElement>('nav.sidebar');
-            if (!rail) {
-              return;
-            }
-            // The toured PR's groups now sit under it and the last one's are gone, so the rows
-            // above it moved: put the opened PR's row where the clicked row was. The row is
-            // sticky, so it is measured with the rail at the top, where it is not pinned.
-            const row = rail.querySelector<HTMLElement>('[data-node="pr"]');
-            if (row) {
-              rail.scrollTop = 0;
-              rail.scrollTop = row.getBoundingClientRect().top - rail.getBoundingClientRect().top - saved.offset;
-            }
-          }),
-        ),
-      );
+      const anchor = saved?.key === serializeRef(cmd.ref) ? saved : undefined;
+      return once(nextFrame.pipe(Effect.map(() => placeRailRow(anchor))));
     }
+    case 'RevealRailRow':
+      return once(nextFrame.pipe(Effect.map(() => placeRailRow(undefined))));
     case 'FetchStack':
       // No stack (the lookup failed) just means no stack row and no Shift+J/K.
       return once(
-        request((client) => client.stack(cmd.ref)).pipe(Effect.map((stack): Msg => ({ type: 'StackLoaded', stack }))),
+        request((client) => client.stack(cmd.ref)).pipe(
+          Effect.map((stack): Msg => {
+            for (const ref of stackRefs(stack)) {
+              knownStacks.set(serializeRef(ref), stack);
+            }
+            return { type: 'StackLoaded', stack };
+          }),
+        ),
       );
     case 'OpenRef':
       return once(Effect.sync(() => void navigateToRef(router, cmd.ref)));
@@ -357,6 +355,29 @@ const restore = (find: () => HTMLElement | null) =>
     );
     yield* Deferred.await(released).pipe(Effect.timeoutOption(PIN_MS));
   }).pipe(Effect.scoped);
+
+/**
+ * Scrolls the side rail to the toured PR's row: where a rail click's row was (`anchor`), then
+ * just far enough that the row shows below the rail's tools. The row is sticky, so it is
+ * measured with the rail at the top, where it is not pinned.
+ */
+function placeRailRow(anchor: RailAnchor | undefined): void {
+  const rail = document.querySelector<HTMLElement>('nav.sidebar');
+  const row = rail?.querySelector<HTMLElement>('[data-node="pr"]');
+  if (!rail || !row) {
+    return;
+  }
+  const was = rail.scrollTop;
+  rail.scrollTop = 0;
+  const top = row.getBoundingClientRect().top - rail.getBoundingClientRect().top;
+  // The toured PR's groups now sit under it and the last one's are gone, so the rows above it
+  // moved: put the opened PR's row where the clicked row was.
+  const at = anchor ? top - anchor.offset : was;
+  const tools = rail.querySelector<HTMLElement>('.side-tools')?.offsetHeight ?? 0;
+  const lowest = top - tools;
+  const highest = top + row.offsetHeight - rail.clientHeight;
+  rail.scrollTop = Math.min(Math.max(at, highest), lowest);
+}
 
 function listen<K extends keyof WindowEventMap>(
   type: K,

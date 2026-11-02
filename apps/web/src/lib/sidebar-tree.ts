@@ -256,8 +256,8 @@ export function findEntry(sections: RailSections, key: string): RecentEntry | un
 }
 
 /**
- * The rail around the toured PR. `home` is the row that already holds it, which stays where it
- * is. Once its live stack is known, that stack's other PRs are skipped elsewhere so none shows
+ * The rail around the toured PR. `home` is the row that already holds it (or, once the live
+ * stack is known, a row of its stack's other PRs), which stays where it is. Once its live stack is known, that stack's other PRs are skipped elsewhere so none shows
  * twice; a recorded stack that overlaps them falls back to its own tour, as in `recentEntries`.
  */
 export function railAround(
@@ -266,10 +266,18 @@ export function railAround(
   live: Stack | undefined,
 ): { sections: RailSections; home: RecentEntry | undefined } {
   const all = railSections(recent, new Set());
-  const found = findEntry(all, key);
   if (!live) {
-    return { sections: all, home: found };
+    return { sections: all, home: findEntry(all, key) };
   }
+  // The live stack takes the place of the first stack row that holds the PR or only PRs of it,
+  // so stepping through the stack (onto PRs the rail has not shown yet too) never moves it.
+  const liveKeys = new Set(stackRefs(live).map(serializeRef));
+  const entries = [...all.reviewRequested, ...all.mine, ...all.recent];
+  const within = (entry: RecentEntry) => entryKeys(entry).every((ref) => liveKeys.has(ref));
+  const found =
+    entries.find((entry) => entry.kind === 'stack' && (entryKeys(entry).includes(key) || within(entry))) ??
+    findEntry(all, key) ??
+    entries.find(within);
   const kept = new Set(found ? entryKeys(found) : []);
   const sections = railSections(
     recent,
@@ -279,5 +287,5 @@ export function railAround(
         .filter((ref) => !kept.has(ref)),
     ),
   );
-  return { sections, home: findEntry(sections, key) };
+  return { sections, home: found && findEntry(sections, entryKeys(found)[0]!) };
 }

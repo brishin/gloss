@@ -6,6 +6,7 @@ import {
   type Cmd,
   init,
   initialModel,
+  isRunning,
   keyToMsg,
   type Model,
   type Msg,
@@ -313,8 +314,8 @@ describe('keyToMsg', () => {
     ['Escape', { ...base, navOpen: true }, { type: 'NavClosed' }],
     ['j', { ...base, helpOpen: true }, undefined],
     ['?', { ...base, helpOpen: true }, { type: 'HelpToggled' }],
-    ['J', base, { type: 'StackStepped', by: 1 }],
-    ['K', base, { type: 'StackStepped', by: -1 }],
+    ['K', base, { type: 'StackStepped', by: 1 }],
+    ['J', base, { type: 'StackStepped', by: -1 }],
     ['q', base, undefined],
     ['d', base, { type: 'PipelineOpened' }],
   ] as const)('%s', (key, state, expected) => {
@@ -340,13 +341,31 @@ describe('stack', () => {
   const pr = (number: number) => ({ kind: 'github-pr', owner: 'o', repo: 'r', number }) as const;
 
   test.each([
-    [1, 'J opens the PR above', { by: 1 }, [{ type: 'OpenRef', ref: pr(2) }]],
-    [1, 'K opens the PR below', { by: -1 }, [{ type: 'OpenRef', ref: pr(0) }]],
-    [2, 'J at the top does nothing', { by: 1 }, []],
-    [0, 'K at the bottom does nothing', { by: -1 }, []],
+    [1, 'K opens the PR above', { by: 1 }, [{ type: 'OpenRef', ref: pr(2) }]],
+    [1, 'J opens the PR below', { by: -1 }, [{ type: 'OpenRef', ref: pr(0) }]],
+    [2, 'K at the top does nothing', { by: 1 }, []],
+    [0, 'J at the bottom does nothing', { by: -1 }, []],
   ] as const)('from #%i, %s', (number, _, { by }, expected) => {
     const [, cmds] = run({ ...model(), ref: pr(number), stack }, { type: 'StackStepped', by });
     expect(cmds).toEqual(expected);
+  });
+
+  test('is running from the job starting until its first event, so loading rows do not blink', () => {
+    const started = run(initialModel(REF, {}), { type: 'TourStarted', jobId: 'j' })[0];
+    expect(isRunning(started)).toBe(true);
+    expect(isRunning(run(started, { type: 'StreamClosed' })[0])).toBe(false);
+  });
+
+  test('opens with a stack an earlier page loaded, and still fetches it', () => {
+    const [start, cmds] = init(pr(1), {}, stack);
+    expect(start.stack).toBe(stack);
+    expect(cmds).toContainEqual({ type: 'FetchStack', ref: pr(1) });
+  });
+
+  test('a loaded stack keeps the toured PR in view in the rail', () => {
+    const [next, cmds] = run(model(), { type: 'StackLoaded', stack });
+    expect(next.stack).toBe(stack);
+    expect(cmds).toEqual([{ type: 'RevealRailRow' }]);
   });
 
   test('does nothing before the stack loads', () => {

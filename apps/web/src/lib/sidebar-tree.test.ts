@@ -254,6 +254,18 @@ describe('railAround', () => {
     expect(home).toBe(sections.mine[0]);
   });
 
+  test.each([
+    ['new to the rail', []],
+    ['only in recent tours', [pr(6, { stack: stack(3, 4, 6) })]],
+  ])("puts a PR %s in its stack's row", (_, tours) => {
+    const recent = { reviewRequested: [pr(2)], authored: [pr(3, { stack: stack(3, 4) }), pr(5)], tours };
+    const { sections, home } = railAround(recent, 'github:o/r#6', stack(3, 4, 6));
+    expect(titles(sections.reviewRequested)).toEqual(['#2']);
+    expect(titles(sections.mine)).toEqual(['stack github:o/r#3', '#5']);
+    expect(titles(sections.recent)).toEqual([]);
+    expect(home).toBe(sections.mine[0]);
+  });
+
   test('shows a recorded stack that overlaps the live one as its own tour', () => {
     const recent = { tours: [pr(3, { stack: stack(2, 3) })] };
     const { sections, home } = railAround(recent, 'github:o/r#1', stack(1, 2));

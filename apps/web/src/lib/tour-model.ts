@@ -118,7 +118,7 @@ export type Msg =
    * was, so the next page can put that PR's row back under the pointer.
    */
   | { type: 'RailOpened'; ref: SourceRef; offset: number }
-  /** Shift+J/K: opens the next or previous PR in the stack. */
+  /** Shift+K/J: opens the next PR up the stack (the one built on this one) or the previous one. */
   | { type: 'StackStepped'; by: Step }
   | { type: 'FileJumped'; fileId: string }
   | { type: 'FileStepped'; by: Step }
@@ -203,18 +203,21 @@ export type Cmd =
   | { type: 'SaveRailAnchor'; anchor: RailAnchor }
   /**
    * Puts the side rail back the way the rail click that opened this page left it, with this
-   * PR's row where the clicked row was; nothing when the page was opened another way.
+   * PR's row where the clicked row was, then scrolls the rail so that row is in view.
    */
   | { type: 'RestoreRailScroll'; ref: SourceRef }
+  /** Scrolls the side rail just enough to show this PR's row (the stack can move it). */
+  | { type: 'RevealRailRow' }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
 
 export type Next = readonly [Model, readonly Cmd[]];
 
-export function initialModel(ref: SourceRef, position: Position): Model {
+export function initialModel(ref: SourceRef, position: Position, stack?: Stack): Model {
   return {
     ref,
+    stack,
     connection: 'connecting',
     tour: initialTourState(),
     position,
@@ -228,12 +231,16 @@ export function initialModel(ref: SourceRef, position: Position): Model {
   };
 }
 
-export function init(ref: SourceRef, position: Position): Next {
-  const model = initialModel(ref, position);
-  const stack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
+/**
+ * `stack` is this PR's stack as an earlier page in this tab loaded it, so the rail opens with
+ * it in place while the fresh one loads.
+ */
+export function init(ref: SourceRef, position: Position, stack?: Stack): Next {
+  const model = initialModel(ref, position, stack);
+  const fetchStack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
   return settle(undefined, model, [
     { type: 'StartTour', ref, force: false },
-    ...stack,
+    ...fetchStack,
     { type: 'RestoreRailScroll', ref },
   ]);
 }
@@ -285,8 +292,11 @@ export function stackNeighbour(model: Model, by: Step): SourceRef | undefined {
 /** Reviews go to GitHub, so only a PR with its diff loaded can be reviewed. */
 export const canReview = (model: Model): boolean => model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
 
+/** Includes the moment between the job starting and its first event, so loading rows do not blink. */
 export const isRunning = (model: Model): boolean =>
-  model.tour.status === 'running' || model.connection === 'connecting';
+  model.tour.status === 'running' ||
+  model.connection === 'connecting' ||
+  (model.connection === 'streaming' && model.tour.status === 'idle');
 
 export function pageTitle(model: Model): string {
   return [currentGroup(model)?.label, model.tour.meta?.title ?? describeRef(model.ref), 'gloss']
@@ -341,9 +351,9 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'GroupStepped', by: 1 };
     case 'k':
       return { type: 'GroupStepped', by: -1 };
-    case 'J':
-      return { type: 'StackStepped', by: 1 };
     case 'K':
+      return { type: 'StackStepped', by: 1 };
+    case 'J':
       return { type: 'StackStepped', by: -1 };
     case 'o':
       return { type: 'GroupSelected', key: OVERVIEW };
@@ -412,7 +422,7 @@ function step(model: Model, msg: Msg): Next {
       return target ? select(model, target) : [model, []];
     }
     case 'StackLoaded':
-      return [{ ...model, stack: msg.stack }, []];
+      return [{ ...model, stack: msg.stack }, [{ type: 'RevealRailRow' }]];
     case 'RailOpened':
       return [
         model,
