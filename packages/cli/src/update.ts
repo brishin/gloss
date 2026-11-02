@@ -86,7 +86,7 @@ export function webBuildStale(root = CHECKOUT): boolean {
 
 /**
  * Brings the checkout up to date: fast-forwards it to its upstream, installs dependencies, and
- * builds the web app when its build is stale. Returns the commit before and after; a checkout
+ * builds the web app when the pull brought commits or its build is stale. Returns the commit before and after; a checkout
  * that is not a git repository is left alone.
  */
 export async function syncCheckout(
@@ -104,11 +104,13 @@ export async function syncCheckout(
   }
   // No terminal to confirm in: pnpm would abort when it needs to rebuild node_modules.
   await sh(root, 'pnpm', ['install', '--prefer-offline', '--config.confirmModulesPurge=false']);
-  if (webBuildStale(root)) {
+  const after = await headCommit(root);
+  // New commits can change dependencies or build config, which the source check does not see.
+  if (after !== before || webBuildStale(root)) {
     log('Building the web app…');
     await sh(root, 'pnpm', ['--filter', '@gloss/web', 'build']);
   }
-  return { before, after: await headCommit(root) };
+  return { before, after };
 }
 
 /**

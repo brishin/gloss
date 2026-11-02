@@ -64,12 +64,16 @@ export const healthAtom: Atom.Atom<AsyncResult.AsyncResult<Health, GlossRequestE
 );
 
 /** Whether the backend's checkout has newer code; checked on load and every 30 minutes. */
-export const updateStatusAtom: Atom.Atom<AsyncResult.AsyncResult<UpdateStatus, unknown>> = glossRuntime.atom(
-  Stream.fromEffectSchedule(
-    request((client) => client.updateStatus()),
-    Schedule.spaced(Duration.minutes(30)),
-  ),
-);
+export const updateStatusAtom: Atom.Atom<AsyncResult.AsyncResult<UpdateStatus | undefined, unknown>> =
+  glossRuntime.atom(
+    Stream.fromEffectSchedule(
+      // A failed check (say, while the server restarts) counts as no update, so the next one still runs.
+      request((client): Promise<UpdateStatus | undefined> => client.updateStatus()).pipe(
+        Effect.orElseSucceed(() => undefined),
+      ),
+      Schedule.spaced(Duration.minutes(30)),
+    ),
+  );
 
 /**
  * Updates the backend (pull, install, build) and waits, up to two minutes, until it answers
