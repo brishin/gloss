@@ -55,6 +55,8 @@ export function createSqliteCacheStore(path: string): CacheStore {
     'INSERT OR REPLACE INTO recent (source_key, ref, title, author, updated_at) VALUES (?, ?, ?, ?, ?)',
   );
   const recentList = db.prepare('SELECT ref, title, author, updated_at FROM recent ORDER BY updated_at DESC LIMIT ?');
+  const missingAuthors = db.prepare('SELECT source_key, ref FROM recent WHERE author IS NULL');
+  const authorSet = db.prepare('UPDATE recent SET author = ? WHERE source_key = ?');
   const stackPut = db.prepare('INSERT OR REPLACE INTO recent_stack (ref_key, stack) VALUES (?, ?)');
   const stackGet = db.prepare('SELECT stack FROM recent_stack WHERE ref_key = ?');
   const pruneStmt = db.prepare('DELETE FROM entries WHERE created_at < ?');
@@ -75,6 +77,14 @@ export function createSqliteCacheStore(path: string): CacheStore {
       const json = JSON.stringify(stack);
       for (const key of stackMemberKeys(stack)) {
         stackPut.run(key, json);
+      }
+    },
+    recordAuthors(authors: ReadonlyMap<string, string>) {
+      for (const row of missingAuthors.all() as { source_key: string; ref: string }[]) {
+        const author = authors.get(serializeRef(JSON.parse(row.ref) as SourceRef));
+        if (author) {
+          authorSet.run(author, row.source_key);
+        }
       }
     },
     listRecent(limit = 20): RecentTour[] {

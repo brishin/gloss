@@ -8,11 +8,11 @@ import type {
   SourceRef,
   Stack,
 } from '@gloss/protocol';
-import { Context, Data, Effect, Layer } from 'effect';
+import { Context, Data, Effect, Exit, Layer } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
 import { submitGithubReview } from './github-review.ts';
 import { resolveGithubStack } from './github-stack.ts';
-import { resolveGithubAsset } from './github.ts';
+import { githubPullAuthors, githubViewer, resolveGithubAsset } from './github.ts';
 
 /** A `gh` or git call failed; `message` is what the API answers with. */
 export class RepoError extends Data.TaggedError('RepoError')<{ message: string; cause?: unknown }> {}
@@ -29,6 +29,10 @@ export class Repos extends Context.Service<
   {
     /** A PR body attachment as a URL the browser can load; undefined when GitHub won't say. */
     asset(url: string): Effect.Effect<ResolvedAsset | undefined>;
+    /** Each PR's author, keyed by `serializeRef`; PRs GitHub won't say are left out. */
+    authors(refs: readonly Extract<SourceRef, { kind: 'github-pr' }>[]): Effect.Effect<ReadonlyMap<string, string>>;
+    /** The `gh` login, kept for an hour once known; undefined when `gh` is not signed in. */
+    viewer: Effect.Effect<string | undefined>;
     /** The stack a PR sits in (a stack of one when it has no neighbours). */
     stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Effect.Effect<Stack, RepoError>;
     /** Posts a review as the `gh` login; GitHub's refusal is the error. */
@@ -38,15 +42,27 @@ export class Repos extends Context.Service<
   }
 >()('@gloss/core/Repos') {
   /** Through the user's `gh` login and local git. */
-  static readonly layer = Layer.succeed(Repos, {
-    asset: (url) =>
-      Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),
-    stack: (ref) => Effect.tryPromise({ try: (signal) => resolveGithubStack(ref, signal), catch: repoError }),
-    review: (review) => Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
-    contents: (diff, file) =>
-      Effect.tryPromise({
-        try: (signal) => readFileContents(diff, file, signal),
-        catch: (cause) => (cause instanceof StaleFileError ? cause : repoError(cause)),
-      }),
-  });
+  static readonly layer = Layer.effect(
+    Repos,
+    Effect.gen(function* () {
+      const viewer = yield* Effect.tryPromise((signal) => githubViewer(signal)).pipe(
+        Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '1 hour' : 0)),
+      );
+      return {
+        authors: (refs) =>
+          Effect.tryPromise((signal) => githubPullAuthors(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
+        viewer: viewer.pipe(Effect.orElseSucceed(() => undefined)),
+        asset: (url) =>
+          Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),
+        stack: (ref) => Effect.tryPromise({ try: (signal) => resolveGithubStack(ref, signal), catch: repoError }),
+        review: (review) =>
+          Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
+        contents: (diff, file) =>
+          Effect.tryPromise({
+            try: (signal) => readFileContents(diff, file, signal),
+            catch: (cause) => (cause instanceof StaleFileError ? cause : repoError(cause)),
+          }),
+      };
+    }),
+  );
 }

@@ -19,10 +19,12 @@ import {
   isNodeOpen,
   type Nesting,
   PR_NODE,
+  type RecentEntry,
   recentEntries,
   recentStackNode,
   type SidebarState,
   STACK_NODE,
+  splitByViewer,
   stackRefs,
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
@@ -66,9 +68,10 @@ export function GroupSidebar({
   dispatch: (msg: Msg) => void;
 }) {
   const { nesting, query } = sidebar;
-  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []).filter(
-    (tour) => serializeRef(tour.ref) !== serializeRef(sourceRef),
-  );
+  const { viewer, tours: recent } = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => ({
+    viewer: undefined,
+    tours: [],
+  }));
   // Only a chain of two or more is worth its own row.
   const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   const currentMember =
@@ -271,6 +274,43 @@ export function GroupSidebar({
     </div>
   );
 
+  const { mine, others } = splitByViewer(recentEntries(recent, shown), viewer);
+  const renderRecent = (entry: RecentEntry) => {
+    if (entry.kind === 'tour') {
+      const item = entry.tour;
+      return (
+        <TreeRow
+          key={serializeRef(item.ref)}
+          id={`recent:${serializeRef(item.ref)}`}
+          parent=""
+          current={false}
+          label={`${item.title} · ${describeRef(item.ref)}`}
+          onClick={() => void navigateToRef(item.ref)}
+        >
+          <span className="tree-lead">
+            <RefIcon kind={item.ref.kind} />
+          </span>
+          <RefLabel sourceRef={item.ref} title={item.title} />
+          <Avatar login={item.author} />
+        </TreeRow>
+      );
+    }
+    const id = recentStackNode(entry.key);
+    const open = isOpen(id);
+    return (
+      <div key={id} className="tree-node">
+        <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
+        {open && (
+          <div className="tree-kids" role="group">
+            {entry.stack.members.map((member) => (
+              <MemberRow key={member.number} stack={entry.stack} member={member} parent={id} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <nav className="sidebar" aria-label="Review queue">
       <div className="side-tools">
@@ -323,41 +363,13 @@ export function GroupSidebar({
         ) : (
           prNode
         )}
-        {recentEntries(recent, shown).map((entry) => {
-          if (entry.kind === 'tour') {
-            const item = entry.tour;
-            return (
-              <TreeRow
-                key={serializeRef(item.ref)}
-                id={`recent:${serializeRef(item.ref)}`}
-                parent=""
-                current={false}
-                label={`${item.title} · ${describeRef(item.ref)}`}
-                onClick={() => void navigateToRef(item.ref)}
-              >
-                <span className="tree-lead">
-                  <RefIcon kind={item.ref.kind} />
-                </span>
-                <RefLabel sourceRef={item.ref} title={item.title} />
-                <Avatar login={item.author} />
-              </TreeRow>
-            );
-          }
-          const id = recentStackNode(entry.key);
-          const open = isOpen(id);
-          return (
-            <div key={id} className="tree-node">
-              <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
-              {open && (
-                <div className="tree-kids" role="group">
-                  {entry.stack.members.map((member) => (
-                    <MemberRow key={member.number} stack={entry.stack} member={member} parent={id} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {mine.map(renderRecent)}
+        {others.length > 0 && (
+          <div className="tree-section" role="presentation">
+            Others
+          </div>
+        )}
+        {others.map(renderRecent)}
       </div>
     </nav>
   );

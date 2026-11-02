@@ -58,6 +58,13 @@ export const RecentTourSchema = v.object({
 });
 export type RecentTour = v.InferOutput<typeof RecentTourSchema>;
 
+export const RecentToursSchema = v.object({
+  /** The backend's GitHub login, so the app can tell the user's PRs from others'. */
+  viewer: v.optional(v.string()),
+  tours: v.array(RecentTourSchema),
+});
+export type RecentTours = v.InferOutput<typeof RecentToursSchema>;
+
 /**
  * Everything a frontend may ask a gloss backend. The HTTP implementation below works
  * against the local CLI server today and a remote one later (base URL + bearer token).
@@ -73,7 +80,7 @@ export interface GlossClient {
   /** One changed file of a diff in full, for expanding the unchanged lines around its hunks. */
   fileContents(diffId: string, fileId: string): Promise<FileContents>;
   health(): Promise<Health>;
-  recent(): Promise<RecentTour[]>;
+  recent(): Promise<RecentTours>;
   /** Resolves a GitHub attachment URL (see `isGithubAssetUrl`) to one the browser can load. */
   asset(url: string): Promise<ResolvedAsset>;
   /** The stack a GitHub PR sits in (a stack of one when it has no neighbours). */
@@ -186,7 +193,7 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     fileContents: (diffId, fileId) =>
       json(FileContentsSchema, `/api/diffs/${encodeURIComponent(diffId)}/files/${encodeURIComponent(fileId)}`),
     health: () => json(HealthSchema, '/api/health'),
-    recent: () => json(v.array(RecentTourSchema), '/api/recent'),
+    recent: () => json(RecentToursSchema, '/api/recent'),
     asset: (url) => json(ResolvedAssetSchema, `/api/assets?url=${encodeURIComponent(url)}`),
     stack: (ref) =>
       json(

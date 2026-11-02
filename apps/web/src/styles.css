@@ -240,6 +240,14 @@
     color: var(--color-text-disabled);
   }
 
+  /* Recent tours by other people start below this. */
+  .tree-section {
+    margin: var(--spacing-3) 0 var(--spacing-1);
+    padding-left: var(--spacing-2);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+  }
+
   .tree-avatar {
     flex: none;
     width: 16px;

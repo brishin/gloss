@@ -14,7 +14,7 @@ import { parseInput, RefLink, useNavigateToRef } from '../lib/source-routes.tsx'
 export const Route = createFileRoute('/')({ component: Home });
 
 function Home() {
-  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => []);
+  const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), () => ({ tours: [] })).tours;
   const navigateToRef = useNavigateToRef();
   const health = AsyncResult.getOrElse(useAtomValue(healthAtom), () => undefined);
   const navigate = useNavigate();
