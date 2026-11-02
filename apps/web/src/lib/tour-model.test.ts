@@ -9,7 +9,7 @@ import {
   keyToMsg,
   type Model,
   type Msg,
-  pullState,
+  currentPull,
   type Spied,
   update,
 } from './tour-model.ts';
@@ -354,9 +354,9 @@ describe('stack', () => {
 
   test("the PR's state is its own stack member's", () => {
     const merged = { ...stack, members: stack.members.map((m) => (m.number === 1 ? { ...m, state: 'merged' } : m)) };
-    expect(pullState(model({ ref: pr(1) }))).toBeUndefined();
-    expect(pullState({ ...model(), ref: pr(1), stack: merged as Stack })).toBe('merged');
-    expect(pullState({ ...model(), ref: { kind: 'local', repo: '/r', target: 'HEAD' }, stack })).toBeUndefined();
+    expect(currentPull(model({ ref: pr(1) }))).toBeUndefined();
+    expect(currentPull({ ...model(), ref: pr(1), stack: merged as Stack })?.state).toBe('merged');
+    expect(currentPull({ ...model(), ref: { kind: 'local', repo: '/r', target: 'HEAD' }, stack })).toBeUndefined();
   });
 });
 

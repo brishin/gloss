@@ -1,21 +1,14 @@
 import { Heading } from '@astryxdesign/core/Heading';
+import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { GroupView, PullState, TourState } from '@gloss/protocol';
+import type { GroupView, StackMember, TourState } from '@gloss/protocol';
 import { memo } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
-import { decisionFlag, decisionsInOrder, splitPath } from '../lib/tour-view.ts';
+import { decisionFlag, decisionsInOrder, PULL_STATE_LABEL, pullStateDetail, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
-
-const PULL_STATE_LABEL: Record<PullState, string> = {
-  open: 'Open',
-  draft: 'Draft',
-  queued: 'In merge queue',
-  merged: 'Merged',
-  closed: 'Closed',
-};
 
 /**
  * The top of the page: what the change is and where the risk is. Shown once, instead of a
@@ -24,15 +17,15 @@ const PULL_STATE_LABEL: Record<PullState, string> = {
  */
 export const Overview = memo(function Overview({
   state,
-  pullState,
+  pull,
   groups,
   running,
   onJumpToFile,
   onSelectGroup,
 }: {
   state: TourState;
-  /** The PR's state on GitHub, fetched fresh on open (never from the tour cache). */
-  pullState?: PullState;
+  /** The PR as GitHub has it now, fetched fresh on open (never from the tour cache). */
+  pull?: StackMember;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
@@ -61,12 +54,7 @@ export const Overview = memo(function Overview({
         {meta ? <Heading level={1}>{meta.title}</Heading> : <Skeleton width={360} height={24} />}
         {meta && (
           <div className="stats">
-            {pullState && (
-              <span className="pull-state" data-state={pullState}>
-                <RefIcon kind="github-pr" state={pullState} />
-                {PULL_STATE_LABEL[pullState]}
-              </span>
-            )}
+            {pull && <PullStateIcon pull={pull} />}
             <span>
               {meta.baseRef} ← {meta.headRef}
               {meta.author ? ` · ${meta.author}` : ''}
@@ -186,4 +174,26 @@ function descriptionHeadingStart(markdown: string): 1 | 2 | 3 | 4 {
   const depths = [...markdown.matchAll(/^(#{1,6})\s/gm)].map((match) => match[1]!.length);
   const top = depths.length ? Math.min(...depths) : 1;
   return Math.max(1, Math.min(4, 3 - (top - 1))) as 1 | 2 | 3 | 4;
+}
+
+/** The PR's state as a coloured icon; hover or focus it for the state in words. */
+function PullStateIcon({ pull }: { pull: StackMember }) {
+  const label = PULL_STATE_LABEL[pull.state];
+  const detail = pullStateDetail(pull, Date.now());
+  return (
+    <HoverCard
+      placement="below"
+      alignment="start"
+      content={
+        <div className="pull-state-card">
+          <strong data-state={pull.state}>{label}</strong>
+          {detail && <span>{detail}</span>}
+        </div>
+      }
+    >
+      <span className="pull-state" data-state={pull.state} role="img" aria-label={label} tabIndex={0}>
+        <RefIcon kind="github-pr" state={pull.state} />
+      </span>
+    </HoverCard>
+  );
 }

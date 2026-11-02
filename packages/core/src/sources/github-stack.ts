@@ -68,14 +68,25 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     above.push(next);
     at = next;
   }
-  return [...below, current, ...above].map(({ number, title, state, author, baseRef, headRef }) => ({
+  const member = ({ number, title, state, author, baseRef, headRef }: StackPull): StackMember => ({
     number,
     title,
     state,
     ...(author ? { author } : {}),
     baseRef,
     headRef,
-  }));
+  });
+  const { since, mergedBy, queuePosition } = current;
+  return [
+    ...below.map(member),
+    {
+      ...member(current),
+      ...(since ? { since } : {}),
+      ...(mergedBy ? { mergedBy } : {}),
+      ...(queuePosition ? { queuePosition } : {}),
+    },
+    ...above.map(member),
+  ];
 }
 
 interface PullJson {
@@ -118,6 +129,11 @@ interface PullGraphJson {
         state: 'OPEN' | 'CLOSED' | 'MERGED';
         isDraft: boolean;
         isInMergeQueue: boolean;
+        createdAt: string;
+        mergedAt: string | null;
+        closedAt: string | null;
+        mergedBy: { login: string } | null;
+        mergeQueueEntry: { position: number; enqueuedAt: string } | null;
         author: { login: string } | null;
         baseRefName: string;
         headRefName: string;
@@ -131,6 +147,7 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
       number title state isDraft isInMergeQueue author { login } baseRefName headRefName
+      createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner }
     }
   }
@@ -169,15 +186,22 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
       if (!pull) {
         throw new Error(`No pull request #${number} in ${ref.owner}/${ref.repo}`);
       }
+      const state = pullState({
+        open: pull.state === 'OPEN',
+        merged: pull.state === 'MERGED',
+        draft: pull.isDraft,
+        queued: pull.isInMergeQueue,
+      });
+      const queue = state === 'queued' ? pull.mergeQueueEntry : null;
+      const since =
+        state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
         number: pull.number,
         title: pull.title,
-        state: pullState({
-          open: pull.state === 'OPEN',
-          merged: pull.state === 'MERGED',
-          draft: pull.isDraft,
-          queued: pull.isInMergeQueue,
-        }),
+        state,
+        ...(since ? { since } : {}),
+        ...(state === 'merged' && pull.mergedBy?.login ? { mergedBy: pull.mergedBy.login } : {}),
+        ...(queue ? { queuePosition: queue.position } : {}),
         ...(pull.author?.login ? { author: pull.author.login } : {}),
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,

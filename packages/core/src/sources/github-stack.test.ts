@@ -72,6 +72,17 @@ describe('walkStack', () => {
     ]);
   });
 
+  test('only the PR asked about keeps since, mergedBy and queuePosition', async () => {
+    const detail = { since: '2026-11-02T00:00:00Z', mergedBy: 'a', queuePosition: 2 };
+    const pulls = [
+      { ...pr(1, 'main', 'a', 'merged'), ...detail },
+      { ...pr(2, 'a', 'b'), ...detail },
+    ];
+    const [below, current] = await walkStack(2, lookup(pulls));
+    expect(below).not.toHaveProperty('since');
+    expect(current).toMatchObject(detail);
+  });
+
   test('stops on a cycle', async () => {
     expect(await numbers(1, [pr(1, 'b', 'a'), pr(2, 'a', 'b')])).toEqual([2, 1]);
   });
