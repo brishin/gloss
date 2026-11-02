@@ -38,7 +38,7 @@ is lanes of spans on a shared 0-100 axis with optional markers and an outcome pe
 model-drawn picture that passed the backend's allowlist sanitizer, shown only as an
 `<img>`. Never model-written HTML. With Jev, `tour.summary` is sent twice: first without the
 visual, then with Jev's pick (or none); the reducer keeps the later one.
-`tour.walkthrough` (and `Tour.walkthrough`) follows when Jev says the change is a call path: a
+`tour.walkthrough` (and `Tour.walkthrough`) follows when the change has a call path the model can walk: a
 call tree as flat frames with a depth plus steps of `{title, text, frames, excerpts}`, each excerpt a hunk slice
 `{fileId, hunkId, from, to}` on new-side lines. The web app shows it as a read-only section
 between the overview and the groups.

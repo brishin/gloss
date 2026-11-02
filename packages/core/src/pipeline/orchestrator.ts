@@ -33,7 +33,6 @@ import {
   fileState,
   FILE_QUESTIONS,
   groupQuestions,
-  isCallPath,
   judgmentFromFileAnswers,
   judgmentFromGroupAnswers,
   pickVisual,
@@ -433,17 +432,7 @@ const tourProgram = Effect.fnUntraced(function* (
             summary: pick === undefined ? 'none shown' : `${visuals[pick]!.kind} shown`,
           });
           show(pick === undefined ? undefined : visuals[pick]);
-          return isCallPath(value);
         }),
-        Effect.flatMap((callPath) =>
-          callPath
-            ? Effect.forkScoped(writeWalkthrough(overallSummary, decisions)).pipe(
-                Effect.map((fiber) => {
-                  walking = fiber;
-                }),
-              )
-            : Effect.void,
-        ),
         Effect.catchTag('JudgeError', (error) =>
           Effect.sync(() => {
             warn('judge', `Jev could not pick a visual: ${error.message}`);
@@ -455,16 +444,17 @@ const tourProgram = Effect.fnUntraced(function* (
     });
 
   /**
-   * The walkthrough, only once Jev says the change is a call path (its `call_path` answer in
-   * the visual pick): its own call on the define model, with a numbered diff so its call tree
-   * and excerpts can point at lines. A failed call is only a warning; the tour reads the same
-   * without it.
+   * The walkthrough: its own call on the define model once groups are defined, with a numbered
+   * diff so its call tree and excerpts can point at lines. The model returns nothing for a
+   * change with no call path, and the normalizer drops a weak one; a Jev gate was tried and
+   * hid most good walkthroughs (full-stack features score low on "is the main decision a call
+   * path"). A failed call is only a warning; the tour reads the same without it.
    */
   const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
     Effect.suspend(() => {
       const walkPrompt = buildWalkthroughPrompt(meta, files, overallSummary, decisions);
       trace.begin('walkthrough', 'walkthrough', {
-        inputs: ['judge-visual', 'define'],
+        inputs: ['define'],
         model: models.define,
         system: WALKTHROUGH_SYSTEM,
         prompt: walkPrompt,
@@ -732,10 +722,18 @@ const tourProgram = Effect.fnUntraced(function* (
   if (!judge) {
     stage('judge', 'skipped', 'No TypeSafe key: the LLM places files');
   }
+  /** Starts the walkthrough beside everything after define; `finish` joins it. */
+  const startWalkthrough = (defined: { overallSummary: string; decisions: NonNullable<Tour['decisions']> }) =>
+    Effect.forkScoped(writeWalkthrough(defined.overallSummary, defined.decisions)).pipe(
+      Effect.map((fiber) => {
+        walking = fiber;
+      }),
+    );
   const [definition] = yield* Effect.all(
     [
       judge
         ? defineGroups.pipe(
+            Effect.tap(startWalkthrough),
             Effect.tap((defined) =>
               Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
                 concurrency: 'unbounded',
@@ -743,7 +741,7 @@ const tourProgram = Effect.fnUntraced(function* (
               }),
             ),
           )
-        : defineGroups.pipe(Effect.tap(showVisual)),
+        : defineGroups.pipe(Effect.tap(startWalkthrough), Effect.tap(showVisual)),
       judge ? judgeFiles(judge) : Effect.void,
     ],
     { concurrency: 'unbounded' },

@@ -136,9 +136,6 @@ const fakeJudge = () =>
     if (id === 'workflow') {
       return { type: 'bool', probability: 0.95 };
     }
-    if (id === 'call_path') {
-      return { type: 'bool', probability: 0.1 };
-    }
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
@@ -219,7 +216,7 @@ describe('runTour', () => {
     expect(model.calls.length).toBe(calls);
   });
 
-  it('writes a walkthrough only when Jev says the change is a call path', async () => {
+  it('writes a walkthrough on every tour, right after the groups are defined', async () => {
     const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
     const hunkId = (prompt: string) =>
       new RegExp(`### ${authId(prompt)} [^\\n]*\\n@@ hunk (h[0-9a-f]+)`).exec(prompt)![1]!;
@@ -245,19 +242,12 @@ describe('runTour', () => {
         },
       },
     });
-    const callPath = createFakeJudgeClient((state, id, question) =>
-      id === 'call_path'
-        ? { type: 'bool', probability: 0.9 }
-        : fakeJudge()
-            .judge({ state, questions: { [id]: question } })
-            .pipe(Effect.runSync)[id]!,
-    );
     const { events, tour: finished } = await tour({
       model: {
         ...model,
         prompt: (request) => (request.tier === 'define' ? model.prompt(request) : base.prompt(request)),
       },
-      judge: callPath,
+      judge: fakeJudge(),
     });
     expect(finished.walkthrough?.frames).toEqual([
       { depth: 0, name: 'route', status: 'same' },
@@ -269,11 +259,11 @@ describe('runTour', () => {
     expect(events.findIndex((event) => event.type === 'tour.walkthrough')).toBeGreaterThan(0);
     expect(events.reduce(reduceTourEvent, initialTourState()).walkthrough).toEqual(finished.walkthrough);
 
-    // Not a call path: no walkthrough call at all.
+    // Without a call path the model's answer has no steps, and the tour has no walkthrough.
     const plain = fakeModel();
     const other = await tour({ model: plain, judge: fakeJudge() });
+    expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(true);
     expect(other.tour.walkthrough).toBeUndefined();
-    expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(false);
   });
 
   it('traces every step as a DAG with tagged prompts, and replays the trace with a cached tour', async () => {
@@ -294,6 +284,7 @@ describe('runTour', () => {
         'notes:tests',
         'place',
         'sketch',
+        'walkthrough',
       ].toSorted(),
     );
     for (const step of steps) {
