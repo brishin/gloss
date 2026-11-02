@@ -14,6 +14,7 @@ import {
   type SourceRef,
   type Subscription,
   type Trace,
+  type UpdateStatus,
 } from '@gloss/protocol';
 import { Context, Data, Duration, Effect, Layer, Schedule, Stream } from 'effect';
 import { AsyncResult, Atom } from 'effect/reactivity';
@@ -59,6 +60,34 @@ export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], Gl
 /** The backend's models and which of their providers are signed in; refresh it after a login. */
 export const healthAtom: Atom.Atom<AsyncResult.AsyncResult<Health, GlossRequestError>> = glossRuntime.atom(
   request((client) => client.health()),
+);
+
+/** Whether the backend's checkout has newer code; checked on load and every 30 minutes. */
+export const updateStatusAtom: Atom.Atom<AsyncResult.AsyncResult<UpdateStatus, unknown>> = glossRuntime.atom(
+  Stream.fromEffectSchedule(
+    request((client) => client.updateStatus()),
+    Schedule.spaced(Duration.minutes(30)),
+  ),
+);
+
+/**
+ * Updates the backend (pull, install, build) and waits, up to two minutes, until it answers
+ * again on a commit other than `running`, the one it ran before.
+ */
+export const updateAtom = glossRuntime.fn((running: string | undefined) =>
+  Effect.gen(function* () {
+    yield* request((client) => client.update());
+    for (let attempt = 0; attempt < 120; attempt++) {
+      yield* Effect.sleep(Duration.seconds(1));
+      const health = yield* request((client) => client.health()).pipe(Effect.orElseSucceed(() => undefined));
+      if (health && health.commit !== running) {
+        return;
+      }
+    }
+    return yield* new GlossRequestError({
+      cause: new Error('gloss did not come back after the update; see ~/.gloss/serve.log'),
+    });
+  }),
 );
 
 /**

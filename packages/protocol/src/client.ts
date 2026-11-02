@@ -16,6 +16,7 @@ import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { type Stack, StackSchema } from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
+import { type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:4777';
 
@@ -28,6 +29,8 @@ export type StartTourResponse = v.InferOutput<typeof StartTourResponseSchema>;
 
 export const HealthSchema = v.object({
   version: v.string(),
+  /** The git commit the server runs, when it runs from a checkout. */
+  commit: v.optional(v.string()),
   pipelineVersion: v.string(),
   judge: v.object({ available: v.boolean(), model: v.optional(v.string()) }),
   models: v.object({ define: v.string(), followup: v.string(), notes: v.string() }),
@@ -83,6 +86,10 @@ export interface GlossClient {
   /** Answers the login's current question (`prompt.id`). */
   answerLogin(loginId: string, promptId: number, value: string): Promise<LoginSession>;
   cancelLogin(loginId: string): Promise<void>;
+  /** Whether the backend's checkout has newer code (fetches its upstream at most every few minutes). */
+  updateStatus(): Promise<UpdateStatus>;
+  /** Pulls, installs and builds on the backend, then restarts it; resolves before the restart. */
+  update(): Promise<void>;
 }
 
 export interface HttpGlossClientOptions {
@@ -201,6 +208,10 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+    },
+    updateStatus: () => json(UpdateStatusSchema, '/api/update'),
+    async update() {
+      await request('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     },
   };
 }

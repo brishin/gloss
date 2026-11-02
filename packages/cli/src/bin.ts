@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
@@ -13,12 +13,14 @@ import { startDetached, stopServer } from './daemon.ts';
 import { EXTENSION_DIR, installExtension, uninstallExtension } from './extension.ts';
 import { DEFAULT_PORT, startServer } from './serve.ts';
 import { resolveTarget, webPath } from './target.ts';
+import { syncCheckout } from './update.ts';
 
 const HELP = `gloss ${VERSION} — streaming review tours for pull requests and local diffs
 
 Usage
-  gloss [target]              Open a tour in the browser (starts the local server)
+  gloss [target]              Update gloss, then open a tour in the browser (starts the local server)
   gloss serve                 Run the local server only
+  gloss update                Pull, install, build, and restart the server in the background
   gloss restart               Restart the server in the background on this checkout's code
   gloss tour <target>         Print a tour in the terminal (--json for the full tour)
   gloss login claude|chatgpt  Sign in with a Claude or ChatGPT subscription
@@ -40,6 +42,7 @@ Options
   --token <t>     Require this bearer token on /api (or GLOSS_TOKEN)
   --force         Ignore cached results
   --no-open       Do not open the browser
+  --no-update     Skip the pull, install and build that gloss [target] runs first
   --json          (tour) Print the finished tour as JSON
 
 Config: ${configPath()}   Keys: environment or ${glossPath('.env')}`;
@@ -47,6 +50,51 @@ Config: ${configPath()}   Keys: environment or ${glossPath('.env')}`;
 function openBrowser(url: string) {
   const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
   execFile(command, [url], () => {});
+}
+
+const log = (line: string) => console.error(`gloss: ${line}`);
+
+/** Stops the server on `port` and starts it again in the background on this checkout's code. */
+async function restart(port: number) {
+  const stopped = await stopServer(port);
+  if (stopped.length > 0) console.error(`Stopped ${stopped.join(', ')}`);
+  const result = await startDetached(port);
+  if ('error' in result) throw new Error(result.error);
+  console.log(`gloss server on ${result.url} (logs: ${glossPath('serve.log')})`);
+}
+
+/**
+ * What `gloss [target]` does first: pull, install and build, then make sure the server runs
+ * the new code. A running server on an older commit is restarted; with none running, this
+ * process (still on the old code) re-runs itself and returns its exit code.
+ */
+async function updateFirst(port: number, url: string, token?: string): Promise<number | undefined> {
+  let synced: { before?: string; after?: string };
+  try {
+    synced = await syncCheckout(log);
+  } catch (error) {
+    const reason = (error instanceof Error ? error.message : String(error)).trim().split('\n').slice(-1)[0];
+    log(`could not update (${reason}); continuing on the code as it is`);
+    return undefined;
+  }
+  if (!synced.after) {
+    return undefined;
+  }
+  const health = await createHttpGlossClient({ baseUrl: url, token })
+    .health()
+    .catch(() => undefined);
+  if (health && health.commit !== synced.after) {
+    log('restarting the server on the new code');
+    await restart(port);
+    return undefined;
+  }
+  if (!health && synced.before !== synced.after) {
+    const child = spawn(process.execPath, [...process.argv.slice(1), '--no-update'], { stdio: 'inherit' });
+    // The child gets Ctrl-C too and shuts its server down; this one only waits for it.
+    process.on('SIGINT', () => {});
+    return new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 0)));
+  }
+  return undefined;
 }
 
 const elapsed = (start: number) => `${((performance.now() - start) / 1000).toFixed(1)}s`;
@@ -61,6 +109,7 @@ async function main() {
       days: { type: 'string' },
       force: { type: 'boolean', default: false },
       'no-open': { type: 'boolean', default: false },
+      'no-update': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
       version: { type: 'boolean', short: 'v', default: false },
@@ -138,11 +187,14 @@ async function main() {
     }
 
     case 'restart': {
-      const stopped = await stopServer(port);
-      if (stopped.length > 0) console.error(`Stopped ${stopped.join(', ')}`);
-      const result = await startDetached(port);
-      if ('error' in result) throw new Error(result.error);
-      console.log(`gloss server on ${result.url} (logs: ${glossPath('serve.log')})`);
+      await restart(port);
+      return;
+    }
+
+    case 'update': {
+      const { before, after } = await syncCheckout(log);
+      if (before && before === after) log('already up to date');
+      await restart(port);
       return;
     }
 
@@ -269,6 +321,13 @@ async function main() {
     case undefined:
     default: {
       const serveOnly = command === 'serve';
+      if (!serveOnly && !values['no-update']) {
+        const exitCode = await updateFirst(port, `http://${host}:${port}`, token);
+        if (exitCode !== undefined) {
+          process.exitCode = exitCode;
+          return;
+        }
+      }
       const ref = serveOnly ? undefined : await resolveTarget(command, process.cwd());
       const corsOrigins = [
         'http://127.0.0.1:4778',

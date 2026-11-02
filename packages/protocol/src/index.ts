@@ -10,6 +10,7 @@ export * from './source-ref.ts';
 export * from './stack.ts';
 export * from './tour.ts';
 export * from './trace.ts';
+export * from './update.ts';
 
 /** Bump when the pipeline's output can differ for the same inputs; it is part of every cache key. */
 export const PIPELINE_VERSION = '2';

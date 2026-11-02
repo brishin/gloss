@@ -1,5 +1,5 @@
 import { Repos, TourCache } from '@gloss/core';
-import type { DiffPayload, Health, TourEvent, Trace } from '@gloss/protocol';
+import type { DiffPayload, Health, TourEvent, Trace, UpdateStatus } from '@gloss/protocol';
 import {
   encodeNdjson,
   LoginAnswerSchema,
@@ -25,6 +25,15 @@ export interface AppOptions {
   token?: string;
   /** Browser origins allowed to call the API cross-origin (the dev web server, a hosted frontend). */
   corsOrigins?: string[];
+  /** Updates the backend's own checkout (`/api/update`); a backend that is not a checkout leaves it out. */
+  update?: UpdateHooks;
+}
+
+/** The CLI implements these (packages/cli/src/update.ts). */
+export interface UpdateHooks {
+  status(): Promise<UpdateStatus>;
+  /** Pulls, installs and builds, then has the server restart on the new code once the response is out. */
+  apply(): Promise<void>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -32,7 +41,7 @@ const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boo
 const PING_MS = 15_000;
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
-export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptions): Hono {
+export function createApp({ runtime, health, token, corsOrigins = [], update }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos>, signal?: AbortSignal) =>
     runtime.runPromise(effect, { signal });
@@ -269,6 +278,30 @@ export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptio
     return (await withLogins((logins) => logins.cancel(id)))
       ? c.body(null, 204)
       : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
+  app.get('/api/update', async (c) => {
+    if (!update) {
+      return c.json({ error: 'This backend does not update itself' }, 404);
+    }
+    c.header('Cache-Control', 'no-store');
+    return c.json(await update.status());
+  });
+
+  app.post('/api/update', async (c) => {
+    if (!update) {
+      return c.json({ error: 'This backend does not update itself' }, 404);
+    }
+    // An update runs pnpm and restarts the server, so like a login only the app may ask for one.
+    if (!fromApp(c)) {
+      return c.json({ error: 'Updates are accepted only as JSON from the gloss app' }, 403);
+    }
+    try {
+      await update.apply();
+      return c.body(null, 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
   });
 
   return app;
