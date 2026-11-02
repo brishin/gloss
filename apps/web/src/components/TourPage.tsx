@@ -163,6 +163,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           sourceRef={sourceRef}
           stack={model.stack}
           title={state.meta?.title}
+          author={state.meta?.author}
           groups={groups}
           files={files}
           selection={current?.key ?? OVERVIEW}

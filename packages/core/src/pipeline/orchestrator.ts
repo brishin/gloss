@@ -169,7 +169,7 @@ const tourProgram = Effect.fnUntraced(function* (
     for (const step of cache.get<TraceStep[]>(traceCacheKey(tourKey)) ?? []) {
       options.onStep?.(step);
     }
-    cache.recordRecent(ref, sourceKey, cachedTour.meta.title);
+    cache.recordRecent(ref, sourceKey, cachedTour.meta.title, cachedTour.meta.author);
     send({ type: 'tour.complete', tour: cachedTour, cached: true });
     return cachedTour;
   }
@@ -186,7 +186,7 @@ const tourProgram = Effect.fnUntraced(function* (
     cache.put(diffKey, 'diff', diff);
   }
   const { meta, files } = diff;
-  cache.recordRecent(ref, sourceKey, meta.title);
+  cache.recordRecent(ref, sourceKey, meta.title, meta.author);
   send({ type: 'diff.ready', diffId: diff.id, meta, files: files.map(summarizeFile) });
   send({ type: 'groups.provisional', groups: provisionalGroups(files) });
   stage('fetch', 'done', `${files.length} files`);

@@ -46,6 +46,10 @@ export type Health = v.InferOutput<typeof HealthSchema>;
 export const RecentTourSchema = v.object({
   ref: SourceRefSchema,
   title: v.string(),
+  /** The PR author's GitHub login (PRs only). */
+  author: v.optional(v.string()),
+  /** The stack the PR sat in when the app last asked for it (PRs only). */
+  stack: v.optional(StackSchema),
   updatedAt: v.string(),
 });
 export type RecentTour = v.InferOutput<typeof RecentTourSchema>;

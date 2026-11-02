@@ -67,10 +67,11 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     above.push(next);
     at = next;
   }
-  return [...below, current, ...above].map(({ number, title, state, baseRef, headRef }) => ({
+  return [...below, current, ...above].map(({ number, title, state, author, baseRef, headRef }) => ({
     number,
     title,
     state,
+    ...(author ? { author } : {}),
     baseRef,
     headRef,
   }));
@@ -82,6 +83,7 @@ interface PullJson {
   state: 'open' | 'closed';
   draft?: boolean;
   merged_at: string | null;
+  user?: { login: string } | null;
   base: { ref: string };
   head: { ref: string; repo: { full_name: string } | null };
 }
@@ -93,6 +95,7 @@ function toPull(pull: PullJson, repo: string): StackPull {
     number: pull.number,
     title: pull.title,
     state,
+    ...(pull.user?.login ? { author: pull.user.login } : {}),
     baseRef: pull.base.ref,
     headRef: pull.head.ref,
     headInRepo: pull.head.repo?.full_name.toLowerCase() === repo,

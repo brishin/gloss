@@ -1,6 +1,6 @@
-import type { FileSummary, GroupView } from '@gloss/protocol';
+import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { byCategory, countViewed, filterGroups } from './sidebar-tree.ts';
+import { byCategory, countViewed, filterGroups, recentEntries } from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
   return { key, label, category, critical: false, fileIds, phase: 'resolved', synthetic: false };
@@ -69,4 +69,39 @@ describe('filterGroups', () => {
 
 test('countViewed', () => {
   expect(countViewed(['f1', 'f2', 'f3'], new Set(['f2', 'f9']))).toBe(1);
+});
+
+describe('recentEntries', () => {
+  const stack = (...numbers: number[]): Stack => ({
+    owner: 'o',
+    repo: 'r',
+    base: 'main',
+    members: numbers.map((number) => ({ number, title: `#${number}`, state: 'open', baseRef: 'b', headRef: 'h' })),
+  });
+  const pr = (number: number, inStack?: Stack): RecentTour => ({
+    ref: { kind: 'github-pr', owner: 'O', repo: 'R', number },
+    title: `#${number}`,
+    updatedAt: '',
+    ...(inStack ? { stack: inStack } : {}),
+  });
+  const local: RecentTour = { ref: { kind: 'local', repo: '/repo', target: 'HEAD' }, title: 'local', updatedAt: '' };
+  const shape = (entries: ReturnType<typeof recentEntries>) =>
+    entries.map((entry) =>
+      entry.kind === 'tour' ? entry.tour.title : `stack ${entry.stack.members.map((m) => m.number).join(',')}`,
+    );
+
+  test('folds tours of one stack into one row at the newest member', () => {
+    const s = stack(1, 2, 3);
+    expect(shape(recentEntries([pr(3, s), local, pr(1, s), pr(9)], new Set()))).toEqual(['stack 1,2,3', 'local', '#9']);
+  });
+
+  test('a stack of one is a plain row', () => {
+    expect(shape(recentEntries([pr(4, stack(4))], new Set()))).toEqual(['#4']);
+  });
+
+  test('skips tours already shown, and shows a tour alone when its stale stack overlaps them', () => {
+    expect(shape(recentEntries([pr(2, stack(2, 5)), pr(7), pr(8)], new Set(['github:o/r#5', 'github:o/r#7'])))).toEqual(
+      ['#2', '#8'],
+    );
+  });
 });

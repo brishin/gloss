@@ -1,4 +1,4 @@
-import type { RecentTour, SourceRef } from '@gloss/protocol';
+import { type RecentTour, type SourceRef, type Stack, serializeRef } from '@gloss/protocol';
 import { Context, Effect, Layer } from 'effect';
 import { createSqliteCacheStore } from './sqlite.ts';
 
@@ -22,7 +22,13 @@ export type CacheKind =
 export interface CacheStore {
   get<T>(key: string): T | undefined;
   put(key: string, kind: CacheKind, value: unknown, model?: string): void;
-  recordRecent(ref: SourceRef, sourceKey: string, title: string): void;
+  recordRecent(ref: SourceRef, sourceKey: string, title: string, author?: string): void;
+  /**
+   * Remembers the stack a PR was last seen in, for each of its members, so the recent list can
+   * show stacks without walking them again. Not a cache: it never answers a stack request.
+   */
+  recordStack(stack: Stack): void;
+  /** Recent tours, newest first, each PR with its author and last-seen stack. */
   listRecent(limit?: number): RecentTour[];
   /** Deletes entries older than `olderThanMs`; returns how many were removed. */
   prune(olderThanMs: number): number;
@@ -32,6 +38,7 @@ export interface CacheStore {
 export function createMemoryCacheStore(): CacheStore {
   const entries = new Map<string, { value: string; createdAt: number }>();
   const recent = new Map<string, RecentTour>();
+  const stacks = new Map<string, Stack>();
   return {
     get: <T>(key: string) => {
       const entry = entries.get(key);
@@ -40,11 +47,20 @@ export function createMemoryCacheStore(): CacheStore {
     put: (key, _kind, value) => {
       entries.set(key, { value: JSON.stringify(value), createdAt: Date.now() });
     },
-    recordRecent: (ref, sourceKey, title) => {
+    recordRecent: (ref, sourceKey, title, author) => {
       recent.delete(sourceKey);
-      recent.set(sourceKey, { ref, title, updatedAt: new Date().toISOString() });
+      recent.set(sourceKey, { ref, title, ...(author ? { author } : {}), updatedAt: new Date().toISOString() });
     },
-    listRecent: (limit = 20) => [...recent.values()].toReversed().slice(0, limit),
+    recordStack: (stack) => {
+      for (const key of stackMemberKeys(stack)) {
+        stacks.set(key, stack);
+      }
+    },
+    listRecent: (limit = 20) =>
+      [...recent.values()]
+        .toReversed()
+        .slice(0, limit)
+        .map((tour) => withStack(tour, stacks.get(serializeRef(tour.ref)))),
     prune: (olderThanMs) => {
       let removed = 0;
       for (const [key, entry] of entries) {
@@ -57,6 +73,17 @@ export function createMemoryCacheStore(): CacheStore {
     },
     close: () => {},
   };
+}
+
+/** The `serializeRef` key of each PR in a stack. */
+export function stackMemberKeys(stack: Stack): string[] {
+  return stack.members.map((member) =>
+    serializeRef({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number }),
+  );
+}
+
+export function withStack(tour: RecentTour, stack: Stack | undefined): RecentTour {
+  return stack ? { ...tour, stack } : tour;
 }
 
 /** The cache as a service. Its methods stay synchronous: `node:sqlite` is, and so is the memory store. */
