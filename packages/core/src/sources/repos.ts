@@ -9,7 +9,7 @@ import type {
   SourceRef,
   Stack,
 } from '@gloss/protocol';
-import { Context, Data, Effect, Exit, Layer } from 'effect';
+import { Context, Data, Deferred, Effect, Exit, Layer, Semaphore } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
 import { submitGithubReview } from './github-review.ts';
 import { resolveGithubStack } from './github-stack.ts';
@@ -54,10 +54,13 @@ export class Repos extends Context.Service<
       const viewer = yield* Effect.tryPromise((signal) => githubViewer(signal)).pipe(
         Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '1 hour' : 0)),
       );
-      const lfs = lfsCache();
+      const lfs = yield* makeLfsCache();
       return {
         lfs: (diff, object) =>
-          Effect.tryPromise({ try: () => lfs(object.oid, () => readLfsObject(diff, object)), catch: repoError }),
+          lfs(
+            object.oid,
+            Effect.tryPromise({ try: (signal) => readLfsObject(diff, object, signal), catch: repoError }),
+          ),
         pulls: (refs) =>
           Effect.tryPromise((signal) => githubPulls(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
         inbox: Effect.tryPromise((signal) => githubInbox(signal)).pipe(Effect.orElseSucceed(() => undefined)),
@@ -82,57 +85,65 @@ const LFS_DOWNLOADS = 4;
 const LFS_BUDGET = 512 * 1024 * 1024;
 
 /**
- * Fetched LFS objects by oid. Requests for one oid share a download: the page asks for every
- * image when the tour opens, and again when it shows one. A download is not tied to the request
- * that started it, so a reader who leaves the page does not cancel it for the others.
+ * Fetched LFS objects by oid, least recently used first. Requests for one oid share a download:
+ * the page asks for every image when the tour opens, and again when it shows one. A download runs
+ * in the service's scope, not the request's, so a reader who leaves the page does not cancel it for
+ * the others; closing the service interrupts it.
  */
-function lfsCache() {
-  const entries = new Map<string, Promise<Uint8Array>>();
-  const sizes = new Map<string, number>();
-  let used = 0;
-  let running = 0;
-  const waiting: (() => void)[] = [];
-  const slot = async () => {
-    if (running >= LFS_DOWNLOADS) {
-      await new Promise<void>((resolve) => waiting.push(resolve));
-    }
-    running++;
-  };
-  const release = () => {
-    running--;
-    waiting.shift()?.();
-  };
-  return (oid: string, download: () => Promise<Uint8Array>): Promise<Uint8Array> => {
-    const hit = entries.get(oid);
-    if (hit) {
-      // Most recently used last, so eviction takes the oldest.
-      entries.delete(oid);
-      entries.set(oid, hit);
-      return hit;
-    }
-    const pending = slot()
-      .then(download)
-      .finally(release)
-      .then(
-        (bytes) => {
-          sizes.set(oid, bytes.length);
-          used += bytes.length;
-          for (const [key] of entries) {
-            if (used <= LFS_BUDGET || key === oid) {
-              break;
-            }
-            entries.delete(key);
-            used -= sizes.get(key) ?? 0;
-            sizes.delete(key);
-          }
-          return bytes;
-        },
-        (error: unknown) => {
+export const makeLfsCache = (budget = LFS_BUDGET) =>
+  Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    const downloads = yield* Semaphore.make(LFS_DOWNLOADS);
+    const entries = new Map<string, Deferred.Deferred<Uint8Array, RepoError>>();
+    const sizes = new Map<string, number>();
+    let used = 0;
+
+    const keep = (oid: string, bytes: Uint8Array) => {
+      sizes.set(oid, bytes.length);
+      used += bytes.length;
+      // The object just kept is the newest, so it goes last, and only when it is alone over the budget.
+      for (const [key, size] of sizes) {
+        if (used <= budget || key === oid) {
+          continue;
+        }
+        sizes.delete(key);
+        entries.delete(key);
+        used -= size;
+      }
+    };
+
+    return (oid: string, download: Effect.Effect<Uint8Array, RepoError>): Effect.Effect<Uint8Array, RepoError> =>
+      Effect.suspend(() => {
+        const hit = entries.get(oid);
+        if (hit) {
           entries.delete(oid);
-          throw error;
-        },
-      );
-    entries.set(oid, pending);
-    return pending;
-  };
-}
+          entries.set(oid, hit);
+          const size = sizes.get(oid);
+          if (size !== undefined) {
+            sizes.delete(oid);
+            sizes.set(oid, size);
+          }
+          return Deferred.await(hit);
+        }
+        const deferred = Deferred.makeUnsafe<Uint8Array, RepoError>();
+        entries.set(oid, deferred);
+        return downloads.withPermit(download).pipe(
+          Effect.exit,
+          Effect.flatMap((exit) =>
+            Effect.sync(() => {
+              if (Exit.isSuccess(exit)) {
+                keep(oid, exit.value);
+              } else {
+                entries.delete(oid);
+              }
+              Deferred.doneUnsafe(deferred, exit);
+            }),
+          ),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => entries.delete(oid)).pipe(Effect.andThen(Deferred.interrupt(deferred))),
+          ),
+          Effect.forkIn(scope),
+          Effect.andThen(Deferred.await(deferred)),
+        );
+      });
+  });
