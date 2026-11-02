@@ -1,6 +1,14 @@
 import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { byCategory, countViewed, filterGroups, railSections, recentEntries, splitByViewer } from './sidebar-tree.ts';
+import {
+  byCategory,
+  countViewed,
+  filterGroups,
+  findEntry,
+  railSections,
+  recentEntries,
+  splitByViewer,
+} from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
   return { key, label, category, critical: false, fileIds, phase: 'resolved', synthetic: false };
@@ -193,5 +201,28 @@ describe('railSections', () => {
       ['#10'],
       ['#8'],
     ]);
+  });
+});
+
+describe('findEntry', () => {
+  test('finds the row that holds a PR: its own, or its stack', () => {
+    const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
+      ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
+      title: `#${number}`,
+      updatedAt: '',
+      ...extra,
+    });
+    const member = (number: number) => ({ number, title: '', state: 'open' as const, baseRef: 'b', headRef: 'h' });
+    const sections = railSections(
+      {
+        reviewRequested: [pr(1)],
+        authored: [pr(2, { stack: { owner: 'o', repo: 'r', base: 'main', members: [member(2), member(3)] } })],
+        tours: [],
+      },
+      new Set(),
+    );
+    expect(findEntry(sections, 'github:o/r#3')).toBe(sections.mine[0]);
+    expect(findEntry(sections, 'github:o/r#1')).toBe(sections.reviewRequested[0]);
+    expect(findEntry(sections, 'github:o/r#9')).toBeUndefined();
   });
 });

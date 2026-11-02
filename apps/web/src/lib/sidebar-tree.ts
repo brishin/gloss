@@ -244,3 +244,12 @@ export function railSections(recent: RecentTours, skip: ReadonlySet<string>): Ra
   }
   return { reviewRequested: take(recent.reviewRequested), mine: take(recent.authored), recent: take(recent.tours) };
 }
+
+/** The row that holds the PR (by `serializeRef`): its own row, or the stack it is in. */
+export function findEntry(sections: RailSections, key: string): RecentEntry | undefined {
+  return [...sections.reviewRequested, ...sections.mine, ...sections.recent].find((entry) =>
+    entry.kind === 'tour'
+      ? serializeRef(entry.tour.ref) === key
+      : stackRefs(entry.stack).some((ref) => serializeRef(ref) === key),
+  );
+}

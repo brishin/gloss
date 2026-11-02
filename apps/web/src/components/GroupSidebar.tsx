@@ -20,6 +20,7 @@ import {
   type Nesting,
   PR_NODE,
   closedNode,
+  findEntry,
   isClosed,
   railSections,
   type RecentEntry,
@@ -30,6 +31,7 @@ import {
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
+import { rememberRailAnchor, rememberRailScroll } from '../lib/tour-program.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
@@ -75,12 +77,29 @@ export function GroupSidebar({
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), (): RecentTours => ({ tours: [] }));
   const { viewer } = recent;
   // Only a chain of two or more is worth its own row.
-  const stack = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
+  const currentKey = serializeRef(sourceRef);
+  // Only a chain of two or more is worth its own row.
+  const fetched = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
+  // The toured PR shows in place, in the first section that has it; the live stack's other PRs
+  // are left out of the sections so none shows twice.
+  const sections = railSections(
+    recent,
+    new Set(
+      fetched
+        ? stackRefs(fetched)
+            .map(serializeRef)
+            .filter((key) => key !== currentKey)
+        : [],
+    ),
+  );
+  const home = findEntry(sections, currentKey);
+  // The live stack once fetched; until then the one the toured PR's row already has, so the rail
+  // does not move while it loads.
+  const stack = fetched ?? (home?.kind === 'stack' ? home.stack : undefined);
   const currentMember =
     sourceRef.kind === 'github-pr'
-      ? fetchedStack?.members.find((member) => member.number === sourceRef.number)
+      ? (stack ?? fetchedStack)?.members.find((member) => member.number === sourceRef.number)
       : undefined;
-  const shown = new Set([serializeRef(sourceRef), ...(stack ? stackRefs(stack).map(serializeRef) : [])]);
   const navigateToRef = useNavigateToRef();
 
   const kept = filterGroups(groups, files, query);
@@ -248,7 +267,8 @@ export function GroupSidebar({
             {critical}
           </span>
         )}
-        <Avatar login={author ?? currentMember?.author} />
+        {/* Your own PR sits in "My PRs", which shows no avatar of yours. */}
+        <Avatar login={(author ?? currentMember?.author) === viewer ? undefined : (author ?? currentMember?.author)} />
         {loading ? (
           <Spinner size="sm" shade="subtle" aria-label="Tour running" />
         ) : (
@@ -289,16 +309,15 @@ export function GroupSidebar({
     </div>
   );
 
-  const sections = railSections(recent, shown);
-
   /**
    * A stack's PRs, bottom first. Merged and closed PRs (other than the toured one) hide behind
    * a row that counts them, folded until opened.
    */
-  const stackMembers = (stack: Stack, parent: string, hideAuthor: string | undefined) => {
+  const stackMembers = (stack: Stack, parent: string, hideAuthor: string | undefined, holdsCurrent: boolean) => {
     const closedId = closedNode(parent);
     const showClosed = isOpen(closedId);
-    const closed = stack.members.filter((member) => member !== currentMember && isClosed(member.state));
+    const isCurrent = (member: StackMember) => holdsCurrent && member === currentMember;
+    const closed = stack.members.filter((member) => !isCurrent(member) && isClosed(member.state));
     return (
       <div className="tree-kids" role="group">
         {closed.length > 0 && (
@@ -315,7 +334,7 @@ export function GroupSidebar({
           </TreeRow>
         )}
         {stack.members.map((member) =>
-          member === currentMember ? (
+          isCurrent(member) ? (
             <Fragment key={member.number}>{prNode}</Fragment>
           ) : showClosed || !isClosed(member.state) ? (
             <MemberRow key={member.number} stack={stack} member={member} parent={parent} hideAuthor={hideAuthor} />
@@ -325,7 +344,34 @@ export function GroupSidebar({
     );
   };
 
+  /** The toured PR, in its stack when it has one. */
+  const currentBlock = (hideAuthor: string | undefined) =>
+    stack ? (
+      <div className="tree-node">
+        <StackHead
+          id={STACK_NODE}
+          stack={stack}
+          open={stackOpen}
+          tabbable
+          onToggle={(deep) => toggle(STACK_NODE, deep)}
+        >
+          {!stackOpen && critical > 0 && (
+            <span className="tree-critical" aria-label={`${critical} critical groups`}>
+              <span className="marker marker-critical" />
+              {critical}
+            </span>
+          )}
+        </StackHead>
+        {stackOpen && stackMembers(stack, STACK_NODE, hideAuthor, true)}
+      </div>
+    ) : (
+      prNode
+    );
+
   const renderRecent = (hideAuthor: string | undefined) => (entry: RecentEntry) => {
+    if (entry === home) {
+      return <Fragment key={currentKey}>{currentBlock(hideAuthor)}</Fragment>;
+    }
     if (entry.kind === 'tour') {
       const item = entry.tour;
       return (
@@ -350,13 +396,23 @@ export function GroupSidebar({
     return (
       <div key={id} className="tree-node">
         <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
-        {open && stackMembers(entry.stack, id, hideAuthor)}
+        {open && stackMembers(entry.stack, id, hideAuthor, false)}
       </div>
     );
   };
 
   return (
-    <nav className="sidebar" aria-label="Review queue">
+    <nav
+      className="sidebar"
+      aria-label="Review queue"
+      onScroll={(event) => rememberRailScroll(event.currentTarget.scrollTop)}
+      onClickCapture={(event) => {
+        const row = (event.target as HTMLElement).closest('[data-node]');
+        if (row) {
+          rememberRailAnchor(row.getBoundingClientRect().top - event.currentTarget.getBoundingClientRect().top);
+        }
+      }}
+    >
       <div className="side-tools">
         <TextInput
           label="Filter groups and files"
@@ -376,27 +432,7 @@ export function GroupSidebar({
         </SegmentedControl>
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
-        {stack ? (
-          <div className="tree-node">
-            <StackHead
-              id={STACK_NODE}
-              stack={stack}
-              open={stackOpen}
-              tabbable
-              onToggle={(deep) => toggle(STACK_NODE, deep)}
-            >
-              {!stackOpen && critical > 0 && (
-                <span className="tree-critical" aria-label={`${critical} critical groups`}>
-                  <span className="marker marker-critical" />
-                  {critical}
-                </span>
-              )}
-            </StackHead>
-            {stackOpen && stackMembers(stack, STACK_NODE, undefined)}
-          </div>
-        ) : (
-          prNode
-        )}
+        {!home && currentBlock(undefined)}
         <RailSection label="Review requested" entries={sections.reviewRequested} render={renderRecent(undefined)} />
         <RailSection label="My PRs" entries={sections.mine} render={renderRecent(viewer)} />
         <RailSection label="Recent" entries={sections.recent} render={renderRecent(undefined)} />

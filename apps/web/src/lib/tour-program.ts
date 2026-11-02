@@ -153,6 +153,25 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'Scrolled', spied: spy() }))));
     case 'StepNote':
       return once(Effect.sync(() => stepNote(cmd.by)));
+    case 'RestoreRailScroll':
+      return once(
+        nextFrame.pipe(
+          Effect.map(() => {
+            const rail = document.querySelector<HTMLElement>('nav.sidebar');
+            if (!rail) {
+              return;
+            }
+            rail.scrollTop = railScrollTop;
+            // The toured PR's groups now sit under it and the last one's are gone, so the rows
+            // above it moved: keep the opened PR under the pointer instead.
+            const row = rail.querySelector<HTMLElement>('[data-node="pr"]');
+            if (row && railAnchor !== undefined) {
+              rail.scrollTop += row.getBoundingClientRect().top - rail.getBoundingClientRect().top - railAnchor;
+            }
+            railAnchor = undefined;
+          }),
+        ),
+      );
     case 'FetchStack':
       // No stack (the lookup failed) just means no stack row and no Shift+J/K.
       return once(
@@ -235,6 +254,22 @@ function storage<A>(f: () => A): A | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Where the side rail was scrolled to, and how far below the rail's top the last clicked row
+ * was, kept across tour pages for `RestoreRailScroll`.
+ */
+let railScrollTop = 0;
+let railAnchor: number | undefined;
+
+export function rememberRailScroll(top: number) {
+  railScrollTop = top;
+}
+
+/** A click on a rail row: the next page puts its toured PR's row where this row was. */
+export function rememberRailAnchor(offset: number) {
+  railAnchor = offset;
 }
 
 /** Resolves after the next frame, when a message's render has reached the DOM. */

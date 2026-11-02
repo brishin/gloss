@@ -181,6 +181,11 @@ export type Cmd =
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
   | { type: 'SubmitReview'; diffId: string; request: ReviewRequest }
   | { type: 'FetchStack'; ref: Extract<SourceRef, { kind: 'github-pr' }> }
+  /**
+   * Puts the side rail back where the last tour page left it: opening a PR from the rail
+   * mounts a new page, and the rail would otherwise jump to its top.
+   */
+  | { type: 'RestoreRailScroll' }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
@@ -206,7 +211,7 @@ export function initialModel(ref: SourceRef, position: Position): Model {
 export function init(ref: SourceRef, position: Position): Next {
   const model = initialModel(ref, position);
   const stack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
-  return settle(undefined, model, [{ type: 'StartTour', ref, force: false }, ...stack]);
+  return settle(undefined, model, [{ type: 'StartTour', ref, force: false }, ...stack, { type: 'RestoreRailScroll' }]);
 }
 
 export const groupsOf = (model: Model): GroupView[] => groupsInOrder(model.tour);
