@@ -8,6 +8,8 @@ import { flaggedRisks } from './prompts.ts';
 /** Below these, Jev's group choice goes back to the LLM. */
 export const MIN_CONFIDENCE = 0.5;
 export const MIN_MARGIN = 0.15;
+/** At this confidence Jev's choice stands even when it doubts the file fits any group. */
+export const SURE_CHOICE = 0.8;
 
 export interface PlaceOutcome {
   placements: Record<string, Placement>;
@@ -78,7 +80,7 @@ export function placeFiles(
     if (
       !choice ||
       !keys.has(choice.choice) ||
-      (judgment.fitsAnyGroup ?? 1) <= NO ||
+      ((judgment.fitsAnyGroup ?? 1) <= NO && choice.confidence < SURE_CHOICE) ||
       choice.confidence < MIN_CONFIDENCE ||
       margin(choice.probabilities) < MIN_MARGIN
     ) {
@@ -167,7 +169,12 @@ export function resolveGroups(
     }
     members.set(key, [...(members.get(key) ?? []), file.id]);
   }
-  const critical = (fileIds: readonly string[]) => fileIds.some((fileId) => flaggedRisks(judgments[fileId]).length > 0);
+  /** Tests and generated files flag what the code beside them does, so only code files count. */
+  const critical = (fileIds: readonly string[]) =>
+    fileIds.some((fileId) => {
+      const judgment = judgments[fileId];
+      return (judgment?.testsOnly ?? 0) < YES && (judgment?.generated ?? 0) < YES && flaggedRisks(judgment).length > 0;
+    });
   const resolve = ({
     key,
     label,

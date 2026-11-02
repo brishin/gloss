@@ -102,7 +102,6 @@ export const FileJudgmentSchema = v.object({
   storedData: v.optional(probability),
   secretsSigning: v.optional(probability),
   personalData: v.optional(probability),
-  exportedSignature: v.optional(probability),
   group: v.optional(
     v.object({
       choice: v.string(),
