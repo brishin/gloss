@@ -71,7 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
   tiers.define = env.GLOSS_MODEL_DEFINE ?? tiers.define;
   tiers.followup = env.GLOSS_MODEL_FOLLOWUP ?? tiers.followup;
   tiers.notes = env.GLOSS_MODEL_NOTES ?? tiers.notes;
-  tiers.small = env.GLOSS_MODEL_SMALL ?? tiers.small;
+  tiers.small = env.GLOSS_MODEL_SMALL ?? (file.tiers?.small || env.GLOSS_MODEL ? tiers.small : smallFor(tiers.define));
   return {
     tiers,
     thinking: { ...DEFAULTS.thinking, ...file.thinking },
@@ -84,6 +84,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
         .filter(Boolean) ?? []),
     ],
   };
+}
+
+/**
+ * The small tier when nothing sets it: the cheap model of the define tier's provider, so it
+ * never needs a login the tour tiers do not; the define model itself for other providers.
+ */
+function smallFor(define: string): string {
+  const provider = define.slice(0, define.indexOf('/'));
+  return Object.values(PROFILES).find((p) => p.tiers.small.startsWith(`${provider}/`))?.tiers.small ?? define;
 }
 
 export function splitSpecifier(specifier: string): { provider: string; id: string } {

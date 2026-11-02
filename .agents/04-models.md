@@ -29,7 +29,8 @@
 - **Config** (`config.ts`): defaults → `~/.gloss/config.json` (`profile`, `tiers`,
   `thinking`, `judge`, `providerPackages`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
   `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`). The `small` tier
-  (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised. `validateModelIds` fails
+  (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
+  Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog.
 
 Tests: `flue-runtime.test.ts` drives the real Flue runtime with pi-ai's faux provider:
