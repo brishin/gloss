@@ -169,27 +169,34 @@ export function pullAuthorsQuery(refs: readonly GithubRef[]): string {
   return `query { ${fields.join(' ')} }`;
 }
 
-type AuthorsJson = { data: Record<string, { pullRequest: { author: { login: string } | null } | null } | null> };
+export type AuthorsJson = { data: Record<string, { pullRequest: { author: { login: string } | null } | null } | null> };
 
 /**
  * The author of each PR, keyed by `serializeRef`, in one `gh` call per 50 PRs instead of one
- * REST call each. A batch GitHub refuses (say, a deleted PR) is left out, not thrown.
+ * REST call each. GitHub fails a whole query when one PR in it is gone or out of reach, so a
+ * failed batch is split in half and retried, until the PRs it cannot see are left out alone.
  */
 export async function githubPullAuthors(
   refs: readonly GithubRef[],
   signal?: AbortSignal,
+  query: (text: string) => Promise<AuthorsJson> = (text) => ghJson(['graphql', '-f', `query=${text}`], signal),
 ): Promise<Map<string, string>> {
   const authors = new Map<string, string>();
-  for (let start = 0; start < refs.length; start += AUTHORS_PER_QUERY) {
-    const batch = refs.slice(start, start + AUTHORS_PER_QUERY);
+  const lookup = async (batch: readonly GithubRef[]): Promise<void> => {
     let json: AuthorsJson;
     try {
-      json = await ghJson<AuthorsJson>(['graphql', '-f', `query=${pullAuthorsQuery(batch)}`], signal);
+      json = await query(pullAuthorsQuery(batch));
     } catch (error) {
       if (signal?.aborted) {
         throw error;
       }
-      continue;
+      if (batch.length === 1) {
+        return;
+      }
+      const half = Math.ceil(batch.length / 2);
+      await lookup(batch.slice(0, half));
+      await lookup(batch.slice(half));
+      return;
     }
     batch.forEach((ref, index) => {
       const login = json.data?.[`p${index}`]?.pullRequest?.author?.login;
@@ -197,6 +204,9 @@ export async function githubPullAuthors(
         authors.set(serializeRef(ref), login);
       }
     });
+  };
+  for (let start = 0; start < refs.length; start += AUTHORS_PER_QUERY) {
+    await lookup(refs.slice(start, start + AUTHORS_PER_QUERY));
   }
   return authors;
 }
