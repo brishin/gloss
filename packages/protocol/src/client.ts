@@ -15,7 +15,7 @@ import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './rev
 import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
-import { type Stack, StackSchema } from './stack.ts';
+import { PullStateSchema, type Stack, StackSchema } from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
 import { type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
@@ -52,7 +52,9 @@ export const RecentTourSchema = v.object({
   title: v.string(),
   /** The PR author's GitHub login (PRs only). */
   author: v.optional(v.string()),
-  /** The stack the PR sat in when the app last asked for it (PRs only). */
+  /** The PR's state on GitHub now (PRs only; missing when GitHub won't say). */
+  state: v.optional(PullStateSchema),
+  /** The stack the PR sat in when the app last asked for it, with each member's state as of now (PRs only). */
   stack: v.optional(StackSchema),
   updatedAt: v.string(),
 });

@@ -1,6 +1,6 @@
-import type { Decision, GroupView, TourState } from '@gloss/protocol';
+import type { Decision, GroupView, StackMember, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { decisionFlag, sectionFlagCounts } from './tour-view.ts';
+import { ago, decisionFlag, pullStateDetail, sectionFlagCounts } from './tour-view.ts';
 
 const decision = (priority: Decision['priority'], extra: Partial<Decision> = {}): Decision => ({
   text: priority,
@@ -53,5 +53,34 @@ describe('sectionFlagCounts', () => {
       investigate: 0,
       info: 0,
     });
+  });
+});
+
+describe('pullStateDetail', () => {
+  const now = Date.parse('2026-11-02T12:00:00Z');
+  const pull = (fields: Partial<StackMember>): StackMember => ({
+    number: 1,
+    title: 't',
+    state: 'open',
+    baseRef: 'main',
+    headRef: 'b',
+    ...fields,
+  });
+
+  test.each([
+    [{ since: '2026-11-02T11:59:30Z' }, 'opened just now'],
+    [{ state: 'draft', since: '2026-10-31T12:00:00Z' }, 'opened 2 days ago'],
+    [{ state: 'queued', queuePosition: 3, since: '2026-11-02T11:55:00Z' }, 'position 3, queued 5 minutes ago'],
+    [{ state: 'merged', mergedBy: 'ann', since: '2026-11-02T09:00:00Z' }, 'by ann 3 hours ago'],
+    [{ state: 'merged' }, ''],
+    [{ state: 'closed', since: '2026-11-01T12:00:00Z' }, 'without merging yesterday'],
+    [{}, ''],
+  ] as const)('%o reads %s', (fields, text) => {
+    expect(pullStateDetail(pull(fields), now)).toBe(text);
+  });
+
+  test('ago picks the largest whole unit', () => {
+    expect(ago('2025-10-01T12:00:00Z', now)).toBe('last year');
+    expect(ago('2026-11-02T12:00:00Z', now)).toBe('just now');
   });
 });

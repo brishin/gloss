@@ -304,7 +304,7 @@ export function GroupSidebar({
           onClick={() => void navigateToRef(item.ref)}
         >
           <span className="tree-lead">
-            <RefIcon kind={item.ref.kind} />
+            <RefIcon kind={item.ref.kind} state={item.state} />
           </span>
           <RefLabel sourceRef={item.ref} title={item.title} />
           <Avatar login={item.author} />

@@ -1,5 +1,5 @@
 import type { PullState, SourceRef, Stack, StackMember } from '@gloss/protocol';
-import { ghJson, ghPaginated } from './github.ts';
+import { ghJson, ghPaginated, pullState } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
 
@@ -24,17 +24,18 @@ export interface StackLookup {
   byBase(branch: string): Promise<StackPull[]>;
 }
 
+/** Not yet merged or closed. */
+export const isOpen = (state: PullState): boolean => state === 'open' || state === 'draft' || state === 'queued';
+
 /** The PR below: prefer an open one, else the most recent (highest number) merged or closed one. */
 function pickBelow(candidates: StackPull[]): StackPull | undefined {
   const sorted = candidates.toSorted((a, b) => b.number - a.number);
-  return sorted.find((pull) => pull.state === 'open' || pull.state === 'draft') ?? sorted[0];
+  return sorted.find((pull) => isOpen(pull.state)) ?? sorted[0];
 }
 
 /** The PR above: the oldest open one. A branch with several PRs on it is a tree; gloss shows one line of it. */
 function pickAbove(candidates: StackPull[]): StackPull | undefined {
-  return candidates
-    .filter((pull) => pull.state === 'open' || pull.state === 'draft')
-    .toSorted((a, b) => a.number - b.number)[0];
+  return candidates.filter((pull) => isOpen(pull.state)).toSorted((a, b) => a.number - b.number)[0];
 }
 
 /**
@@ -67,14 +68,25 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     above.push(next);
     at = next;
   }
-  return [...below, current, ...above].map(({ number, title, state, author, baseRef, headRef }) => ({
+  const member = ({ number, title, state, author, baseRef, headRef }: StackPull): StackMember => ({
     number,
     title,
     state,
     ...(author ? { author } : {}),
     baseRef,
     headRef,
-  }));
+  });
+  const { since, mergedBy, queuePosition } = current;
+  return [
+    ...below.map(member),
+    {
+      ...member(current),
+      ...(since ? { since } : {}),
+      ...(mergedBy ? { mergedBy } : {}),
+      ...(queuePosition ? { queuePosition } : {}),
+    },
+    ...above.map(member),
+  ];
 }
 
 interface PullJson {
@@ -89,18 +101,49 @@ interface PullJson {
 }
 
 function toPull(pull: PullJson, repo: string): StackPull {
-  const state: PullState =
-    pull.state === 'open' ? (pull.draft ? 'draft' : 'open') : pull.merged_at ? 'merged' : 'closed';
   return {
     number: pull.number,
     title: pull.title,
-    state,
+    state: pullState({ open: pull.state === 'open', merged: !!pull.merged_at, draft: pull.draft }),
     ...(pull.user?.login ? { author: pull.user.login } : {}),
     baseRef: pull.base.ref,
     headRef: pull.head.ref,
     headInRepo: pull.head.repo?.full_name.toLowerCase() === repo,
   };
 }
+
+interface PullGraphJson {
+  data?: {
+    repository?: {
+      pullRequest?: {
+        number: number;
+        title: string;
+        state: 'OPEN' | 'CLOSED' | 'MERGED';
+        isDraft: boolean;
+        isInMergeQueue: boolean;
+        createdAt: string;
+        mergedAt: string | null;
+        closedAt: string | null;
+        mergedBy: { login: string } | null;
+        mergeQueueEntry: { position: number; enqueuedAt: string } | null;
+        author: { login: string } | null;
+        baseRefName: string;
+        headRefName: string;
+        headRepository: { nameWithOwner: string } | null;
+      } | null;
+    } | null;
+  };
+}
+
+const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      number title state isDraft isInMergeQueue author { login } baseRefName headRefName
+      createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
+      headRepository { nameWithOwner }
+    }
+  }
+}`;
 
 /** Looks PRs up through the user's `gh` login, like the diff source. */
 export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLookup {
@@ -115,7 +158,48 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
   return {
     trunk: async () =>
       (await ghJson<{ default_branch: string }>([`repos/${ref.owner}/${ref.repo}`], signal)).default_branch,
-    pull: async (number) => toMember(await ghJson<PullJson>([`${pulls}/${number}`], signal)),
+    // GraphQL, not REST: only GraphQL says whether a PR is in the merge queue.
+    pull: async (number) => {
+      const json = await ghJson<PullGraphJson>(
+        [
+          'graphql',
+          '-f',
+          `query=${PULL_QUERY}`,
+          '-f',
+          `owner=${ref.owner}`,
+          '-f',
+          `repo=${ref.repo}`,
+          '-F',
+          `number=${number}`,
+        ],
+        signal,
+      );
+      const pull = json.data?.repository?.pullRequest;
+      if (!pull) {
+        throw new Error(`No pull request #${number} in ${ref.owner}/${ref.repo}`);
+      }
+      const state = pullState({
+        open: pull.state === 'OPEN',
+        merged: pull.state === 'MERGED',
+        draft: pull.isDraft,
+        queued: pull.isInMergeQueue,
+      });
+      const queue = state === 'queued' ? pull.mergeQueueEntry : null;
+      const since =
+        state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
+      return {
+        number: pull.number,
+        title: pull.title,
+        state,
+        ...(since ? { since } : {}),
+        ...(state === 'merged' && pull.mergedBy?.login ? { mergedBy: pull.mergedBy.login } : {}),
+        ...(queue ? { queuePosition: queue.position } : {}),
+        ...(pull.author?.login ? { author: pull.author.login } : {}),
+        baseRef: pull.baseRefName,
+        headRef: pull.headRefName,
+        headInRepo: pull.headRepository?.nameWithOwner.toLowerCase() === repo,
+      };
+    },
     byHead: (branch) => list({ head: `${ref.owner}:${branch}`, state: 'all' }),
     byBase: (branch) => list({ base: branch, state: 'open' }),
   };

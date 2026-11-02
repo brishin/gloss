@@ -6,6 +6,7 @@ import type {
   ReviewVerdict,
   SourceRef,
   Stack,
+  StackMember,
   TourEvent,
   TourState,
 } from '@gloss/protocol';
@@ -234,6 +235,12 @@ export const fileOrder = (groups: readonly GroupView[]): string[] => groups.flat
 
 export const groupOfFile = (groups: readonly GroupView[], fileId: string): GroupView | undefined =>
   groups.find((group) => group.fileIds.includes(fileId));
+
+/** This PR as GitHub gave it when the page opened (its state, since when); undefined until the stack loads. */
+export function currentPull(model: Model): StackMember | undefined {
+  const { ref, stack } = model;
+  return ref.kind === 'github-pr' ? stack?.members.find((member) => member.number === ref.number) : undefined;
+}
 
 /** The PR `by` steps up (toward the top) or down the stack from this one, if there is one. */
 export function stackNeighbour(model: Model, by: Step): SourceRef | undefined {

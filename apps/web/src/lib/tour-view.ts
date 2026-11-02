@@ -1,4 +1,14 @@
-import type { Decision, DecisionPriority, FileSummary, GroupView, RiskKey, RiskNote, TourState } from '@gloss/protocol';
+import type {
+  Decision,
+  DecisionPriority,
+  FileSummary,
+  GroupView,
+  PullState,
+  RiskKey,
+  RiskNote,
+  StackMember,
+  TourState,
+} from '@gloss/protocol';
 import { DECISION_PRIORITIES } from '@gloss/protocol';
 
 /** Sidebar/selection key of the tour overview (never a group key: those come from the model or are synthetic). */
@@ -124,4 +134,46 @@ export function defaultExpanded(file: FileSummary, generated: boolean, viewed: b
 export function splitPath(path: string): { dir: string; base: string } {
   const at = path.lastIndexOf('/');
   return at === -1 ? { dir: '', base: path } : { dir: path.slice(0, at + 1), base: path.slice(at + 1) };
+}
+
+export const PULL_STATE_LABEL: Record<PullState, string> = {
+  open: 'Open',
+  draft: 'Draft',
+  queued: 'In merge queue',
+  merged: 'Merged',
+  closed: 'Closed',
+};
+
+const AGO_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 86_400_000],
+  ['month', 30 * 86_400_000],
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+];
+
+/** "3 hours ago", in the largest whole unit; under a minute is "just now". */
+export function ago(iso: string, now: number): string {
+  const elapsed = Math.max(0, now - Date.parse(iso));
+  const unit = AGO_UNITS.find(([, ms]) => elapsed >= ms);
+  return unit
+    ? new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(-Math.floor(elapsed / unit[1]), unit[0])
+    : 'just now';
+}
+
+/** What follows a PR state's label: when, who merged it, and its place in the merge queue. */
+export function pullStateDetail(pull: StackMember, now: number): string {
+  const when = pull.since ? ago(pull.since, now) : undefined;
+  switch (pull.state) {
+    case 'queued':
+      return [pull.queuePosition && `position ${pull.queuePosition}`, when && `queued ${when}`]
+        .filter(Boolean)
+        .join(', ');
+    case 'merged':
+      return [pull.mergedBy && `by ${pull.mergedBy}`, when].filter(Boolean).join(' ');
+    case 'closed':
+      return ['without merging', when].filter(Boolean).join(' ');
+    default:
+      return when ? `opened ${when}` : '';
+  }
 }

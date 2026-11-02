@@ -1,12 +1,12 @@
 import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { GroupView, TourState } from '@gloss/protocol';
+import type { GroupView, StackMember, TourState } from '@gloss/protocol';
 import { memo } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
-import { decisionFlag, decisionsInOrder, splitPath } from '../lib/tour-view.ts';
+import { decisionFlag, decisionsInOrder, PULL_STATE_LABEL, pullStateDetail, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
-import { FlagIcon } from './icons.tsx';
+import { FlagIcon, RefIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
 
 /**
@@ -16,12 +16,15 @@ import { TourVisual } from './TourVisual.tsx';
  */
 export const Overview = memo(function Overview({
   state,
+  pull,
   groups,
   running,
   onJumpToFile,
   onSelectGroup,
 }: {
   state: TourState;
+  /** The PR as GitHub has it now, fetched fresh on open (never from the tour cache). */
+  pull?: StackMember;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
@@ -50,6 +53,7 @@ export const Overview = memo(function Overview({
         {meta ? <Heading level={1}>{meta.title}</Heading> : <Skeleton width={360} height={24} />}
         {meta && (
           <div className="stats">
+            {pull && <PullStateLine pull={pull} />}
             <span>
               {meta.baseRef} ← {meta.headRef}
               {meta.author ? ` · ${meta.author}` : ''}
@@ -169,4 +173,16 @@ function descriptionHeadingStart(markdown: string): 1 | 2 | 3 | 4 {
   const depths = [...markdown.matchAll(/^(#{1,6})\s/gm)].map((match) => match[1]!.length);
   const top = depths.length ? Math.min(...depths) : 1;
   return Math.max(1, Math.min(4, 3 - (top - 1))) as 1 | 2 | 3 | 4;
+}
+
+/** The PR's state in its colour, then who and when in plain text. */
+function PullStateLine({ pull }: { pull: StackMember }) {
+  const detail = pullStateDetail(pull, Date.now());
+  return (
+    <span className="pull-state" data-state={pull.state}>
+      <RefIcon kind="github-pr" state={pull.state} />
+      <strong>{PULL_STATE_LABEL[pull.state]}</strong>
+      {detail && <span className="pull-state-detail">{detail}</span>}
+    </span>
+  );
 }

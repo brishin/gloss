@@ -1,9 +1,12 @@
-import { Repos, TourCache } from '@gloss/core';
+import { type PullSummary, Repos, TourCache } from '@gloss/core';
 import type {
   DiffPayload,
   GithubLogin,
   Health,
+  RecentTour,
   RecentTours,
+  SourceRef,
+  Stack,
   SetupStatus,
   TourEvent,
   Trace,
@@ -15,6 +18,7 @@ import {
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
+  serializeRef,
   SourceRefSchema,
   StartLoginRequestSchema,
 } from '@gloss/protocol';
@@ -64,6 +68,32 @@ const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boo
 
 const PING_MS = 15_000;
 
+type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
+
+const stackRefs = (stack: Stack): GithubRef[] =>
+  stack.members.map((member) => ({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number }));
+
+/** A recent tour with its PR's state, and its stack members' states, as GitHub has them now. */
+export function withPullStates(tour: RecentTour, pulls: ReadonlyMap<string, PullSummary>): RecentTour {
+  const state = pulls.get(serializeRef(tour.ref))?.state;
+  const { stack } = tour;
+  return {
+    ...tour,
+    ...(state ? { state } : {}),
+    ...(stack
+      ? {
+          stack: {
+            ...stack,
+            members: stack.members.map((member, index) => ({
+              ...member,
+              state: pulls.get(serializeRef(stackRefs(stack)[index]!))?.state ?? member.state,
+            })),
+          },
+        }
+      : {}),
+  };
+}
+
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
 export function createApp({ runtime, health, token, corsOrigins = [], setup, update }: AppOptions): Hono {
   const app = new Hono();
@@ -85,20 +115,36 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           const cache = yield* TourCache;
           const repos = yield* Repos;
           const tours = cache.listRecent(RECENT_LIMIT);
-          // Tours recorded before authors were kept: one batched lookup, then stored for good.
-          const missing = tours.flatMap((tour) => (tour.ref.kind === 'github-pr' && !tour.author ? [tour.ref] : []));
-          const [authors, viewer] = yield* Effect.all(
-            [missing.length ? repos.authors(missing) : Effect.succeed(new Map<string, string>()), repos.viewer],
-            {
-              concurrency: 'unbounded',
-            },
+          // One batched GraphQL lookup for every PR the side rail shows: its state now, and the
+          // author of tours recorded before authors were kept (stored for good).
+          const refs = new Map<string, GithubRef>();
+          for (const tour of tours) {
+            if (tour.ref.kind === 'github-pr') {
+              refs.set(serializeRef(tour.ref), tour.ref);
+            }
+            for (const ref of tour.stack ? stackRefs(tour.stack) : []) {
+              refs.set(serializeRef(ref), ref);
+            }
+          }
+          const [pulls, viewer] = yield* Effect.all(
+            [
+              refs.size ? repos.pulls([...refs.values()]) : Effect.succeed(new Map<string, PullSummary>()),
+              repos.viewer,
+            ],
+            { concurrency: 'unbounded' },
+          );
+          const authors = new Map(
+            tours.flatMap((tour) => {
+              const author = !tour.author && pulls.get(serializeRef(tour.ref))?.author;
+              return author ? [[serializeRef(tour.ref), author] as const] : [];
+            }),
           );
           if (authors.size) {
             cache.recordAuthors(authors);
           }
           const recent: RecentTours = {
             ...(viewer ? { viewer } : {}),
-            tours: authors.size ? cache.listRecent(RECENT_LIMIT) : tours,
+            tours: (authors.size ? cache.listRecent(RECENT_LIMIT) : tours).map((tour) => withPullStates(tour, pulls)),
           };
           return recent;
         }),

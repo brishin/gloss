@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 
-export const PullStateSchema = v.picklist(['open', 'draft', 'merged', 'closed']);
+/** `queued` is an open PR in its base branch's merge queue. */
+export const PullStateSchema = v.picklist(['open', 'draft', 'queued', 'merged', 'closed']);
 export type PullState = v.InferOutput<typeof PullStateSchema>;
 
 export const StackMemberSchema = v.object({
@@ -11,6 +12,13 @@ export const StackMemberSchema = v.object({
   author: v.optional(v.string()),
   baseRef: v.string(),
   headRef: v.string(),
+  /**
+   * Since when the PR is in its state: opened, queued, merged or closed (ISO time), who
+   * merged it, and its place in the merge queue (1 is next). Only the PR asked about has it.
+   */
+  since: v.optional(v.string()),
+  mergedBy: v.optional(v.string()),
+  queuePosition: v.optional(v.number()),
 });
 export type StackMember = v.InferOutput<typeof StackMemberSchema>;
 

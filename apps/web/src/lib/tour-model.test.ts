@@ -2,7 +2,17 @@ import type { DiffPayload, FileSummary, Stack, TourState } from '@gloss/protocol
 import { initialTourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import { groupNode, isNodeOpen } from './sidebar-tree.ts';
-import { type Cmd, init, initialModel, keyToMsg, type Model, type Msg, type Spied, update } from './tour-model.ts';
+import {
+  type Cmd,
+  init,
+  initialModel,
+  keyToMsg,
+  type Model,
+  type Msg,
+  currentPull,
+  type Spied,
+  update,
+} from './tour-model.ts';
 import { OVERVIEW, WALKTHROUGH } from './tour-view.ts';
 
 const REF = { kind: 'github-pr', owner: 'o', repo: 'r', number: 1 } as const;
@@ -340,6 +350,13 @@ describe('stack', () => {
 
   test('does nothing before the stack loads', () => {
     expect(run(model(), { type: 'StackStepped', by: 1 })[1]).toEqual([]);
+  });
+
+  test("the PR's state is its own stack member's", () => {
+    const merged = { ...stack, members: stack.members.map((m) => (m.number === 1 ? { ...m, state: 'merged' } : m)) };
+    expect(currentPull(model({ ref: pr(1) }))).toBeUndefined();
+    expect(currentPull({ ...model(), ref: pr(1), stack: merged as Stack })?.state).toBe('merged');
+    expect(currentPull({ ...model(), ref: { kind: 'local', repo: '/r', target: 'HEAD' }, stack })).toBeUndefined();
   });
 });
 
