@@ -9,6 +9,7 @@ import {
   normalizeNotes,
   normalizeVisual,
   normalizeVisuals,
+  normalizeWalkthrough,
 } from './normalize.ts';
 import { SKETCH_SYSTEM } from './prompts.ts';
 
@@ -322,5 +323,139 @@ describe('sketchGap', () => {
     ],
   ] as const)('%s', (_, body, caption, expected) => {
     expect(sketchGap(svg(body), caption)).toBe(expected);
+  });
+});
+
+describe('normalizeWalkthrough', () => {
+  // 40 new-side lines; changes at 16 (added) and 30 (added, after a removed line).
+  const patch = Array.from({ length: 40 }, (_, i) =>
+    i + 1 === 16 ? '+new' : i + 1 === 30 ? '-old\n+new' : ` line ${i + 1}`,
+  ).join('\n');
+  const long: FileChange = {
+    ...file,
+    id: 'f2',
+    path: 'src/b.ts',
+    hunks: [{ id: 'h2', header: '@@ -1,40 +1,40 @@', oldStart: 1, oldLines: 40, newStart: 1, newLines: 40, patch }],
+  };
+  const files = [file, long];
+  const frame = (depth: number, name: string, status: 'new' | 'changed' | 'same', fileId = 'f1', line = 0) => ({
+    depth,
+    receiver: '',
+    name,
+    args: '',
+    fileId,
+    line,
+    status,
+  });
+  const rawFrames = [frame(0, 'handler', 'same', ''), frame(1, 'check', 'new', '')];
+  const frames = [
+    { depth: 0, name: 'handler', status: 'same' as const },
+    { depth: 1, name: 'check', status: 'new' as const },
+  ];
+  const walk = (raw: Parameters<typeof normalizeWalkthrough>[0], list = files) =>
+    normalizeWalkthrough({ frames: rawFrames, ...raw }, list);
+  const step = (excerpts: { fileId: string; hunkId: string; from: number; to: number }[], picked = [0]) => ({
+    title: 'Step',
+    text: 'Does a thing.',
+    frames: picked,
+    excerpts,
+  });
+
+  it('pins excerpts to lines the diff shows, trimmed to the changes plus a little context', () => {
+    const { walkthrough, warnings } = walk({
+      steps: [
+        step(
+          [
+            // The whole hunk: trimmed to 16..30 with 3 lines around.
+            { fileId: 'f2', hunkId: 'h2', from: 1, to: 40 },
+            // A wrong hunk id is repaired from the line; a path works as a file id.
+            { fileId: 'src/a.ts', hunkId: 'nope', from: 11, to: 12 },
+          ],
+          [1, 0, 1, 7, -1],
+        ),
+        step([
+          // Lines outside the hunk mean the model guessed: show the hunk's changes instead.
+          { fileId: 'f1', hunkId: 'h1', from: 500, to: 600 },
+          { fileId: 'f9', hunkId: 'h1', from: 1, to: 2 },
+        ]),
+      ],
+    });
+    expect(warnings).toEqual(['Dropped a walkthrough excerpt: f9/h1 is not in the diff.']);
+    expect(walkthrough).toEqual({
+      frames,
+      steps: [
+        {
+          title: 'Step',
+          text: 'Does a thing.',
+          frames: [0, 1],
+          excerpts: [
+            { fileId: 'f2', hunkId: 'h2', from: 13, to: 33 },
+            { fileId: 'f1', hunkId: 'h1', from: 11, to: 12 },
+          ],
+        },
+        {
+          title: 'Step',
+          text: 'Does a thing.',
+          frames: [0],
+          excerpts: [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }],
+        },
+      ],
+    });
+  });
+
+  it('caps a long excerpt, overlapping excerpts, and the number of steps', () => {
+    const spread: FileChange = {
+      ...long,
+      hunks: [{ ...long.hunks[0]!, patch: patch.replace(' line 1\n', '+first\n').replace(' line 40', '+last') }],
+    };
+    const { walkthrough } = walk(
+      {
+        steps: Array.from({ length: 7 }, () =>
+          step([
+            { fileId: 'f2', hunkId: 'h2', from: 1, to: 40 },
+            { fileId: 'f2', hunkId: 'h2', from: 20, to: 22 },
+          ]),
+        ),
+      },
+      [spread],
+    );
+    expect(walkthrough!.steps).toHaveLength(5);
+    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 30 }]);
+  });
+
+  it('drops steps with no code, and a walkthrough of fewer than two steps', () => {
+    const one = walk({
+      steps: [step([{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }]), step([]), { ...step([]), title: '' }],
+    });
+    expect(one.walkthrough).toBeUndefined();
+    expect(one.warnings).toEqual(['Dropped the walkthrough: it has fewer than two steps with code.']);
+    expect(walk({ steps: [] })).toEqual({ warnings: [] });
+  });
+
+  it('makes the call tree a tree, resolves files, and keeps only lines the diff shows', () => {
+    const steps = [
+      step([{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }]),
+      step([{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }]),
+    ];
+    const { walkthrough } = walk({
+      frames: [
+        frame(1, 'handler', 'same', 'f1', 99),
+        { ...frame(3, 'check', 'new', 'src/a.ts', 12), receiver: 'Rules.', args: '(a, b)' },
+        frame(1, 'save', 'changed', 'nope', 11),
+      ],
+      steps,
+    });
+    expect(walkthrough!.frames).toEqual([
+      // An entry point never nests, and a line outside the diff is a guess, so it goes.
+      { depth: 0, name: 'handler', path: 'src/a.ts', status: 'same' },
+      { depth: 1, receiver: 'Rules', name: 'check', args: 'a, b', path: 'src/a.ts', line: 12, status: 'new' },
+      { depth: 1, name: 'save', status: 'changed' },
+    ]);
+    // A tree with no calls is a list, and one with nothing new is plumbing.
+    expect(walk({ frames: [frame(0, 'a', 'new'), frame(0, 'b', 'new')], steps }).warnings).toEqual([
+      'Dropped the walkthrough: its call tree has no calls, which a list says as well.',
+    ]);
+    expect(walk({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')], steps }).walkthrough).toBeUndefined();
+    expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
   });
 });

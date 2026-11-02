@@ -27,7 +27,7 @@ import {
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
-import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath } from '../lib/tour-view.ts';
+import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
 
@@ -46,6 +46,7 @@ export function GroupSidebar({
   groups,
   files,
   selection,
+  walkthrough,
   activeFileId,
   viewed,
   loading,
@@ -59,6 +60,8 @@ export function GroupSidebar({
   groups: GroupView[];
   files: ReadonlyMap<string, FileSummary>;
   selection: string;
+  /** Whether the tour has a walkthrough section, listed under the overview. */
+  walkthrough: boolean;
   activeFileId: string | undefined;
   viewed: ReadonlySet<string>;
   loading: boolean;
@@ -263,6 +266,19 @@ export function GroupSidebar({
             <span className="nav-label">Overview</span>
             <span className="nav-count">{files.size || ''}</span>
           </TreeRow>
+          {walkthrough && (
+            <TreeRow
+              id="walkthrough"
+              parent={PR_NODE}
+              current={selection === WALKTHROUGH}
+              label="Walkthrough"
+              onClick={() => onSelect(WALKTHROUGH)}
+            >
+              <span className="nav-index" />
+              <span className="nav-label">Walkthrough</span>
+              <span className="nav-count" />
+            </TreeRow>
+          )}
           {groups.length === 0 && loading
             ? [0, 1, 2].map((index) => <Skeleton key={index} index={index} height={28} />)
             : groupRows}

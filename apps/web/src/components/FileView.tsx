@@ -15,7 +15,7 @@ import { decisionFlag, type FlagLevel, noteFlag, RISK_SHORT, splitPath } from '.
 import { FlagIcon } from './icons.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
-function unifiedText(file: FileChange): string {
+export function unifiedText(file: FileChange): string {
   const oldPath = file.previousPath ?? file.path;
   const lines = [`diff --git a/${oldPath} b/${file.path}`];
   if (file.status === 'added') {

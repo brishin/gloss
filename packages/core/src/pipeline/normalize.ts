@@ -1,6 +1,16 @@
-import type { Decision, FileChange, GroupNotes, ResolvedGroup, Visual } from '@gloss/protocol';
+import type {
+  CallFrame,
+  Decision,
+  Excerpt,
+  FileChange,
+  GroupNotes,
+  ResolvedGroup,
+  Visual,
+  Walkthrough,
+  WalkStep,
+} from '@gloss/protocol';
 import type * as v from 'valibot';
-import type { DefineSchema, NotesSchema, SketchSchema } from './prompts.ts';
+import type { DefineSchema, NotesSchema, SketchSchema, WalkthroughResultSchema } from './prompts.ts';
 import { sanitizeSvg } from './svg-sanitize.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
@@ -422,4 +432,179 @@ export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual
     visuals: results.flatMap((result) => (result.visual ? [result.visual] : [])),
     warnings: results.flatMap((result) => result.warnings),
   };
+}
+
+/** Most frames a call tree keeps, and how deep it nests, before it stops reading at a glance. */
+const MAX_FRAMES = 16;
+const MAX_DEPTH = 6;
+
+type RawFrame = v.InferOutput<typeof WalkthroughResultSchema>['frames'][number];
+
+/**
+ * The call tree's trust boundary. Depths are made a tree (the first frame is a root, none is
+ * more than one deeper than the frame before), files are known ids (or paths), and a line
+ * stays only where the diff shows it on the new side, so a model's guess at an unseen
+ * definition is never shown as fact. Returns why the tree is not worth walking, if it is not:
+ * one with no call in it is a list, and one that touches nothing the change adds is plumbing.
+ */
+function normalizeFrames(
+  raw: readonly Partial<RawFrame>[],
+  byKey: ReadonlyMap<string, FileChange>,
+): { frames: CallFrame[]; why?: string } {
+  const frames: CallFrame[] = [];
+  for (const frame of raw.slice(0, MAX_FRAMES)) {
+    const name = clip(String(frame.name ?? ''), 48).replace(/\(.*$/, '');
+    if (!name) {
+      continue;
+    }
+    const wanted = Number.isFinite(frame.depth) ? Math.max(0, Math.floor(frame.depth!)) : 0;
+    const depth = Math.min(wanted, frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const file = byKey.get(String(frame.fileId ?? ''));
+    const line = Number(frame.line);
+    const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
+    const receiver = clip(String(frame.receiver ?? ''), 40).replace(/\.$/, '');
+    const args = clip(String(frame.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
+    const status = frame.status === 'new' || frame.status === 'changed' ? frame.status : 'same';
+    frames.push({
+      depth,
+      ...(receiver ? { receiver } : {}),
+      name,
+      ...(args ? { args } : {}),
+      ...(file ? { path: file.path } : {}),
+      ...(file && shown ? { line } : {}),
+      status,
+    });
+  }
+  if (!frames.some((frame) => frame.depth > 0)) {
+    return { frames, why: 'its call tree has no calls, which a list says as well' };
+  }
+  if (!frames.some((frame) => frame.status !== 'same')) {
+    return { frames, why: 'nothing on its call tree is new or changed' };
+  }
+  return { frames };
+}
+
+const MAX_STEPS = 5;
+const MAX_EXCERPTS = 3;
+/** Context kept around an excerpt's changed lines, and the most lines one may show. */
+const EXCERPT_CONTEXT = 3;
+const MAX_EXCERPT_LINES = 30;
+
+/** New-side line numbers of a hunk, and which of them sit at a change (an added line, or where lines were removed). */
+function hunkLines(hunk: FileChange['hunks'][number]): { lines: number[]; changed: Set<number> } {
+  const lines: number[] = [];
+  const changed = new Set<number>();
+  let newLine = hunk.newStart;
+  for (const line of hunk.patch.split('\n')) {
+    const marker = line[0] ?? ' ';
+    if (marker === '\\') {
+      continue;
+    }
+    if (marker === '-') {
+      changed.add(newLine);
+    } else {
+      if (marker === '+') {
+        changed.add(newLine);
+      }
+      lines.push(newLine++);
+    }
+  }
+  return { lines, changed };
+}
+
+/**
+ * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
+ * wrong), its range clamped to the hunk, then trimmed to the changes in it plus a little context.
+ */
+function normalizeExcerpt(
+  raw: { fileId?: string; hunkId?: string; from?: number; to?: number },
+  byKey: ReadonlyMap<string, FileChange>,
+): Excerpt | undefined {
+  const file = byKey.get(String(raw.fileId ?? ''));
+  if (!file) {
+    return undefined;
+  }
+  let from = Number.isFinite(raw.from) ? Math.floor(raw.from!) : 0;
+  let to = Number.isFinite(raw.to) ? Math.floor(raw.to!) : 0;
+  if (from > to) {
+    [from, to] = [to, from];
+  }
+  const hunk =
+    file.hunks.find((candidate) => candidate.id === raw.hunkId) ??
+    file.hunks.find((candidate) => hunkLines(candidate).lines.includes(from));
+  if (!hunk) {
+    return undefined;
+  }
+  const { lines, changed } = hunkLines(hunk);
+  if (lines.length === 0) {
+    return undefined;
+  }
+  const first = lines[0]!;
+  const last = lines.at(-1)!;
+  if (to < first || from > last) {
+    [from, to] = [first, last];
+  }
+  from = Math.max(from, first);
+  to = Math.min(to, last);
+  const inside = [...changed].filter((line) => line >= from && line <= to);
+  if (inside.length) {
+    from = Math.max(from, Math.min(...inside) - EXCERPT_CONTEXT);
+    to = Math.min(to, Math.max(...inside) + EXCERPT_CONTEXT);
+  }
+  to = Math.min(to, from + MAX_EXCERPT_LINES - 1);
+  return { fileId: file.id, hunkId: hunk.id, from, to };
+}
+
+/**
+ * The walkthrough as the client may show it: a checked call tree, and steps that point at
+ * its frames and at lines the diff shows. A step with no code is dropped, and so
+ * is a walkthrough of fewer than two steps: one step is the overview again.
+ */
+export function normalizeWalkthrough(
+  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
+  files: readonly FileChange[],
+): { walkthrough?: Walkthrough; warnings: string[] } {
+  if (!Array.isArray(raw.steps) || raw.steps.length === 0 || !Array.isArray(raw.frames) || raw.frames.length === 0) {
+    return { warnings: [] };
+  }
+  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
+  const { frames, why } = normalizeFrames(raw.frames, byKey);
+  if (why) {
+    return { warnings: [`Dropped the walkthrough: ${why}.`] };
+  }
+  const warnings: string[] = [];
+  const steps: WalkStep[] = [];
+  for (const step of raw.steps.slice(0, MAX_STEPS)) {
+    const title = clip(String(step.title ?? ''), 80);
+    const excerpts: Excerpt[] = [];
+    for (const excerpt of Array.isArray(step.excerpts) ? step.excerpts : []) {
+      const normalized = normalizeExcerpt(excerpt, byKey);
+      if (!normalized) {
+        warnings.push(`Dropped a walkthrough excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff.`);
+        continue;
+      }
+      const seen = excerpts.some(
+        (other) => other.hunkId === normalized.hunkId && other.from <= normalized.to && normalized.from <= other.to,
+      );
+      if (!seen && excerpts.length < MAX_EXCERPTS) {
+        excerpts.push(normalized);
+      }
+    }
+    if (!title || excerpts.length === 0) {
+      continue;
+    }
+    const picked = (Array.isArray(step.frames) ? step.frames : []).filter(
+      (index) => Number.isInteger(index) && index >= 0 && index < frames.length,
+    );
+    steps.push({
+      title,
+      text: clip(String(step.text ?? ''), 400),
+      frames: [...new Set(picked)].toSorted((a, b) => a - b),
+      excerpts,
+    });
+  }
+  if (steps.length < 2) {
+    return { warnings: [...warnings, 'Dropped the walkthrough: it has fewer than two steps with code.'] };
+  }
+  return { walkthrough: { frames: [...frames], steps }, warnings };
 }

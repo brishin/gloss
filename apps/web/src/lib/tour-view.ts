@@ -4,6 +4,9 @@ import { DECISION_PRIORITIES } from '@gloss/protocol';
 /** Sidebar/selection key of the tour overview (never a group key: those come from the model or are synthetic). */
 export const OVERVIEW = '__overview';
 
+/** Key of the walkthrough section between the overview and the groups, when the tour has one. */
+export const WALKTHROUGH = '__walkthrough';
+
 /** Matches `--sticky-h` in styles.css (top bar + sub-bar): content scrolled under it is hidden. */
 export const STICKY_OFFSET = 72;
 

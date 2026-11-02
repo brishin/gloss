@@ -136,6 +136,9 @@ const fakeJudge = () =>
     if (id === 'workflow') {
       return { type: 'bool', probability: 0.95 };
     }
+    if (id === 'call_path') {
+      return { type: 'bool', probability: 0.1 };
+    }
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
     }
@@ -214,6 +217,63 @@ describe('runTour', () => {
     const second = await tour({ model, judge: fakeJudge(), cache });
     expect(second.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
     expect(model.calls.length).toBe(calls);
+  });
+
+  it('writes a walkthrough only when Jev says the change is a call path', async () => {
+    const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
+    const hunkId = (prompt: string) =>
+      new RegExp(`### ${authId(prompt)} [^\\n]*\\n@@ hunk (h[0-9a-f]+)`).exec(prompt)![1]!;
+    const base = fakeModel();
+    const model = createFakeModelClient({
+      answers: {
+        define: (request) => {
+          if (request.resultName === 'walkthrough') {
+            const fileId = authId(request.prompt);
+            const excerpt = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
+            return {
+              frames: [
+                { depth: 0, receiver: '', name: 'route', args: '', fileId: '', line: 0, status: 'same' },
+                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
+              ],
+              steps: [
+                { title: 'The route asks', text: 'Calls `check`.', frames: [0], excerpts: [excerpt] },
+                { title: 'Only admins pass', text: 'Compares the name.', frames: [1, 9], excerpts: [excerpt] },
+              ],
+            };
+          }
+          return request.resultName === 'sketch' ? sketchAnswer : groupsAnswer;
+        },
+      },
+    });
+    const callPath = createFakeJudgeClient((state, id, question) =>
+      id === 'call_path'
+        ? { type: 'bool', probability: 0.9 }
+        : fakeJudge()
+            .judge({ state, questions: { [id]: question } })
+            .pipe(Effect.runSync)[id]!,
+    );
+    const { events, tour: finished } = await tour({
+      model: {
+        ...model,
+        prompt: (request) => (request.tier === 'define' ? model.prompt(request) : base.prompt(request)),
+      },
+      judge: callPath,
+    });
+    expect(finished.walkthrough?.frames).toEqual([
+      { depth: 0, name: 'route', status: 'same' },
+      { depth: 1, name: 'check', args: 'user', path: 'src/auth.ts', line: 1, status: 'changed' },
+    ]);
+    expect(finished.walkthrough?.steps.map((step) => step.frames)).toEqual([[0], [1]]);
+    const walk = model.calls.find((call) => call.resultName === 'walkthrough');
+    expect(walk?.prompt).toContain(groupsAnswer.overallSummary);
+    expect(events.findIndex((event) => event.type === 'tour.walkthrough')).toBeGreaterThan(0);
+    expect(events.reduce(reduceTourEvent, initialTourState()).walkthrough).toEqual(finished.walkthrough);
+
+    // Not a call path: no walkthrough call at all.
+    const plain = fakeModel();
+    const other = await tour({ model: plain, judge: fakeJudge() });
+    expect(other.tour.walkthrough).toBeUndefined();
+    expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(false);
   });
 
   it('traces every step as a DAG with tagged prompts, and replays the trace with a cached tour', async () => {

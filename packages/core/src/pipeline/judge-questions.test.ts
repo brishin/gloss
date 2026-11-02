@@ -87,7 +87,13 @@ describe('pickVisual', () => {
   });
 
   it('ranks text-only answers without the picture question', () => {
-    expect(Object.keys(visualQuestions(1, false))).toEqual(['workflow', 'c1_accurate', 'c1_beyond_text', 'c1_whole']);
+    expect(Object.keys(visualQuestions(1, false))).toEqual([
+      'workflow',
+      'call_path',
+      'c1_accurate',
+      'c1_beyond_text',
+      'c1_whole',
+    ]);
     expect(
       pickVisual(['mermaid', 'mermaid'], {
         c1_accurate: yes(0.9),

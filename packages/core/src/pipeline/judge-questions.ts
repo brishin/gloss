@@ -83,8 +83,21 @@ export function visualQuestions(count: number, withImages: boolean): Record<stri
       },
     },
   ];
+  const callPath: [string, JudgeQuestion] = [
+    'call_path',
+    {
+      type: 'bool',
+      instructions:
+        'Is the main decision in `summary` and `decisions` a call path: an entry point that now reaches new or changed functions through a chain of calls, which a call tree draws best?',
+      criteria: {
+        true: 'The change adds or reroutes calls from a handler, job, command or component down to new functions.',
+        false: 'The change is about components, data, timing, styling or one rule inside a function.',
+      },
+    },
+  ];
   return Object.fromEntries([
     workflow,
+    callPath,
     ...Array.from({ length: count }, (_, i) => {
       const id = `c${i + 1}`;
       const it = withImages ? `the picture <image-${i + 1}> (\`candidates.${id}\`)` : `\`candidates.${id}\``;
@@ -253,6 +266,14 @@ export const ACCURATE = NO;
  * sketch read better; real decision trees came in at 0.9 and over.
  */
 export const WORKFLOW = 0.9;
+
+/** How sure Jev must be that the change is a call path to walk it step by step. */
+export const CALL_PATH = 0.8;
+
+/** Whether Jev is sure enough the change is a call path to walk it in a walkthrough. */
+export function isCallPath(answers: Record<string, JudgeAnswer>): boolean {
+  return (bool(answers.call_path) ?? 0) >= CALL_PATH;
+}
 
 /**
  * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the

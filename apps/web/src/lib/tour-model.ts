@@ -28,7 +28,7 @@ import {
   STACK_NODE,
   toggleNode,
 } from './sidebar-tree.ts';
-import { defaultExpanded, isGeneratedFile, OVERVIEW, orderedFileIds } from './tour-view.ts';
+import { defaultExpanded, isGeneratedFile, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
 
 /**
  * The tour page as an Elm program: one `Model`, changed only by `update`. Everything the
@@ -215,8 +215,19 @@ export function currentGroup(model: Model, groups = groupsOf(model)): GroupView 
   return groups.find((group) => group.key === (model.position.g ?? OVERVIEW));
 }
 
+/** The section in view: a group, the walkthrough, or the overview. */
 export const selectedKey = (model: Model, groups = groupsOf(model)): string =>
-  currentGroup(model, groups)?.key ?? OVERVIEW;
+  currentGroup(model, groups)?.key ??
+  (model.position.g === WALKTHROUGH && model.tour.walkthrough ? WALKTHROUGH : OVERVIEW);
+
+/** Every stop down the page, in order, as j/k and the sub-bar step through them. */
+export function tourStops(model: Model, groups = groupsOf(model)): { key: string; label: string }[] {
+  return [
+    { key: OVERVIEW, label: 'Overview' },
+    ...(model.tour.walkthrough ? [{ key: WALKTHROUGH, label: 'Walkthrough' }] : []),
+    ...groups,
+  ];
+}
 
 /** Every file down the page, in reading order: the groups in tour order, each riskiest first. */
 export const fileOrder = (groups: readonly GroupView[]): string[] => groups.flatMap(orderedFileIds);
@@ -360,7 +371,7 @@ function step(model: Model, msg: Msg): Next {
       return select(model, msg.key);
     case 'GroupStepped': {
       const groups = groupsOf(model);
-      const stops = [OVERVIEW, ...groups.map((group) => group.key)];
+      const stops = tourStops(model, groups).map((stop) => stop.key);
       const target = stops[stops.indexOf(selectedKey(model, groups)) + msg.by];
       return target ? select(model, target) : [model, []];
     }
@@ -617,8 +628,8 @@ function scrolled(model: Model, { groupKey, fileId, visible }: Spied): Next {
       : fileId && order.includes(fileId)
         ? fileId
         : order[0];
-  const g = group?.key;
-  if (g === currentGroup(model, groups)?.key && active === model.activeFileId) {
+  const g = group?.key ?? (key === WALKTHROUGH && model.tour.walkthrough ? WALKTHROUGH : undefined);
+  if ((g ?? OVERVIEW) === selected && active === model.activeFileId) {
     return [model, []];
   }
   return [
@@ -748,7 +759,7 @@ function restore(model: Model): Next {
   if (g === undefined) {
     return [{ ...settled, activeFileId: undefined }, [{ type: 'ScrollToTop' }]];
   }
-  const shown = groups.some((group) => group.key === g);
+  const shown = groups.some((group) => group.key === g) || (g === WALKTHROUGH && !!model.tour.walkthrough);
   if (shown && model.diff) {
     return [{ ...settled, activeFileId: undefined }, [{ type: 'RestoreGroup', key: g }]];
   }

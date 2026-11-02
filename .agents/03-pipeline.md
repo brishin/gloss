@@ -55,6 +55,16 @@ A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, ar
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
+The visual pick also asks Jev one `call_path` question for the change. At `CALL_PATH` (0.8)
+or more, one more define-tier call (`WALKTHROUGH_SYSTEM`, a numbered diff) draws the call path
+as a call tree (flat frames with a depth, each `new`, `changed` or `same`) and writes 2-5
+steps down it, each citing frames and short slices of hunks by file id, hunk id and new-side
+lines. `normalizeWalkthrough` makes the depths a tree, keeps a frame's line only where the
+diff shows it, repairs a wrong hunk id from the line, clamps each slice to its hunk, trims it
+to the changes plus 3 lines (30 at most), and drops steps with no code, a tree with no call or
+nothing new, and any walkthrough under two steps. It runs forked in the stream's scope beside
+placement and notes; the tour joins it before it finishes. No visual candidates means no pick
+and no walkthrough.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
@@ -62,7 +72,7 @@ shown. With Jev, `visual-image.ts` draws each candidate to a PNG at tour width (
 via beautiful-mermaid with its CSS vars resolved), shrunk or padded so every side is
 400-1200 px, since Jev rejects a side outside about 280-1568 px, and one `judge-visual` call sends the pictures as `<image-N>` beside their specs. Jev answers
 focused yes/no questions per candidate (`accurate`, `beyond_text`: more than a list would
-say, `whole`, and with pictures `easy`), plus one `workflow` question for the change; a
+say, `whole`, and with pictures `easy`), plus `workflow` and `call_path` questions for the change; a
 single "which is best" choice favored any flowchart, even a muddled or partial one. The
 sketch is shown when Jev finds it accurate and more than a list, unless Jev says the change is a
 `workflow` (Brian prefers sketches except for those, where flowcharts read well). Otherwise the
@@ -71,7 +81,7 @@ If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
 Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
-fetch, define, sketch, judge-files, judge-groups, judge-visual, place, followup, and
+fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, place, followup, and
 `notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
 cached tour replays its trace too. The web app's pipeline view (`d` on a tour) draws it.
 When a prompt gains a `## ` section that reads another step, add it to that call's
