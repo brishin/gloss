@@ -647,6 +647,31 @@
     color: var(--color-text-secondary);
   }
 
+  /* GitHub's colours for a PR's state. */
+  .pull-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+    color: var(--color-text-green);
+  }
+
+  .pull-state[data-state='draft'] {
+    color: var(--color-text-secondary);
+  }
+
+  .pull-state[data-state='queued'] {
+    color: var(--color-text-orange);
+  }
+
+  .pull-state[data-state='merged'] {
+    color: var(--color-text-purple);
+  }
+
+  .pull-state[data-state='closed'] {
+    color: var(--color-text-red);
+  }
+
   .stats strong {
     color: var(--color-text-primary);
     font-variant-numeric: tabular-nums;

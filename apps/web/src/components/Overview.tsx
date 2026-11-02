@@ -1,13 +1,21 @@
 import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { GroupView, TourState } from '@gloss/protocol';
+import type { GroupView, PullState, TourState } from '@gloss/protocol';
 import { memo } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
 import { decisionFlag, decisionsInOrder, splitPath } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
-import { FlagIcon } from './icons.tsx';
+import { FlagIcon, RefIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
+
+const PULL_STATE_LABEL: Record<PullState, string> = {
+  open: 'Open',
+  draft: 'Draft',
+  queued: 'In merge queue',
+  merged: 'Merged',
+  closed: 'Closed',
+};
 
 /**
  * The top of the page: what the change is and where the risk is. Shown once, instead of a
@@ -16,12 +24,15 @@ import { TourVisual } from './TourVisual.tsx';
  */
 export const Overview = memo(function Overview({
   state,
+  pullState,
   groups,
   running,
   onJumpToFile,
   onSelectGroup,
 }: {
   state: TourState;
+  /** The PR's state on GitHub, fetched fresh on open (never from the tour cache). */
+  pullState?: PullState;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
@@ -50,6 +61,12 @@ export const Overview = memo(function Overview({
         {meta ? <Heading level={1}>{meta.title}</Heading> : <Skeleton width={360} height={24} />}
         {meta && (
           <div className="stats">
+            {pullState && (
+              <span className="pull-state" data-state={pullState}>
+                <RefIcon kind="github-pr" state={pullState} />
+                {PULL_STATE_LABEL[pullState]}
+              </span>
+            )}
             <span>
               {meta.baseRef} ← {meta.headRef}
               {meta.author ? ` · ${meta.author}` : ''}

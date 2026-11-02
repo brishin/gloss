@@ -1,6 +1,6 @@
 import type { PullState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { MAX_STACK, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
+import { isOpen, MAX_STACK, pullState, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
 
 const pr = (
   number: number,
@@ -10,14 +10,13 @@ const pr = (
   headInRepo = true,
 ): StackPull => ({ number, title: `PR ${number}`, state, baseRef, headRef, headInRepo });
 
-/** A fake repo: `byHead` sees every state, `byBase` only open and draft PRs, as the gh lookup does. */
+/** A fake repo: `byHead` sees every state, `byBase` only open PRs, as the gh lookup does. */
 function lookup(pulls: StackPull[]): StackLookup {
   return {
     trunk: async () => 'main',
     pull: async (number) => pulls.find((pull) => pull.number === number)!,
     byHead: async (branch) => pulls.filter((pull) => pull.headInRepo && pull.headRef === branch),
-    byBase: async (branch) =>
-      pulls.filter((pull) => pull.baseRef === branch && (pull.state === 'open' || pull.state === 'draft')),
+    byBase: async (branch) => pulls.filter((pull) => pull.baseRef === branch && isOpen(pull.state)),
   };
 }
 
@@ -82,5 +81,25 @@ describe('walkStack', () => {
     const members = await numbers(1, long);
     expect(members).toHaveLength(MAX_STACK);
     expect(members[0]).toBe(1);
+  });
+});
+
+describe('pullState', () => {
+  test.each([
+    [{ open: true, merged: false }, 'open'],
+    [{ open: true, merged: false, draft: true }, 'draft'],
+    [{ open: true, merged: false, queued: true }, 'queued'],
+    [{ open: true, merged: false, draft: true, queued: true }, 'queued'],
+    [{ open: false, merged: true }, 'merged'],
+    [{ open: false, merged: true, queued: true }, 'merged'],
+    [{ open: false, merged: false }, 'closed'],
+    [{ open: false, merged: false, draft: true }, 'closed'],
+  ] as const)('%o is %s', (flags, state) => {
+    expect(pullState(flags)).toBe(state);
+  });
+
+  test('a queued PR below is preferred over a merged one, like an open one', async () => {
+    const pulls = [pr(1, 'main', 'a', 'queued'), pr(2, 'main', 'a', 'merged'), pr(3, 'a', 'b')];
+    expect(await numbers(3, pulls)).toEqual([1, 3]);
   });
 });

@@ -12,7 +12,7 @@ import { Link, useRouter } from '@tanstack/react-router';
 import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon, WorkflowIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
-import { canReview, currentGroup, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
+import { canReview, currentGroup, isRunning, pullState, selectedKey, tourStops } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
@@ -262,6 +262,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               {state.meta || !running ? (
                 <Overview
                   state={state}
+                  pullState={pullState(model)}
                   groups={groups}
                   running={running}
                   onJumpToFile={jumpToFile}

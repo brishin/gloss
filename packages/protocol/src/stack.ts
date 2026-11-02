@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 
-export const PullStateSchema = v.picklist(['open', 'draft', 'merged', 'closed']);
+/** `queued` is an open PR in its base branch's merge queue. */
+export const PullStateSchema = v.picklist(['open', 'draft', 'queued', 'merged', 'closed']);
 export type PullState = v.InferOutput<typeof PullStateSchema>;
 
 export const StackMemberSchema = v.object({
