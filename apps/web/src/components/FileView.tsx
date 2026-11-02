@@ -3,7 +3,7 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { RegistryContext } from '@effect/atom-react';
 import type { Decision, FileChange, FileNote, FileSummary, LineNote, RiskNote } from '@gloss/protocol';
-import type { DiffLineAnnotation, FileDiffMetadata } from '@pierre/diffs';
+import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { Effect } from 'effect';
@@ -116,6 +116,7 @@ export const FileView = memo(function FileView({
   const composingDraft = composing?.editing;
   const composingSide = composing?.side;
   const composingLine = composing?.line;
+  const composingStart = composing?.startLine;
   const fileDiff = useMemo<FileDiffMetadata | undefined>(
     () => (change && change.hunks.length ? processFile(unifiedText(change)) : undefined),
     [change],
@@ -147,6 +148,15 @@ export const FileView = memo(function FileView({
     ],
     // Not the composer's text: the annotations keep their identity while the reviewer types.
     [decisions, lineNotes, drafts, composingDraft, composingSide, composingLine],
+  );
+  // Controlled, so the lines stay marked only while their comment is written. Left to pierre, the
+  // selection outlives the comment and pins the gutter's "+" to it: every later comment lands there.
+  const selectedLines = useMemo<SelectedLineRange | null>(
+    () =>
+      composingSide && composingLine !== undefined
+        ? { start: composingStart ?? composingLine, end: composingLine, side: composingSide, endSide: composingSide }
+        : null,
+    [composingSide, composingLine, composingStart],
   );
   const options = useMemo(
     () => ({
@@ -240,6 +250,7 @@ export const FileView = memo(function FileView({
             disableWorkerPool
             options={options}
             lineAnnotations={annotations}
+            selectedLines={selectedLines}
             renderAnnotation={(annotation) =>
               annotation.metadata?.kind === 'composer' ? (
                 composing &&
