@@ -244,7 +244,8 @@ export const FileView = memo(function FileView({
         </div>
       )}
       {expanded &&
-        (lfs ? (
+        // A pointer diff is noise, unless something is pinned to its lines.
+        (lfs && !annotations.length ? (
           <div className="collapsed">{lfsLabel(lfs)}</div>
         ) : summary.isBinary ? (
           <div className="collapsed">Binary file</div>
