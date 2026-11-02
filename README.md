@@ -30,8 +30,12 @@ ChatGPT (or add an API key), connect GitHub through `gh`, add the browser extens
 a Jev key. Each step turns done from what the backend and the extension report. The page
 stays at `/setup` (linked from home) as the in-app `gloss status`.
 
-`pnpm gloss:update` pulls, installs, rebuilds the web app and restarts the server in the
-background on the new code (`gloss restart` does only the last step).
+`gloss [target]` keeps its checkout current first: it pulls (fast-forward only), runs
+`pnpm install`, rebuilds the web app when it is stale, and restarts a server that runs an
+older commit (`--no-update` skips this). When the checkout's upstream has new commits, the
+app shows "A new version of gloss is ready" with an Update button that does the same on the
+backend and reloads the page. `gloss update` (or `pnpm gloss:update`) does it from a terminal;
+`gloss restart` only restarts.
 
 ## Models and keys
 

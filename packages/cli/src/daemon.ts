@@ -55,6 +55,17 @@ export async function startDetached(
   return { error: `gloss did not start; see ${glossPath('serve.log')}` };
 }
 
+/** Runs `gloss restart` in its own session, so it outlives the server it replaces (same host and token). */
+export function restartDetached(port: number, { host, token }: ServerOptions = {}): void {
+  mkdirSync(glossHome(), { recursive: true });
+  const log = openSync(glossPath('serve.log'), 'a');
+  spawn(process.execPath, [BIN, 'restart', '--port', String(port), ...(host ? ['--host', host] : [])], {
+    detached: true,
+    stdio: ['ignore', log, log],
+    env: token ? { ...process.env, GLOSS_TOKEN: token } : process.env,
+  }).unref();
+}
+
 /** Stops whatever listens on `port` (SIGTERM, then SIGKILL after 10s). Needs `lsof` (macOS, Linux). */
 export async function stopServer(port: number, token?: string): Promise<number[]> {
   const { stdout } = await promisify(execFile)('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN']).catch(() => ({

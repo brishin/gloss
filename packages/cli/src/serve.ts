@@ -1,23 +1,15 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
 import { Repos } from '@gloss/core';
 import { createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import { BackendInfo, BackendLayer } from './backend.ts';
+import { restartDetached } from './daemon.ts';
 import { createSetup } from './setup.ts';
+import { createUpdater, headCommit, SHELLS, WEB_ROOT, webBuildStale } from './update.ts';
 
 export const DEFAULT_PORT = 4777;
-
-/** The built web app (`pnpm --filter @gloss/web build`). */
-const WEB_ROOT = fileURLToPath(new URL('../../../apps/web/dist/client', import.meta.url));
-const SHELLS = ['index.html', '_shell.html'];
-/** Sources compiled into the web build; when any is newer, the served app may reject the server's events. */
-const WEB_SOURCES = ['../../../apps/web/src', '../../protocol/src'].map((path) =>
-  fileURLToPath(new URL(path, import.meta.url)),
-);
 
 export interface ServeOptions {
   port: number;
@@ -26,23 +18,11 @@ export interface ServeOptions {
   corsOrigins: string[];
 }
 
-function newestSourceMtime(): number {
-  let newest = 0;
-  for (const root of WEB_SOURCES) {
-    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-      if (entry.isFile()) {
-        newest = Math.max(newest, statSync(join(entry.parentPath, entry.name)).mtimeMs);
-      }
-    }
-  }
-  return newest;
-}
-
 function shellHtml(): string | undefined {
   for (const name of SHELLS) {
     const path = `${WEB_ROOT}/${name}`;
     if (existsSync(path)) {
-      if (statSync(path).mtimeMs < newestSourceMtime()) {
+      if (webBuildStale()) {
         console.error(
           'gloss: the web app build is older than its sources (apps/web, packages/protocol). Run `pnpm --filter @gloss/web build`, or the page may reject events.',
         );
@@ -69,12 +49,14 @@ export async function startServer(
       return yield* BackendInfo;
     }),
   );
+  const commit = await headCommit();
   const app = createApp({
     runtime,
-    health: () => info.health(),
+    health: async () => ({ ...(await info.health()), commit }),
     token: options.token,
     corsOrigins: options.corsOrigins,
     setup: createSetup(options),
+    update: commit ? createUpdater(commit, () => restartDetached(options.port, options)) : undefined,
   });
   const shell = shellHtml();
   if (shell) {
