@@ -1,4 +1,12 @@
-import { createFakeModelClient, DiffSources, ModelClient, TourCache } from '@gloss/core';
+import {
+  createFakeModelClient,
+  DiffSources,
+  ModelClient,
+  RepoError,
+  Repos,
+  StaleFileError,
+  TourCache,
+} from '@gloss/core';
 import type { Tour, TourEvent, TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
 import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
@@ -51,14 +59,27 @@ function scripted() {
   return { run, release, runs: () => runs };
 }
 
-function setup(run: ReturnType<typeof scripted>['run'], options: Partial<Parameters<typeof createApp>[0]> = {}) {
+/** Repository access that fails unless a test scripts it. */
+const unscripted = (): Repos['Service'] => ({
+  asset: () => Effect.succeed(undefined),
+  stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  review: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  contents: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+});
+
+function setup(
+  run: ReturnType<typeof scripted>['run'],
+  { repos, ...options }: Partial<Parameters<typeof createApp>[0]> & { repos?: Partial<Repos['Service']> } = {},
+) {
   const services = Layer.mergeAll(
     TourCache.memory,
     Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
     DiffSources.layer,
   );
   const runtime = ManagedRuntime.make(
-    Layer.merge(Jobs.layer({ run }), Logins.layer()).pipe(Layer.provideMerge(services)),
+    Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
+      Layer.provideMerge(services),
+    ),
   );
   const app = createApp({ runtime, health: async () => ({}) as never, ...options });
   const client = createHttpGlossClient({
@@ -152,9 +173,11 @@ describe('stack API', () => {
   it('round-trips a stack through the client', async () => {
     const asked: unknown[] = [];
     const { client } = setup(scripted().run, {
-      resolveStack: async (stackRef) => {
-        asked.push(stackRef);
-        return stack;
+      repos: {
+        stack: (stackRef) => {
+          asked.push(stackRef);
+          return Effect.succeed(stack);
+        },
       },
     });
     expect(await client.stack(ref)).toEqual(stack);
@@ -162,15 +185,13 @@ describe('stack API', () => {
   });
 
   it('rejects a request without a PR number', async () => {
-    const { app } = setup(scripted().run, { resolveStack: async () => stack });
+    const { app } = setup(scripted().run, { repos: { stack: () => Effect.succeed(stack) } });
     expect((await app.request('/api/stack?owner=o&repo=r')).status).toBe(400);
   });
 
   it('reports a failed lookup as a bad gateway', async () => {
     const { app } = setup(scripted().run, {
-      resolveStack: async () => {
-        throw new Error('gh is not signed in');
-      },
+      repos: { stack: () => Effect.fail(new RepoError({ message: 'gh is not signed in' })) },
     });
     const response = await app.request('/api/stack?owner=o&repo=r&number=1');
     expect(response.status).toBe(502);
@@ -194,9 +215,11 @@ describe('file contents API', () => {
   it('reads a cached diff file through the client', async () => {
     const asked: unknown[] = [];
     const { client, runtime } = setup(scripted().run, {
-      readContents: async (fromDiff, fromFile) => {
-        asked.push([fromDiff.id, fromFile.id]);
-        return { oldContents: 'a\nb\n', newContents: 'a\nB\n' };
+      repos: {
+        contents: (fromDiff, fromFile) => {
+          asked.push([fromDiff.id, fromFile.id]);
+          return Effect.succeed({ oldContents: 'a\nb\n', newContents: 'a\nB\n' });
+        },
       },
     });
     await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
@@ -206,14 +229,18 @@ describe('file contents API', () => {
 
   it('answers 404 for an unknown diff or file, and 502 when the read fails', async () => {
     const { app, runtime } = setup(scripted().run, {
-      readContents: async () => {
-        throw new Error('gh is not signed in');
-      },
+      repos: { contents: () => Effect.fail(new RepoError({ message: 'gh is not signed in' })) },
     });
     await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
     expect((await app.request('/api/diffs/nope/files/f1')).status).toBe(404);
     expect((await app.request('/api/diffs/d1/files/nope')).status).toBe(404);
     expect((await app.request('/api/diffs/d1/files/f1')).status).toBe(502);
+  });
+
+  it('answers 409 when the file no longer matches the diff', async () => {
+    const { app, runtime } = setup(scripted().run, { repos: { contents: () => Effect.fail(new StaleFileError()) } });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
+    expect((await app.request('/api/diffs/d1/files/f1')).status).toBe(409);
   });
 });
 
@@ -231,9 +258,11 @@ describe('review API', () => {
   it('round-trips a review through the client', async () => {
     const sent: unknown[] = [];
     const { client } = setup(scripted().run, {
-      submitReview: async (submitted) => {
-        sent.push(submitted);
-        return { url: 'https://github.com/o/r/pull/1#pullrequestreview-1' };
+      repos: {
+        review: (submitted) => {
+          sent.push(submitted);
+          return Effect.succeed({ url: 'https://github.com/o/r/pull/1#pullrequestreview-1' });
+        },
       },
     });
     expect(await client.review(review)).toEqual({ url: 'https://github.com/o/r/pull/1#pullrequestreview-1' });
@@ -242,7 +271,9 @@ describe('review API', () => {
 
   it('refuses a review GitHub would refuse, without sending it', async () => {
     const sent: unknown[] = [];
-    const { app } = setup(scripted().run, { submitReview: async (submitted) => (sent.push(submitted), { url: '' }) });
+    const { app } = setup(scripted().run, {
+      repos: { review: (submitted) => (sent.push(submitted), Effect.succeed({ url: '' })) },
+    });
     const response = await app.request('/api/reviews', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -254,8 +285,8 @@ describe('review API', () => {
 
   it("passes GitHub's refusal through as a bad gateway", async () => {
     const { app } = setup(scripted().run, {
-      submitReview: async () => {
-        throw new Error('Can not approve your own pull request (HTTP 422)');
+      repos: {
+        review: () => Effect.fail(new RepoError({ message: 'Can not approve your own pull request (HTTP 422)' })),
       },
     });
     const response = await app.request('/api/reviews', {
@@ -273,7 +304,7 @@ describe('review API from other sites', () => {
   const sent: unknown[] = [];
   const { app } = setup(scripted().run, {
     corsOrigins: ['http://localhost:4778'],
-    submitReview: async (submitted) => (sent.push(submitted), { url: 'u' }),
+    repos: { review: (submitted) => (sent.push(submitted), Effect.succeed({ url: 'u' })) },
   });
   const post = (headers: Record<string, string>) =>
     app.request('http://localhost:4777/api/reviews', { method: 'POST', headers, body: JSON.stringify(review) });

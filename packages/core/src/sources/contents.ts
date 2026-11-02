@@ -1,12 +1,11 @@
 import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/protocol';
+import { Data } from 'effect';
 import { git } from './exec.ts';
 import { gh } from './github.ts';
 
-export class StaleFileError extends Error {
-  constructor() {
-    super('The file has changed since the diff was read. Reload the tour to see it.');
-    this.name = 'StaleFileError';
-  }
+/** The file no longer reads as the diff says (an edited working tree). */
+export class StaleFileError extends Data.TaggedError('StaleFileError') {
+  override readonly message = 'The file has changed since the diff was read. Reload the tour to see it.';
 }
 
 /** Appends `from[start..end)` one by one: a spread overflows the call stack on a large file. */

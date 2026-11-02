@@ -25,6 +25,7 @@ export { reviewPayload, submitGithubReview } from './github-review.ts';
 export { MAX_STACK, resolveGithubStack, type StackLookup, walkStack } from './github-stack.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';
 export { readFileContents, reverseApply, StaleFileError } from './contents.ts';
+export { RepoError, Repos } from './repos.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';
 export type { DiffSource, FetchedDiff } from './types.ts';
