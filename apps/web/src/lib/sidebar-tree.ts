@@ -1,10 +1,12 @@
-import type { Category, FileSummary, GroupView } from '@gloss/protocol';
+import type { Category, FileSummary, GroupView, RecentTour, SourceRef, Stack } from '@gloss/protocol';
+import { serializeRef } from '@gloss/protocol';
 
 /** Sidebar tree node ids: the PR's stack, the toured PR, its categories (category nesting only) and its groups. */
 export const STACK_NODE = 'stack';
 export const PR_NODE = 'pr';
 export const groupNode = (key: string) => `group:${key}`;
 export const categoryNode = (category: Category) => `category:${category}`;
+export const recentStackNode = (key: string) => `recent-stack:${key}`;
 
 export type Nesting = 'tour' | 'category';
 
@@ -131,4 +133,47 @@ export function toggleNode(
           ? groups.filter((group) => categoryNode(group.category) === id).map((group) => groupNode(group.key))
           : [];
   return setNodesOpen(sidebar, deep ? [id, ...below] : [id], open);
+}
+
+/** The ref of each PR in a stack. */
+export function stackRefs(stack: Stack): SourceRef[] {
+  return stack.members.map((member) => ({
+    kind: 'github-pr',
+    owner: stack.owner,
+    repo: stack.repo,
+    number: member.number,
+  }));
+}
+
+/** A row below the toured PR: another recent tour, or a stack holding one or more of them. */
+export type RecentEntry = { kind: 'tour'; tour: RecentTour } | { kind: 'stack'; key: string; stack: Stack };
+
+/**
+ * Recent tours as sidebar rows, newest first. A tour in a stack of two or more becomes that
+ * stack's row, placed where its newest member was; later members fold into it. `skip` holds
+ * the refs already shown (the toured PR and its stack); recorded stacks can be stale, so one
+ * that overlaps a row already shown is dropped and its tour shown alone.
+ */
+export function recentEntries(recent: readonly RecentTour[], skip: ReadonlySet<string>): RecentEntry[] {
+  const entries: RecentEntry[] = [];
+  const shown = new Set(skip);
+  for (const tour of recent) {
+    const key = serializeRef(tour.ref);
+    if (shown.has(key)) {
+      continue;
+    }
+    const { stack } = tour;
+    const members = stack && stack.members.length > 1 ? stackRefs(stack).map(serializeRef) : [];
+    // A stale stack that overlaps rows already shown would show a PR twice: keep the tour alone.
+    if (!stack || members.length === 0 || members.some((member) => shown.has(member))) {
+      shown.add(key);
+      entries.push({ kind: 'tour', tour });
+      continue;
+    }
+    for (const member of members) {
+      shown.add(member);
+    }
+    entries.push({ kind: 'stack', key, stack });
+  }
+  return entries;
 }

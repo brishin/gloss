@@ -7,6 +7,8 @@ export const StackMemberSchema = v.object({
   number: v.number(),
   title: v.string(),
   state: PullStateSchema,
+  /** The PR author's GitHub login. */
+  author: v.optional(v.string()),
   baseRef: v.string(),
   headRef: v.string(),
 });

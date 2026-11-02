@@ -170,6 +170,7 @@ export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptio
     // Not cached: stacks change as PRs merge and retarget.
     return run(
       Repos.use((repos) => repos.stack(ref)).pipe(
+        Effect.tap((stack) => TourCache.use((cache) => Effect.sync(() => cache.recordStack(stack)))),
         Effect.match({
           onSuccess: (stack) => c.json(stack),
           onFailure: (error) => c.json({ error: error.message }, 502),

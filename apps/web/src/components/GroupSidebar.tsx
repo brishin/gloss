@@ -4,10 +4,10 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { useAtomValue } from '@effect/atom-react';
-import type { FileSummary, GroupView, SourceRef, Stack } from '@gloss/protocol';
+import type { FileSummary, GroupView, SourceRef, Stack, StackMember } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
-import { Fragment, type KeyboardEvent } from 'react';
+import { Fragment, type KeyboardEvent, type ReactNode } from 'react';
 import { recentToursAtom } from '../lib/client.ts';
 import {
   byCategory,
@@ -19,8 +19,11 @@ import {
   isNodeOpen,
   type Nesting,
   PR_NODE,
+  recentEntries,
+  recentStackNode,
   type SidebarState,
   STACK_NODE,
+  stackRefs,
 } from '../lib/sidebar-tree.ts';
 import { useNavigateToRef } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
@@ -30,7 +33,8 @@ import { Progress, TreeRow } from './TreeRow.tsx';
 
 /**
  * The review queue as a foldable tree: the toured PR, its groups (in tour order or nested
- * under their category), each group's files; then other recent tours. Clicking a row opens
+ * under their category), each group's files; then other recent tours, those in a stack under
+ * it. PR rows end with the author's avatar. Clicking a row opens
  * it, clicking the open row (or its chevron) folds it, and shift-clicking a chevron folds
  * everything under it. Arrow keys walk the tree.
  */
@@ -38,6 +42,7 @@ export function GroupSidebar({
   sourceRef,
   stack: fetchedStack,
   title,
+  author,
   groups,
   files,
   selection,
@@ -50,6 +55,7 @@ export function GroupSidebar({
   sourceRef: SourceRef;
   stack: Stack | undefined;
   title: string | undefined;
+  author: string | undefined;
   groups: GroupView[];
   files: ReadonlyMap<string, FileSummary>;
   selection: string;
@@ -69,11 +75,7 @@ export function GroupSidebar({
     sourceRef.kind === 'github-pr'
       ? fetchedStack?.members.find((member) => member.number === sourceRef.number)
       : undefined;
-  const stackRefs = new Set(
-    (stack?.members ?? []).map((member) =>
-      serializeRef({ kind: 'github-pr', owner: stack!.owner, repo: stack!.repo, number: member.number }),
-    ),
-  );
+  const shown = new Set([serializeRef(sourceRef), ...(stack ? stackRefs(stack).map(serializeRef) : [])]);
   const navigateToRef = useNavigateToRef();
 
   const kept = filterGroups(groups, files, query);
@@ -241,6 +243,7 @@ export function GroupSidebar({
             {critical}
           </span>
         )}
+        <Avatar login={author ?? currentMember?.author} />
         {loading ? (
           <Spinner size="sm" shade="subtle" aria-label="Tour running" />
         ) : (
@@ -291,59 +294,27 @@ export function GroupSidebar({
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
         {stack ? (
           <div className="tree-node">
-            <TreeRow
+            <StackHead
               id={STACK_NODE}
-              parent=""
+              stack={stack}
+              open={stackOpen}
               tabbable
-              current={false}
-              expanded={stackOpen}
-              label={`Stack of ${stack.members.length} PRs onto ${stack.base}`}
               onToggle={(deep) => toggle(STACK_NODE, deep)}
-              onClick={() => toggle(STACK_NODE, false)}
             >
-              <span className="tree-lead">
-                <StackIcon />
-              </span>
-              <span className="nav-label">
-                Stack onto <code className="tree-branch">{stack.base}</code>
-              </span>
               {!stackOpen && critical > 0 && (
                 <span className="tree-critical" aria-label={`${critical} critical groups`}>
                   <span className="marker marker-critical" />
                   {critical}
                 </span>
               )}
-              <span className="nav-count">{stack.members.length} PRs</span>
-            </TreeRow>
+            </StackHead>
             {stackOpen && (
               <div className="tree-kids" role="group">
                 {stack.members.map((member) =>
                   member === currentMember ? (
                     <Fragment key={member.number}>{prNode}</Fragment>
                   ) : (
-                    <TreeRow
-                      key={member.number}
-                      id={`member:${member.number}`}
-                      parent={STACK_NODE}
-                      current={false}
-                      label={`#${member.number} ${member.title} (${member.state})`}
-                      onClick={() =>
-                        void navigateToRef({
-                          kind: 'github-pr',
-                          owner: stack.owner,
-                          repo: stack.repo,
-                          number: member.number,
-                        })
-                      }
-                    >
-                      <span className="tree-lead">
-                        <RefIcon kind="github-pr" state={member.state} />
-                      </span>
-                      <span className="nav-label" data-done={member.state === 'merged' || member.state === 'closed'}>
-                        <span className="tree-number">#{member.number}</span>
-                        {member.title}
-                      </span>
-                    </TreeRow>
+                    <MemberRow key={member.number} stack={stack} member={member} parent={STACK_NODE} />
                   ),
                 )}
               </div>
@@ -352,25 +323,128 @@ export function GroupSidebar({
         ) : (
           prNode
         )}
-        {recent
-          .filter((item) => !stackRefs.has(serializeRef(item.ref)))
-          .map((item) => (
-            <TreeRow
-              key={serializeRef(item.ref)}
-              id={`recent:${serializeRef(item.ref)}`}
-              parent=""
-              current={false}
-              label={`${item.title} · ${describeRef(item.ref)}`}
-              onClick={() => void navigateToRef(item.ref)}
-            >
-              <span className="tree-lead">
-                <RefIcon kind={item.ref.kind} />
-              </span>
-              <RefLabel sourceRef={item.ref} title={item.title} />
-            </TreeRow>
-          ))}
+        {recentEntries(recent, shown).map((entry) => {
+          if (entry.kind === 'tour') {
+            const item = entry.tour;
+            return (
+              <TreeRow
+                key={serializeRef(item.ref)}
+                id={`recent:${serializeRef(item.ref)}`}
+                parent=""
+                current={false}
+                label={`${item.title} · ${describeRef(item.ref)}`}
+                onClick={() => void navigateToRef(item.ref)}
+              >
+                <span className="tree-lead">
+                  <RefIcon kind={item.ref.kind} />
+                </span>
+                <RefLabel sourceRef={item.ref} title={item.title} />
+                <Avatar login={item.author} />
+              </TreeRow>
+            );
+          }
+          const id = recentStackNode(entry.key);
+          const open = isOpen(id);
+          return (
+            <div key={id} className="tree-node">
+              <StackHead id={id} stack={entry.stack} open={open} onToggle={(deep) => toggle(id, deep)} />
+              {open && (
+                <div className="tree-kids" role="group">
+                  {entry.stack.members.map((member) => (
+                    <MemberRow key={member.number} stack={entry.stack} member={member} parent={id} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </nav>
+  );
+}
+
+/** A stack's row: the branch it goes onto and how many PRs it has. Clicking it folds it. */
+function StackHead({
+  id,
+  stack,
+  open,
+  tabbable,
+  onToggle,
+  children,
+}: {
+  id: string;
+  stack: Stack;
+  open: boolean;
+  tabbable?: boolean;
+  onToggle: (deep: boolean) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <TreeRow
+      id={id}
+      parent=""
+      tabbable={tabbable}
+      current={false}
+      expanded={open}
+      label={`Stack of ${stack.members.length} PRs onto ${stack.base}`}
+      onToggle={onToggle}
+      onClick={() => onToggle(false)}
+    >
+      <span className="tree-lead">
+        <StackIcon />
+      </span>
+      <span className="nav-label">
+        Stack onto <code className="tree-branch">{stack.base}</code>
+      </span>
+      {children}
+      <span className="nav-count">{stack.members.length} PRs</span>
+    </TreeRow>
+  );
+}
+
+/** A PR in a stack other than the toured one: opens it. */
+function MemberRow({ stack, member, parent }: { stack: Stack; member: StackMember; parent: string }) {
+  const navigateToRef = useNavigateToRef();
+  return (
+    <TreeRow
+      id={`member:${parent}:${member.number}`}
+      parent={parent}
+      current={false}
+      label={`#${member.number} ${member.title} (${member.state})`}
+      onClick={() =>
+        void navigateToRef({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number })
+      }
+    >
+      <span className="tree-lead">
+        <RefIcon kind="github-pr" state={member.state} />
+      </span>
+      <span className="nav-label" data-done={member.state === 'merged' || member.state === 'closed'}>
+        <span className="tree-number">#{member.number}</span>
+        {member.title}
+      </span>
+      <Avatar login={member.author} />
+    </TreeRow>
+  );
+}
+
+/** The PR author's GitHub avatar; nothing without one, or when GitHub has no image for the login. */
+function Avatar({ login }: { login: string | undefined }) {
+  if (!login) {
+    return null;
+  }
+  return (
+    <img
+      className="tree-avatar"
+      src={`https://github.com/${encodeURIComponent(login)}.png?size=32`}
+      alt={login}
+      title={login}
+      width={16}
+      height={16}
+      loading="lazy"
+      onError={(event) => {
+        event.currentTarget.hidden = true;
+      }}
+    />
   );
 }
 

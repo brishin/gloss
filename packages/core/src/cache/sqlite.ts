@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { RecentTour, SourceRef } from '@gloss/protocol';
-import type { CacheStore } from './store.ts';
+import { type RecentTour, type SourceRef, type Stack, serializeRef } from '@gloss/protocol';
+import { type CacheStore, stackMemberKeys, withStack } from './store.ts';
 
 /** How long a write waits on another gloss process holding the lock before failing with SQLITE_BUSY. */
 const BUSY_TIMEOUT_MS = 10_000;
@@ -30,15 +30,26 @@ export function createSqliteCacheStore(path: string): CacheStore {
       title TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS recent_stack (
+      ref_key TEXT PRIMARY KEY,
+      stack TEXT NOT NULL
+    );
   `);
+  // Files from before PR authors were kept get the column added; their rows have no author.
+  const recentColumns = db.prepare('PRAGMA table_info(recent)').all() as { name: string }[];
+  if (!recentColumns.some((column) => column.name === 'author')) {
+    db.exec('ALTER TABLE recent ADD COLUMN author TEXT');
+  }
   const getStmt = db.prepare('SELECT value FROM entries WHERE key = ?');
   const putStmt = db.prepare(
     'INSERT OR REPLACE INTO entries (key, kind, value, model, created_at, bytes) VALUES (?, ?, ?, ?, ?, ?)',
   );
   const recentPut = db.prepare(
-    'INSERT OR REPLACE INTO recent (source_key, ref, title, updated_at) VALUES (?, ?, ?, ?)',
+    'INSERT OR REPLACE INTO recent (source_key, ref, title, author, updated_at) VALUES (?, ?, ?, ?, ?)',
   );
-  const recentList = db.prepare('SELECT ref, title, updated_at FROM recent ORDER BY updated_at DESC LIMIT ?');
+  const recentList = db.prepare('SELECT ref, title, author, updated_at FROM recent ORDER BY updated_at DESC LIMIT ?');
+  const stackPut = db.prepare('INSERT OR REPLACE INTO recent_stack (ref_key, stack) VALUES (?, ?)');
+  const stackGet = db.prepare('SELECT stack FROM recent_stack WHERE ref_key = ?');
   const pruneStmt = db.prepare('DELETE FROM entries WHERE created_at < ?');
 
   return {
@@ -50,15 +61,30 @@ export function createSqliteCacheStore(path: string): CacheStore {
       const json = JSON.stringify(value);
       putStmt.run(key, kind, json, model ?? null, Date.now(), json.length);
     },
-    recordRecent(ref: SourceRef, sourceKey: string, title: string) {
-      recentPut.run(sourceKey, JSON.stringify(ref), title, Date.now());
+    recordRecent(ref: SourceRef, sourceKey: string, title: string, author?: string) {
+      recentPut.run(sourceKey, JSON.stringify(ref), title, author ?? null, Date.now());
+    },
+    recordStack(stack: Stack) {
+      const json = JSON.stringify(stack);
+      for (const key of stackMemberKeys(stack)) {
+        stackPut.run(key, json);
+      }
     },
     listRecent(limit = 20): RecentTour[] {
-      return (recentList.all(limit) as { ref: string; title: string; updated_at: number }[]).map((row) => ({
-        ref: JSON.parse(row.ref) as SourceRef,
-        title: row.title,
-        updatedAt: new Date(row.updated_at).toISOString(),
-      }));
+      const rows = recentList.all(limit) as { ref: string; title: string; author: string | null; updated_at: number }[];
+      return rows.map((row) => {
+        const ref = JSON.parse(row.ref) as SourceRef;
+        const stack = stackGet.get(serializeRef(ref)) as { stack: string } | undefined;
+        return withStack(
+          {
+            ref,
+            title: row.title,
+            ...(row.author ? { author: row.author } : {}),
+            updatedAt: new Date(row.updated_at).toISOString(),
+          },
+          stack && (JSON.parse(stack.stack) as Stack),
+        );
+      });
     },
     prune(olderThanMs) {
       return Number(pruneStmt.run(Date.now() - olderThanMs).changes);
