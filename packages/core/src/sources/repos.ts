@@ -1,3 +1,7 @@
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import process from 'node:process';
 import type {
   DiffPayload,
   FileChange,
@@ -80,67 +84,52 @@ export class Repos extends Context.Service<
   );
 }
 
-/** At most this many LFS downloads at once, and this many bytes kept. */
+/** At most this many LFS downloads at once. */
 const LFS_DOWNLOADS = 4;
-const LFS_BUDGET = 512 * 1024 * 1024;
 
 /**
- * Fetched LFS objects by oid, least recently used first. Requests for one oid share a download:
- * the page asks for every image when the tour opens, and again when it shows one. A download runs
- * in the service's scope, not the request's, so a reader who leaves the page does not cancel it for
- * the others; closing the service interrupts it.
+ * Git LFS objects saved by oid in a temp folder, so a restart or another tour reads them from disk.
+ * Requests for one oid share a download: the page asks for every image when the tour opens, and
+ * again when it shows one. A download runs in the service's scope, not the request's, so a reader
+ * who leaves the page does not cancel it for the others; closing the service interrupts it.
  */
-export const makeLfsCache = (budget = LFS_BUDGET) =>
+export const makeLfsCache = (dir = join(tmpdir(), 'gloss-lfs')) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const downloads = yield* Semaphore.make(LFS_DOWNLOADS);
-    const entries = new Map<string, Deferred.Deferred<Uint8Array, RepoError>>();
-    const sizes = new Map<string, number>();
-    let used = 0;
+    const running = new Map<string, Deferred.Deferred<Uint8Array, RepoError>>();
 
-    const keep = (oid: string, bytes: Uint8Array) => {
-      sizes.set(oid, bytes.length);
-      used += bytes.length;
-      // The object just kept is the newest, so it goes last, and only when it is alone over the budget.
-      for (const [key, size] of sizes) {
-        if (used <= budget || key === oid) {
-          continue;
-        }
-        sizes.delete(key);
-        entries.delete(key);
-        used -= size;
-      }
-    };
+    const save = (path: string, bytes: Uint8Array) =>
+      Effect.tryPromise(async () => {
+        await mkdir(dir, { recursive: true });
+        // Written aside, then renamed, so a reader never sees half a file.
+        const partial = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}`;
+        await writeFile(partial, bytes);
+        await rename(partial, path);
+      }).pipe(Effect.ignore);
 
     return (oid: string, download: Effect.Effect<Uint8Array, RepoError>): Effect.Effect<Uint8Array, RepoError> =>
       Effect.suspend(() => {
-        const hit = entries.get(oid);
-        if (hit) {
-          entries.delete(oid);
-          entries.set(oid, hit);
-          const size = sizes.get(oid);
-          if (size !== undefined) {
-            sizes.delete(oid);
-            sizes.set(oid, size);
-          }
-          return Deferred.await(hit);
+        const shared = running.get(oid);
+        if (shared) {
+          return Deferred.await(shared);
         }
+        const path = join(dir, oid);
         const deferred = Deferred.makeUnsafe<Uint8Array, RepoError>();
-        entries.set(oid, deferred);
-        return downloads.withPermit(download).pipe(
+        running.set(oid, deferred);
+        const fetched = downloads.withPermit(download).pipe(Effect.tap((bytes) => save(path, bytes)));
+        return Effect.tryPromise(() => readFile(path)).pipe(
+          Effect.map((bytes) => new Uint8Array(bytes)),
+          Effect.catch(() => fetched),
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.sync(() => {
-              if (Exit.isSuccess(exit)) {
-                keep(oid, exit.value);
-              } else {
-                entries.delete(oid);
-              }
+              running.delete(oid);
               Deferred.doneUnsafe(deferred, exit);
             }),
           ),
           Effect.onInterrupt(() =>
-            Effect.sync(() => entries.delete(oid)).pipe(Effect.andThen(Deferred.interrupt(deferred))),
+            Effect.sync(() => running.delete(oid)).pipe(Effect.andThen(Deferred.interrupt(deferred))),
           ),
           Effect.forkIn(scope),
           Effect.andThen(Deferred.await(deferred)),
