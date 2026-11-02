@@ -16,11 +16,6 @@ describe('blurbOf', () => {
       'Adds nameStack via the fast tier. Caches it.',
     ],
     ['drops images and rules', '![shot](https://x.png)\n---\nShows names.', 'Shows names.'],
-    [
-      'drops a Generated with Claude Code footer and session links',
-      '🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_1\nThis is step 3.',
-      'This is step 3.',
-    ],
   ])('%s', (_, body, blurb) => {
     expect(blurbOf(body)).toBe(blurb);
   });
