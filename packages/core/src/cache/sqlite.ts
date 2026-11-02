@@ -36,9 +36,16 @@ export function createSqliteCacheStore(path: string): CacheStore {
     );
   `);
   // Files from before PR authors were kept get the column added; their rows have no author.
+  // Another gloss process may add it between the check and the ALTER, so that error is fine.
   const recentColumns = db.prepare('PRAGMA table_info(recent)').all() as { name: string }[];
   if (!recentColumns.some((column) => column.name === 'author')) {
-    db.exec('ALTER TABLE recent ADD COLUMN author TEXT');
+    try {
+      db.exec('ALTER TABLE recent ADD COLUMN author TEXT');
+    } catch (error) {
+      if (!String(error).includes('duplicate column name')) {
+        throw error;
+      }
+    }
   }
   const getStmt = db.prepare('SELECT value FROM entries WHERE key = ?');
   const putStmt = db.prepare(
