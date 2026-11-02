@@ -95,18 +95,26 @@ const BLURB_CHARS = 200;
 
 /**
  * The opening prose of a PR description: HTML comments, headings, lines that are all emphasis
- * (bot and template bylines) and images left out, and markdown links reduced to their text.
+ * (bot and template bylines), images, "Generated with" footers and bare URLs left out, and markdown
+ * links reduced to their text.
  */
 export function blurbOf(body: string | null | undefined): string | undefined {
   const prose = (body ?? '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => !/^#{1,6}\s/.test(line) && !/^([_*]).*\1$/.test(line) && !/^(!\[|<img|---|\|)/.test(line))
+    .filter(
+      (line) =>
+        !/^#{1,6}\s/.test(line) &&
+        !/^([_*]).*\1$/.test(line) &&
+        !/^(!\[|<img|---|\|)/.test(line) &&
+        !/generated with \[?claude code/i.test(line),
+    )
     .map((line) =>
       line
         .replace(/^([-*+]|\d+\.)\s+/, '')
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/<?https?:\/\/\S+/g, '')
         .replace(/`/g, ''),
     )
     .join(' ')
