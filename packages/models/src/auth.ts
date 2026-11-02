@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AuthEvent, AuthPrompt } from '@earendil-works/pi-ai';
+import type { LoginMethod, ProviderLogin } from '@gloss/protocol';
 import { loadConfig, splitSpecifier } from './config.ts';
 import { glossPath } from './paths.ts';
 import { getModels, SUBSCRIPTIONS, type Subscription } from './registry.ts';
@@ -35,12 +36,19 @@ export function deviceId(): string {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Runs pi-ai's OAuth flow for a subscription and stores the credential in `~/.gloss/auth.json`. */
-export async function login(subscription: Subscription, io: LoginIO, signal?: AbortSignal): Promise<void> {
+/**
+ * Runs pi-ai's login flow for a subscription (its OAuth sign-in, or the provider's API key)
+ * and stores the credential in `~/.gloss/auth.json`.
+ */
+export async function login(
+  subscription: Subscription,
+  io: LoginIO,
+  { method = 'oauth', signal }: { method?: LoginMethod; signal?: AbortSignal } = {},
+): Promise<void> {
   const { provider } = SUBSCRIPTIONS[subscription];
   await getModels().login(
     provider,
-    'oauth',
+    method,
     {
       notify: (event) => io.notify(event),
       prompt: (prompt) => io.prompt(prompt),
@@ -59,6 +67,21 @@ export interface ProviderStatus {
   configured: boolean;
   /** "OAuth", "ANTHROPIC_API_KEY", ... */
   source?: string;
+  /** How `gloss login` (or the app) can sign this provider in. */
+  login?: ProviderLogin;
+}
+
+/** The subscription a pi-ai provider id signs in with, if any. */
+export function providerLogin(providerId: string): ProviderLogin | undefined {
+  for (const [subscription, entry] of Object.entries(SUBSCRIPTIONS) as [
+    Subscription,
+    (typeof SUBSCRIPTIONS)[Subscription],
+  ][]) {
+    if (entry.provider === providerId) {
+      return { subscription, label: entry.label, apiKeyLabel: entry.apiKeyLabel };
+    }
+  }
+  return undefined;
 }
 
 /** Auth status of every provider the current config uses. */
@@ -73,7 +96,8 @@ export async function providerStatus(): Promise<ProviderStatus[]> {
   return Promise.all(
     [...ids].map(async (id) => {
       const check = await models.checkAuth(id).catch(() => undefined);
-      return { id, configured: !!check, source: check?.source };
+      const login = providerLogin(id);
+      return { id, configured: !!check, source: check?.source, ...(login ? { login } : {}) };
     }),
   );
 }

@@ -197,9 +197,9 @@ export const FileView = memo(function FileView({
         </button>
         {/* The warning mark the group head uses; a pill would outshout the file name. */}
         {riskKinds.map((risk) => (
-          <span key={risk} className="risk-kind">
+          <span key={risk} className="risk-kind" title={RISK_SHORT[risk]}>
             <FlagIcon level="warning" />
-            {RISK_SHORT[risk]}
+            <span className="risk-kind-label">{RISK_SHORT[risk]}</span>
           </span>
         ))}
         {generated && <Badge variant="neutral" label="generated" />}

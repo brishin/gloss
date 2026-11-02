@@ -13,7 +13,11 @@
   is re-registered with `auth.apiKey.resolve = () => models.getAuth(id)`, so OAuth
   refresh happens under gloss's store lock. pi-ai detects subscription tokens by shape
   (`sk-ant-oat…` for Anthropic, Sign in with ChatGPT tokens for OpenAI Responses), so
-  the bridged path behaves like native OAuth. Login has not yet been run end to end
+  the bridged path behaves like native OAuth. `providerStatus` (in `/api/health`) tags each
+  provider that a subscription serves with `login`, so the web app's `LoginPrompt` opens
+  by itself when one is not configured. It drives the same `login()` (OAuth or the
+  provider's API key) through `/api/logins` (`packages/server/src/logins.ts`): the flow runs
+  on the backend, the app polls it, opens its sign-in page, and answers its prompts. Login has not yet been run end to end
   against a real subscription; that needs a person in the browser. The API-key
   paths are verified.
 - **Third-party pi providers**: `providerPackages` in config. Each package default-exports

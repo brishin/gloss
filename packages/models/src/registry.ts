@@ -3,15 +3,16 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { openrouterProvider } from '@earendil-works/pi-ai/providers/openrouter';
 import { typesafeProvider } from '@earendil-works/pi-ai/providers/typesafe';
+import type { Subscription } from '@gloss/protocol';
 import { FileCredentialStore } from './credential-store.ts';
 import { glossPath } from './paths.ts';
 
-/** The subscription logins `gloss login` offers, by the pi-ai provider that serves them. */
+/** The subscription logins `gloss login` (and the app) offer, by the pi-ai provider that serves them. */
 export const SUBSCRIPTIONS = {
-  claude: { provider: 'anthropic', label: 'Claude Pro/Max' },
-  chatgpt: { provider: 'openai', label: 'ChatGPT Plus/Pro' },
-} as const;
-export type Subscription = keyof typeof SUBSCRIPTIONS;
+  claude: { provider: 'anthropic', label: 'Claude Pro/Max', apiKeyLabel: 'Anthropic API key' },
+  chatgpt: { provider: 'openai', label: 'ChatGPT Plus/Pro', apiKeyLabel: 'OpenAI API key' },
+} as const satisfies Record<Subscription, { provider: string; label: string; apiKeyLabel: string }>;
+export type { Subscription };
 
 let models: MutableModels | undefined;
 let packagesLoaded: Promise<void> | undefined;

@@ -2,6 +2,7 @@ import { Theme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import { LoginPrompt } from '../components/LoginPrompt.tsx';
 import appCss from '../styles.css?url';
 
 export const Route = createRootRoute({
@@ -38,6 +39,7 @@ function Root() {
   return (
     <Theme theme={neutralTheme} mode="system">
       <Outlet />
+      <LoginPrompt />
     </Theme>
   );
 }

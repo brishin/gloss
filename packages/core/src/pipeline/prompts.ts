@@ -49,7 +49,7 @@ const decisionText = v.pipe(
 const decisionPriority = v.pipe(
   v.picklist(DECISION_PRIORITIES),
   v.description(
-    'urgent: rare; the reviewer must agree before merging because it affects security, access or data loss, or is hard to undo. high: users or other code will depend on it. medium: a design choice worth a look. low: a minor default. Most decisions are medium or low.',
+    'urgent: rare; the reviewer must agree before merging because it affects security, access or data loss, or is hard to undo (a one-way door, such as a migration that drops or rewrites data). high: users or other code will depend on it. medium: a design choice worth a look. low: a minor default. Most decisions are medium or low.',
   ),
 );
 
@@ -299,6 +299,18 @@ export const NotesSchema = v.object({
  * How to draw the sketch, from the bake-off's hand-drawn figures (the style Brian liked) and
  * the artifact diagramming guidance.
  */
+/**
+ * One-way doors are the decisions a reviewer most needs to agree with on purpose, so both
+ * decision passes look for them first. SQL migrations are the commonest kind: the notes pass
+ * pins each one in its file, so the define pass gets only the rollout half of the rule, or it
+ * restates the schema change change-wide.
+ */
+const ONE_WAY_DOORS = `Look hardest for one-way doors: choices that are expensive or impossible to reverse once merged and deployed, and so need agreement before merging rather than a follow-up fix. Examples: a SQL or schema migration; data deleted, rewritten or stored in a new shape; a public API, wire format, file format, config key or event name that other code or clients will depend on; a published package version; an irreversible external side effect such as sending messages or charging money. Say in the decision what makes it hard to undo. Urgent is still rare: a one-way door that loses no data and exposes nothing is high.`;
+
+const MIGRATION_ROLLOUT = `A later pass pins each SQL migration's schema change, and any data it drops, to its migration file. Do not list what a migration adds, drops or renames here. List only how it rolls out across files: the order the migration and the code that relies on it must deploy in, or code that stops working against the old schema.`;
+
+const MIGRATION_PIN = `SQL migrations are always key decisions: any migration file, raw DDL, or ORM change that alters the database schema. For each migration file in this group, pin exactly one decision to its first statement that drops, renames or rewrites data, or else its first schema statement. Name what it changes (a table or column added, dropped or renamed, a table rebuilt by copy and drop, a type or nullability change, a new constraint or index, a backfill or data rewrite) and whether it can be rolled back, and fold any other choice the file makes, such as a cascade or a JSON column, into it. Rate one that drops or rewrites data, cannot be rolled back, or locks a large table urgent, and any other migration high, never medium or low. Pin it even when the change-wide list mentions the migration: that list covers rollout, and this decision names the schema change.`;
+
 const SKETCH_GUIDE = `Drawing the sketch. Draw it as the engineer who has to live with the decision, like a figure in a design doc:
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step or edge the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over the request plumbing every feature shares. Write the caption first, then draw every noun it names as a box: if it says "plus recent tours", recent tours is a box, and if it says "before", there is a BEFORE band.
 - Color only the part that differs: accent (stroke #5b4cc4, stroke-width 1.5, fill none) for what the change adds, bad (stroke #cf222e, stroke-dasharray "4 3", fill none) for what it removes or fixes. One accent at most. A part that only sometimes exists is a box with stroke-dasharray "4 3" in #8c959f.
@@ -335,6 +347,10 @@ Write labels and summaries for a reviewer who has not seen the change. Explain w
 
 Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does. Give each decision the key of the group it is mostly about; leave the key out only for a decision about the change as a whole.
 
+${ONE_WAY_DOORS}
+
+${MIGRATION_ROLLOUT}
+
 Then propose two candidate visuals of the main decision, drawn from data; only one picture will be shown. Make them differ in kind or angle so there is a real choice. Add them whenever the change has any of these: a design replaced by another (before-after: a small diagram of the old flow or structure next to one of the new), events whose order or timing matters (timeline: a timer, a lifecycle event, a race, a retry, a walk that now stops somewhere), or a flow or state machine of three or more steps that the change adds or alters (mermaid). Most features and behavior fixes have one of these. Draw the decision, not the file list or the call graph, and use the reviewer's words, not code dumps. A picture must show structure (flow, branching, order or timing) that a bulleted list would lose; never restate the summary as rows of text. Use kind "none" in a slot only when you have nothing different to draw, and in both only when none of these applies, such as a rename, a styling tweak, a dependency bump or a docs-only change.
 
 Call the submit tool once with the complete result.`;
@@ -359,10 +375,14 @@ When the prompt lists flagged risks, check each against the diff and write a ris
 
 Separately from notes, list the key decisions this group makes in code, each on the line that makes it. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Skip CSS and visual styling, layout, naming, refactors, error handling details and anything that only describes what the code does. Never put a decision on a test, fixture or story file: record it where the code makes it. Skip any choice the change-wide list already covers, even when you can point at its line. Before you submit, remove each decision that restates a change-wide one.
 
+${ONE_WAY_DOORS}
+
+${MIGRATION_PIN}
+
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,

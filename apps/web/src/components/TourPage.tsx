@@ -144,14 +144,16 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             icon={<Icon icon={WorkflowIcon} />}
             onClick={() => dispatch({ type: 'PipelineOpened' })}
           />
-          <IconButton
-            size="sm"
-            variant="ghost"
-            label="Keyboard shortcuts"
-            tooltip="Shortcuts (?)"
-            icon={<Icon icon={KeyboardIcon} />}
-            onClick={() => dispatch({ type: 'HelpSet', open: true })}
-          />
+          <span className="shortcuts-button">
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Keyboard shortcuts"
+              tooltip="Shortcuts (?)"
+              icon={<Icon icon={KeyboardIcon} />}
+              onClick={() => dispatch({ type: 'HelpSet', open: true })}
+            />
+          </span>
         </div>
       </header>
 
