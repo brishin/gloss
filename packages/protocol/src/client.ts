@@ -12,6 +12,7 @@ import {
   type Subscription,
 } from './login.ts';
 import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
+import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { type Stack, StackSchema } from './stack.ts';
@@ -86,6 +87,14 @@ export interface GlossClient {
   /** Answers the login's current question (`prompt.id`). */
   answerLogin(loginId: string, promptId: number, value: string): Promise<LoginSession>;
   cancelLogin(loginId: string): Promise<void>;
+  /** GitHub, the extension's native host and Jev, as the setup page shows them. */
+  setup(): Promise<SetupStatus>;
+  /** Starts `gh auth login --web` on the backend; resolves with the code to enter. */
+  githubLogin(): Promise<GithubLogin>;
+  /** Registers the extension's native host, so its button can start the server. */
+  installNativeHost(): Promise<void>;
+  /** Saves a TypeSafe key for Jev in the backend's `~/.gloss/.env`, then the backend restarts to use it. */
+  saveJudgeKey(key: string): Promise<void>;
   /** Whether the backend's checkout has newer code (fetches its upstream at most every few minutes). */
   updateStatus(): Promise<UpdateStatus>;
   /** Pulls, installs and builds on the backend, then restarts it; resolves before the restart. */
@@ -207,6 +216,27 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       await request(`/api/logins/${encodeURIComponent(loginId)}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    setup: () => json(SetupStatusSchema, '/api/setup'),
+    githubLogin: () =>
+      json(GithubLoginSchema, '/api/setup/github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+    async installNativeHost() {
+      await request('/api/setup/extension', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+    },
+    async saveJudgeKey(key) {
+      await request('/api/setup/judge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
       });
     },
     updateStatus: () => json(UpdateStatusSchema, '/api/update'),

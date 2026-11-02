@@ -6,6 +6,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import { BackendInfo, BackendLayer } from './backend.ts';
 import { restartDetached } from './daemon.ts';
+import { createSetup } from './setup.ts';
 import { createUpdater, headCommit, SHELLS, WEB_ROOT, webBuildStale } from './update.ts';
 
 export const DEFAULT_PORT = 4777;
@@ -54,7 +55,8 @@ export async function startServer(
     health: async () => ({ ...(await info.health()), commit }),
     token: options.token,
     corsOrigins: options.corsOrigins,
-    update: commit ? createUpdater(commit, () => restartDetached(options.port)) : undefined,
+    setup: createSetup(options),
+    update: commit ? createUpdater(commit, () => restartDetached(options.port, options)) : undefined,
   });
   const shell = shellHtml();
   if (shell) {

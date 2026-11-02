@@ -55,10 +55,10 @@ function openBrowser(url: string) {
 const log = (line: string) => console.error(`gloss: ${line}`);
 
 /** Stops the server on `port` and starts it again in the background on this checkout's code. */
-async function restart(port: number) {
-  const stopped = await stopServer(port);
+async function restart(port: number, host?: string, token?: string) {
+  const stopped = await stopServer(port, token);
   if (stopped.length > 0) console.error(`Stopped ${stopped.join(', ')}`);
-  const result = await startDetached(port);
+  const result = await startDetached(port, { host, token });
   if ('error' in result) throw new Error(result.error);
   console.log(`gloss server on ${result.url} (logs: ${glossPath('serve.log')})`);
 }
@@ -68,7 +68,7 @@ async function restart(port: number) {
  * the new code. A running server on an older commit is restarted; with none running, this
  * process (still on the old code) re-runs itself and returns its exit code.
  */
-async function updateFirst(port: number, url: string, token?: string): Promise<number | undefined> {
+async function updateFirst(port: number, url: string, host?: string, token?: string): Promise<number | undefined> {
   let synced: { before?: string; after?: string };
   try {
     synced = await syncCheckout(log);
@@ -85,7 +85,7 @@ async function updateFirst(port: number, url: string, token?: string): Promise<n
     .catch(() => undefined);
   if (health && health.commit !== synced.after) {
     log('restarting the server on the new code');
-    await restart(port);
+    await restart(port, host, token);
     return undefined;
   }
   if (!health && synced.before !== synced.after) {
@@ -187,14 +187,14 @@ async function main() {
     }
 
     case 'restart': {
-      await restart(port);
+      await restart(port, values.host, token);
       return;
     }
 
     case 'update': {
       const { before, after } = await syncCheckout(log);
       if (before && before === after) log('already up to date');
-      await restart(port);
+      await restart(port, values.host, token);
       return;
     }
 
@@ -322,7 +322,7 @@ async function main() {
     default: {
       const serveOnly = command === 'serve';
       if (!serveOnly && !values['no-update']) {
-        const exitCode = await updateFirst(port, `http://${host}:${port}`, token);
+        const exitCode = await updateFirst(port, `http://${host}:${port}`, values.host, token);
         if (exitCode !== undefined) {
           process.exitCode = exitCode;
           return;

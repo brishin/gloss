@@ -11,10 +11,17 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const serverUrl = (port: number) => `http://127.0.0.1:${port}`;
 
+/** How a server was started: its bind address and API token (`--host`, `--token`), kept across a restart. */
+export interface ServerOptions {
+  host?: string;
+  token?: string;
+}
+
 /** Whether a gloss server answers on `port`; a stalled port counts as down after a second. */
-export function isUp(port: number): Promise<boolean> {
+export function isUp(port: number, token?: string): Promise<boolean> {
   const client = createHttpGlossClient({
     baseUrl: serverUrl(port),
+    token,
     fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(1000) }),
   });
   return client.health().then(
@@ -27,34 +34,40 @@ export function isUp(port: number): Promise<boolean> {
  * Starts `gloss serve` on `port` in its own session (it outlives the caller, logging to
  * ~/.gloss/serve.log) and waits up to 30s for it to answer.
  */
-export async function startDetached(port: number): Promise<{ url: string } | { error: string }> {
+export async function startDetached(
+  port: number,
+  { host, token }: ServerOptions = {},
+): Promise<{ url: string } | { error: string }> {
   mkdirSync(glossHome(), { recursive: true });
   const log = openSync(glossPath('serve.log'), 'a');
-  spawn(process.execPath, [BIN, 'serve', '--port', String(port)], {
+  // The token goes in the environment, not argv, so `ps` does not show it.
+  spawn(process.execPath, [BIN, 'serve', '--port', String(port), ...(host ? ['--host', host] : [])], {
     detached: true,
     stdio: ['ignore', log, log],
+    env: token ? { ...process.env, GLOSS_TOKEN: token } : process.env,
   }).unref();
   for (let attempt = 0; attempt < 60; attempt++) {
     await sleep(500);
-    if (await isUp(port)) {
+    if (await isUp(port, token)) {
       return { url: serverUrl(port) };
     }
   }
   return { error: `gloss did not start; see ${glossPath('serve.log')}` };
 }
 
-/** Runs `gloss restart` in its own session, so it outlives the server it replaces. */
-export function restartDetached(port: number): void {
+/** Runs `gloss restart` in its own session, so it outlives the server it replaces (same host and token). */
+export function restartDetached(port: number, { host, token }: ServerOptions = {}): void {
   mkdirSync(glossHome(), { recursive: true });
   const log = openSync(glossPath('serve.log'), 'a');
-  spawn(process.execPath, [BIN, 'restart', '--port', String(port)], {
+  spawn(process.execPath, [BIN, 'restart', '--port', String(port), ...(host ? ['--host', host] : [])], {
     detached: true,
     stdio: ['ignore', log, log],
+    env: token ? { ...process.env, GLOSS_TOKEN: token } : process.env,
   }).unref();
 }
 
 /** Stops whatever listens on `port` (SIGTERM, then SIGKILL after 10s). Needs `lsof` (macOS, Linux). */
-export async function stopServer(port: number): Promise<number[]> {
+export async function stopServer(port: number, token?: string): Promise<number[]> {
   const { stdout } = await promisify(execFile)('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN']).catch(() => ({
     stdout: '',
   }));
@@ -67,10 +80,10 @@ export async function stopServer(port: number): Promise<number[]> {
         // Already gone.
       }
     }
-    for (let attempt = 0; attempt < 20 && (await isUp(port)); attempt++) {
+    for (let attempt = 0; attempt < 20 && (await isUp(port, token)); attempt++) {
       await sleep(500);
     }
-    if (!(await isUp(port))) {
+    if (!(await isUp(port, token))) {
       break;
     }
   }
