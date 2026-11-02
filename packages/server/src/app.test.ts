@@ -262,8 +262,8 @@ describe('stack API', () => {
     ],
   };
 
-  it('names a stack with the fast tier once, then from the cache even after a PR merges', async () => {
-    const model = createFakeModelClient({ answers: { define: { name: '"Stack names in the rail."' } } });
+  it('names a stack with the small tier once, then from the cache even after a PR merges', async () => {
+    const model = createFakeModelClient({ answers: { small: { name: '"Stack names in the rail."' } } });
     const { client } = setup(scripted().run, { model });
     expect(await client.stackName(pair)).toBe('Stack names in the rail');
     const merged = { ...pair, members: [{ ...pair.members[0]!, state: 'merged' as const }, pair.members[1]!] };

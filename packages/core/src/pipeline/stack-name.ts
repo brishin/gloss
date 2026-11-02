@@ -52,7 +52,7 @@ export function cleanStackName(raw: string): string {
 }
 
 /**
- * Names a stack with the fast (define) tier. The name is cached under the exact request, so a
+ * Names a stack with the small tier (Haiku by default). The name is cached under the exact request, so a
  * stack is named once until a title, branch or description changes.
  */
 export const nameStack = Effect.fn('nameStack')(function* (stack: Stack) {
@@ -61,14 +61,14 @@ export const nameStack = Effect.fn('nameStack')(function* (stack: Stack) {
   const prompt = stackNamePrompt(stack);
   const key = hashOf({
     kind: 'stack-name',
-    request: { STACK_NAME_VERSION, model: model.config().define, prompt },
+    request: { STACK_NAME_VERSION, model: model.config().small, prompt },
   });
   const hit = cache.get<string>(key);
   if (hit !== undefined) {
     return hit;
   }
   const response = yield* model.prompt({
-    tier: 'define',
+    tier: 'small',
     system: STACK_NAME_SYSTEM,
     prompt,
     result: StackNameResultSchema,

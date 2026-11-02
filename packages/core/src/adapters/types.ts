@@ -2,7 +2,8 @@ import type { ModelConfig } from '@gloss/protocol';
 import { Context, Data, type Effect } from 'effect';
 import type * as v from 'valibot';
 
-export type ModelTier = 'define' | 'followup' | 'notes';
+/** `small` is the provider's cheapest model, for one-line jobs outside the tour (stack names). */
+export type ModelTier = 'define' | 'followup' | 'notes' | 'small';
 
 export interface ModelUsage {
   input: number;
@@ -40,7 +41,7 @@ export class ModelClient extends Context.Service<
   ModelClient,
   {
     /** `provider/model` per tier; part of every cache key. */
-    config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'>;
+    config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'> & { small: string };
     prompt<S extends v.GenericSchema>(
       request: ModelRequest<S>,
     ): Effect.Effect<ModelResponse<v.InferOutput<S>>, ModelError>;
