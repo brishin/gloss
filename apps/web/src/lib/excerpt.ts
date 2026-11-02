@@ -25,7 +25,9 @@ export function sliceHunk(hunk: DiffHunk, from = -Infinity, to = Infinity): Diff
     if (kind === '\\') {
       continue;
     }
-    const inside = newLine >= from && newLine <= to;
+    // A removed row sits at the new line after it, so rows removed right after `to` (at the
+    // end of a hunk, say) still belong to the slice.
+    const inside = newLine >= from && newLine <= (kind === '-' ? to + 1 : to);
     if (inside) {
       oldStart ??= oldLine;
       newStart ??= newLine;

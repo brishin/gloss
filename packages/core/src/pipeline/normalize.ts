@@ -490,10 +490,13 @@ const MAX_EXCERPTS = 3;
 const EXCERPT_CONTEXT = 3;
 const MAX_EXCERPT_LINES = 30;
 
-/** New-side line numbers of a hunk, and which of them sit at a change (an added line, or where lines were removed). */
-function hunkLines(hunk: FileChange['hunks'][number]): { lines: number[]; changed: Set<number> } {
-  const lines: number[] = [];
-  const changed = new Set<number>();
+/**
+ * Each row of a hunk by new-side position: a removed row sits at the new line after it.
+ * An excerpt `from`..`to` shows the rows at `from`..`to`, plus removed rows at `to + 1`, so
+ * lines removed at the end of a hunk still show (`sliceHunk` in the web app does the same).
+ */
+function hunkRows(hunk: FileChange['hunks'][number]): { at: number; kind: '+' | '-' | ' ' }[] {
+  const rows: { at: number; kind: '+' | '-' | ' ' }[] = [];
   let newLine = hunk.newStart;
   for (const line of hunk.patch.split('\n')) {
     const marker = line[0] ?? ' ';
@@ -501,16 +504,16 @@ function hunkLines(hunk: FileChange['hunks'][number]): { lines: number[]; change
       continue;
     }
     if (marker === '-') {
-      changed.add(newLine);
+      rows.push({ at: newLine, kind: '-' });
     } else {
-      if (marker === '+') {
-        changed.add(newLine);
-      }
-      lines.push(newLine++);
+      rows.push({ at: newLine++, kind: marker === '+' ? '+' : ' ' });
     }
   }
-  return { lines, changed };
+  return rows;
 }
+
+const shows = (row: { at: number; kind: string }, from: number, to: number) =>
+  row.at >= from && row.at <= (row.kind === '-' ? to + 1 : to);
 
 /**
  * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
@@ -531,11 +534,12 @@ function normalizeExcerpt(
   }
   const hunk =
     file.hunks.find((candidate) => candidate.id === raw.hunkId) ??
-    file.hunks.find((candidate) => hunkLines(candidate).lines.includes(from));
+    file.hunks.find((candidate) => hunkRows(candidate).some((row) => row.kind !== '-' && row.at === from));
   if (!hunk) {
     return undefined;
   }
-  const { lines, changed } = hunkLines(hunk);
+  const rows = hunkRows(hunk);
+  const lines = rows.filter((row) => row.kind !== '-').map((row) => row.at);
   if (lines.length === 0) {
     return undefined;
   }
@@ -546,12 +550,18 @@ function normalizeExcerpt(
   }
   from = Math.max(from, first);
   to = Math.min(to, last);
-  const inside = [...changed].filter((line) => line >= from && line <= to);
-  if (inside.length) {
-    from = Math.max(from, Math.min(...inside) - EXCERPT_CONTEXT);
-    to = Math.min(to, Math.max(...inside) + EXCERPT_CONTEXT);
+  const changed = rows.filter((row) => row.kind !== ' ' && shows(row, from, to)).map((row) => row.at);
+  if (changed.length) {
+    from = Math.max(from, Math.min(...changed) - EXCERPT_CONTEXT);
+    to = Math.min(to, Math.max(...changed) + EXCERPT_CONTEXT);
   }
-  to = Math.min(to, from + MAX_EXCERPT_LINES - 1);
+  // The cap counts rows shown, removed ones too, so a large replacement cannot flood the step.
+  while (to > from && rows.filter((row) => shows(row, from, to)).length > MAX_EXCERPT_LINES) {
+    to--;
+  }
+  if (rows.filter((row) => shows(row, from, to)).length > MAX_EXCERPT_LINES) {
+    return undefined;
+  }
   return { fileId: file.id, hunkId: hunk.id, from, to };
 }
 
@@ -580,7 +590,9 @@ export function normalizeWalkthrough(
     for (const excerpt of Array.isArray(step.excerpts) ? step.excerpts : []) {
       const normalized = normalizeExcerpt(excerpt, byKey);
       if (!normalized) {
-        warnings.push(`Dropped a walkthrough excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff.`);
+        warnings.push(
+          `Dropped a walkthrough excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff, or too long to show.`,
+        );
         continue;
       }
       const seen = excerpts.some(

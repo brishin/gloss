@@ -380,7 +380,7 @@ describe('normalizeWalkthrough', () => {
         ]),
       ],
     });
-    expect(warnings).toEqual(['Dropped a walkthrough excerpt: f9/h1 is not in the diff.']);
+    expect(warnings).toEqual(['Dropped a walkthrough excerpt: f9/h1 is not in the diff, or too long to show.']);
     expect(walkthrough).toEqual({
       frames,
       steps: [
@@ -420,7 +420,7 @@ describe('normalizeWalkthrough', () => {
       [spread],
     );
     expect(walkthrough!.steps).toHaveLength(5);
-    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 30 }]);
+    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 29 }]);
   });
 
   it('drops steps with no code, and a walkthrough of fewer than two steps', () => {
@@ -457,5 +457,47 @@ describe('normalizeWalkthrough', () => {
     ]);
     expect(walk({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')], steps }).walkthrough).toBeUndefined();
     expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
+  });
+
+  it('keeps lines removed at the end of a hunk, and counts removed rows toward the cap', () => {
+    const trailing: FileChange = {
+      ...file,
+      id: 'f3',
+      hunks: [
+        {
+          id: 'h3',
+          header: '@@ -1,4 +1,3 @@',
+          oldStart: 1,
+          oldLines: 4,
+          newStart: 1,
+          newLines: 3,
+          patch: ' a\n b\n c\n-oldCall()',
+        },
+      ],
+    };
+    const removed = Array.from({ length: 40 }, (_, i) => `-old ${i}`).join('\n');
+    const replaced: FileChange = {
+      ...file,
+      id: 'f4',
+      hunks: [
+        {
+          id: 'h4',
+          header: '@@ -1,42 +1,3 @@',
+          oldStart: 1,
+          oldLines: 42,
+          newStart: 1,
+          newLines: 3,
+          patch: ` a\n${removed}\n+new\n b`,
+        },
+      ],
+    };
+    const excerpts = (list: FileChange[], fileId: string, hunkId: string) =>
+      walk({ steps: [step([{ fileId, hunkId, from: 1, to: 3 }]), step([{ fileId, hunkId, from: 1, to: 3 }])] }, list);
+    // The removed call sits after line 3; the excerpt still reaches it.
+    expect(excerpts([trailing], 'f3', 'h3').walkthrough!.steps[0]!.excerpts).toEqual([
+      { fileId: 'f3', hunkId: 'h3', from: 1, to: 3 },
+    ]);
+    // 40 removed rows at one spot can never fit in 30, so the excerpt goes.
+    expect(excerpts([replaced], 'f4', 'h4').walkthrough).toBeUndefined();
   });
 });
