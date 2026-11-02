@@ -17,7 +17,9 @@ const GroupSchema = v.object({
   label: v.pipe(v.string(), v.description('Short, human-readable name for the group (2-5 words), in sentence case.')),
   summary: v.pipe(
     v.string(),
-    v.description('1-3 sentences on the intention of this group: why over what. Rendered as Markdown.'),
+    v.description(
+      '1-3 sentences on the problem this group solves, beyond the overall summary. Do not list components, or mention tests or generated files; they are placed elsewhere. Rendered as Markdown.',
+    ),
   ),
   category: v.pipe(
     v.picklist(CATEGORIES),
@@ -29,27 +31,27 @@ const groupsField = <T extends v.GenericSchema>(entry: T) =>
   v.pipe(
     v.array(entry),
     v.description(
-      'Review groups in reading order: the core change first, supporting changes next, mechanical changes (tests, docs, generated) last.',
+      'Review groups in reading order: docs first, then the core change, then supporting changes, then tests and generated files.',
     ),
   );
 
 const overallSummary = v.pipe(
   v.string(),
   v.description(
-    'A short paragraph, 2-4 sentences and under 80 words, telling a reviewer what this change does and where to focus. Rendered as Markdown.',
+    'One sentence on what changes and why, adding to the title rather than repeating it. Then where to focus: the logic most likely to be wrong and how it could fail, not what a compiler or CI would catch. 2-4 sentences, under 80 words. Rendered as Markdown.',
   ),
 );
 
 const decisionText = v.pipe(
   v.string(),
   v.description(
-    'Exactly one short sentence, under 25 words, naming one choice and its reason when the reason is not obvious. Add "instead of ..." when the alternative is not obvious. Name the choice, not the code. No Markdown.',
+    'Exactly one sentence, under 25 words, that a reviewer can accept or reject. Name the choice, then what it costs or risks; give its reason only when there is no cost worth stating. Add "instead of ..." when the alternative is not obvious. No Markdown.',
   ),
 );
 const decisionPriority = v.pipe(
   v.picklist(DECISION_PRIORITIES),
   v.description(
-    'urgent: rare; the reviewer must agree before merging because it affects security, access or data loss, or is hard to undo (a one-way door, such as a migration that drops or rewrites data). high: users or other code will depend on it. medium: a design choice worth a look. low: a minor default. Most decisions are medium or low.',
+    'urgent: if wrong, a follow-up cannot fix it: it exposes data or access, or loses or rewrites stored data. high: if wrong, users or existing callers are affected, or other code will depend on it. medium: a design choice worth a look. low: a minor default, or a choice that is easy to change later. Between two, pick the lower.',
   ),
 );
 
@@ -69,7 +71,7 @@ const prDecisions = v.pipe(
     }),
   ),
   v.description(
-    'Key decisions about the change as a whole: product behavior, scope, rollout, and tradeoffs that span several files. Most changes have 1-4. Leave out choices that one line or one function makes; a later pass pins those to their lines.',
+    'Key decisions about the change as a whole: product behavior, scope, rollout, and tradeoffs that span several files. Most changes have 0-3. Leave out choices that one file makes; a later pass pins those to their lines.',
   ),
 );
 
@@ -267,12 +269,14 @@ export const NotesSchema = v.object({
         risk: v.picklist(RISK_KEYS),
         text: v.pipe(
           v.string(),
-          v.description('What exactly changed and what the reviewer should verify. 1-2 sentences.'),
+          v.description(
+            'What changed and what it exposes or makes hard to undo, as fact from the diff, under 40 words. No request to verify.',
+          ),
         ),
       }),
     ),
     v.description(
-      'One note per flagged risk listed in the prompt that the diff confirms. Empty when none were flagged.',
+      'One note per flagged risk listed in the prompt that the diff confirms, unless a line note or decision here already makes the point. A flag that turns out harmless gets no note; never reassure. Empty otherwise.',
     ),
   ),
   decisions: v.pipe(
@@ -305,11 +309,11 @@ export const NotesSchema = v.object({
  * pins each one in its file, so the define pass gets only the rollout half of the rule, or it
  * restates the schema change change-wide.
  */
-const ONE_WAY_DOORS = `Look hardest for one-way doors: choices that are expensive or impossible to reverse once merged and deployed, and so need agreement before merging rather than a follow-up fix. Examples: a SQL or schema migration; data deleted, rewritten or stored in a new shape; a public API, wire format, file format, config key or event name that other code or clients will depend on; a published package version; an irreversible external side effect such as sending messages or charging money. Say in the decision what makes it hard to undo. Urgent is still rare: a one-way door that loses no data and exposes nothing is high.`;
+const ONE_WAY_DOORS = `Look hardest for one-way doors: choices that are expensive or impossible to reverse once merged and deployed, and so need agreement before merging rather than a follow-up fix. Examples: a SQL or schema migration; data deleted, rewritten or stored in a new shape; a public API, wire format, file format, config key or event name that other code or clients will depend on; a published package version; an irreversible external side effect such as sending messages or charging money. Say in the decision what makes it hard to undo. A one-way door that loses no data and exposes nothing is high.`;
 
-const MIGRATION_ROLLOUT = `A later pass pins each SQL migration's schema change, and any data it drops, to its migration file. Do not list what a migration adds, drops or renames here. List only how it rolls out across files: the order the migration and the code that relies on it must deploy in, or code that stops working against the old schema.`;
+const MIGRATION_ROLLOUT = `A later pass pins each SQL migration's schema change, and any data it drops, to its migration file. Do not list what a migration adds, drops, renames or backfills here. List only how it rolls out across files: the order the migration and the code that relies on it must deploy in, or code that stops working against the old schema.`;
 
-const MIGRATION_PIN = `SQL migrations are always key decisions: any migration file, raw DDL, or ORM change that alters the database schema. For each migration file in this group, pin exactly one decision to its first statement that drops, renames or rewrites data, or else its first schema statement. Name what it changes (a table or column added, dropped or renamed, a table rebuilt by copy and drop, a type or nullability change, a new constraint or index, a backfill or data rewrite) and whether it can be rolled back, and fold any other choice the file makes, such as a cascade or a JSON column, into it. Rate one that drops or rewrites data, cannot be rolled back, or locks a large table urgent, and any other migration high, never medium or low. Pin it even when the change-wide list mentions the migration: that list covers rollout, and this decision names the schema change.`;
+const MIGRATION_PIN = `SQL migrations are always key decisions: any migration file, raw DDL, or ORM change that alters the database schema. For each migration file in this group, pin exactly one decision to its first statement that drops, renames or rewrites data, or else its first schema statement. Name what it changes (a table or column added, dropped or renamed, a table rebuilt by copy and drop, a type or nullability change, a new constraint or index, a backfill or data rewrite) and whether it can be rolled back, for a backfill the value it writes and what that value gets wrong, and fold any other choice the file makes, such as a cascade or a JSON column, into it. Rate one that drops or rewrites data, cannot be rolled back, or locks a large table urgent, and any other migration high, never medium or low. Pin it even when the change-wide list mentions the migration: that list covers rollout, and this decision names the schema change.`;
 
 const SKETCH_GUIDE = `Drawing the sketch. Draw it as the engineer who has to live with the decision, like a figure in a design doc:
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step or edge the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over the request plumbing every feature shares. Write the caption first, then draw every noun it names as a box: if it says "plus recent tours", recent tours is a box, and if it says "before", there is a BEFORE band.
@@ -339,13 +343,13 @@ An architecture example, for a queue added between the API and a new worker:
 
 export const DEFINE_SYSTEM = `You are a senior engineer preparing a guided review tour of a code change.
 
-Split the change into review groups a reviewer can read one at a time. Group by intention (one feature, fix or refactor per group), not by file type or directory. Keep groups few: 2-7 for most changes, one for a small focused change. Fold small supporting edits (formatting, field order, a dependency added for the feature, styles for a component) into the group they support instead of giving them their own group. Tests belong with the code they test unless they are the point of the change; generated files may be their own group.
+Split the change into review groups a reviewer can read one at a time. Group by intention (one feature, fix or refactor per group), not by file type, directory or layer; "backend" and "frontend" are not intentions. Keep groups few: 2-7 for most changes, one for a small focused change. Fold small supporting edits (formatting, field order, a dependency added for the feature, styles for a component) into the group they support instead of giving them their own group. Tests go in their own group: define one with category "tests" and say what behavior they pin. Generated files may be their own group.
 
 Documentation and agent guidance (files marked [guidance]: AGENTS.md, CLAUDE.md, .agents/, agent skills and SKILL.md, editor and agent rules, docs/, READMEs) are important. They state the intent of the change and the rules the code is meant to follow, so a reviewer reads them first. Put them together in one group with category "docs", first in the order, and summarize the intent or rules they establish, not just that docs changed.
 
 Write labels and summaries for a reviewer who has not seen the change. Explain why, not what. After the docs group, order groups so the core change comes first.
 
-Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. Take them from the description where it states them, and infer the rest from the diff. List only choices that span several files or no file: if one file makes the choice, leave it out, because a later pass pins it to its line. Skip styling, layout, naming and dependency versions. Do not describe what the code does. Give each decision the key of the group it is mostly about; leave the key out only for a decision about the change as a whole.
+Also list the key decisions the change makes as a whole. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: product behavior, scope, a tradeoff, or what is deferred. List only choices no single file makes: if one file makes the choice, leave it out, because a later pass pins it to its line. The description is the author's case: judge each choice's cost from the diff, and repeat a guarantee only if the code enforces it. A caveat, such as an untested path, is not a decision. Skip styling, layout, naming and dependency versions. Do not describe what the code does. Give each decision the key of the group it is mostly about; leave the key out only for a decision about the change as a whole.
 
 ${ONE_WAY_DOORS}
 
@@ -450,13 +454,15 @@ export const NOTES_SYSTEM = `You are a senior engineer annotating one group of a
 
 Write a few precise notes where they save the reviewer real effort: non-obvious logic, subtle behavior changes, edge cases, risks, and things that look wrong but are not. Skip anything the code already says plainly. Most groups need 0-6 notes; quality over quantity.
 
-Only reference file ids listed under "## Files"; other files belong to other groups. Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
+On tests, note only what a test misses or could pass while the code is broken. Never describe what a test does.
+
+Only reference file ids listed under "## Files". You see only this group's hunks; never describe how other code behaves. Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
 
 For documentation and agent guidance, note the rules or intent each change establishes or alters, so the reviewer can hold the code to them; flag instructions that are ambiguous or contradict each other.
 
 When the prompt lists flagged risks, check each against the diff and write a risk note only for those the diff confirms.
 
-Separately from notes, list the key decisions this group makes in code, each on the line that makes it. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Skip CSS and visual styling, layout, naming, refactors, error handling details and anything that only describes what the code does. Never put a decision on a test, fixture or story file: record it where the code makes it. Skip any choice the change-wide list already covers, even when you can point at its line. Before you submit, remove each decision that restates a change-wide one.
+Also list the key decisions this group makes in code, each on the line that makes it. A decision is a choice that a reasonable engineer could have made differently, and that a reviewer should agree with on purpose: an approach, a default, a data shape, a check or an ordering. Include ones the description states and ones you infer. Leaving something out counts: a missing check, limit, cache, backoff or failure report, pinned where it would go. Judge what the diff does, not what the description or a comment claims. Skip CSS and visual styling, layout, naming, refactors, unchanged behavior and anything that only describes what the code does. Never put a decision on a test, fixture or story file: record it where the code makes it. If a note names a risk in a choice this change makes, write it as a decision, not a note. Skip any choice the change-wide list already covers, even when you can point at its line. Before you submit, remove each decision that restates a change-wide one.
 
 ${ONE_WAY_DOORS}
 
@@ -517,14 +523,25 @@ function plainDiff(file: FileChange, budget: number): string {
   return text.length > budget ? `${text.slice(0, budget)}\n... (truncated)` : text;
 }
 
+function budgetRank(file: FileChange): number {
+  if (isGuidance(file)) {
+    return 0;
+  }
+  if (looksLikeTest(file.path)) {
+    return 3;
+  }
+  return file.status === 'removed' ? 2 : 1;
+}
+
 /** The prompt for defining groups: a manifest of every file, then as many diffs as fit the budget. */
 export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
   const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
   let remaining = TOTAL_BUDGET;
   const diffs: string[] = [];
   const omitted: string[] = [];
-  // Guidance diffs go first so the budget never cuts the files that explain the change.
-  const ordered = [...files.filter(isGuidance), ...files.filter((file) => !isGuidance(file))];
+  // Guidance diffs go first so the budget never cuts the files that explain the change; then
+  // the code that stays, so tests and deleted files are what a large change loses.
+  const ordered = files.toSorted((a, b) => budgetRank(a) - budgetRank(b));
   for (const file of ordered) {
     if (collapsedReason(file)) {
       continue;
@@ -539,7 +556,7 @@ export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], 
   }
   parts.push('', '## Diffs', ...diffs);
   if (omitted.length) {
-    parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}. Judge them by path and the hunk headers.)`);
+    parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}. Judge them by path and line counts.)`);
   }
   parts.push(
     '',

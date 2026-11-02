@@ -84,16 +84,20 @@ describe('placeFiles', () => {
   });
 
   it('sends unsure, unfitting, unknown and unjudged files to the follow-up', () => {
-    const files = [file('low'), file('close'), file('nofit'), file('unknown'), file('missing'), file('ok')];
+    const files = ['low', 'close', 'nofit', 'sureNofit', 'unknown', 'missing', 'ok'].map((id) => file(id));
     const outcome = placeFiles(files, groups, {
       low: { group: { choice: 'feature', confidence: 0.4, probabilities: { feature: 0.4, docs: 0.1 } } },
       close: { group: { choice: 'feature', confidence: 0.6, probabilities: { feature: 0.5, docs: 0.4 } } },
-      nofit: { ...confident('feature'), fitsAnyGroup: 0.3 },
+      nofit: {
+        group: { choice: 'feature', confidence: 0.7, probabilities: { feature: 0.7, docs: 0.1 } },
+        fitsAnyGroup: 0.3,
+      },
+      sureNofit: { ...confident('feature'), fitsAnyGroup: 0.1 },
       unknown: confident('nope'),
       ok: confident('docs'),
     });
     expect(outcome.uncertain).toEqual(['low', 'close', 'nofit', 'unknown', 'missing']);
-    expect(Object.keys(outcome.placements)).toEqual(['ok']);
+    expect(Object.keys(outcome.placements)).toEqual(['sureNofit', 'ok']);
   });
 });
 
@@ -146,6 +150,18 @@ describe('resolveGroups', () => {
     expect(resolved.map((group) => group.key)).toEqual(['docs', 'feature', 'tests', 'generated']);
     expect(resolved.find((group) => group.key === 'feature')?.critical).toBe(true);
     expect(resolved.find((group) => group.key === 'docs')?.critical).toBe(false);
+  });
+
+  it('does not mark a group critical for a flag on its tests or generated files', () => {
+    const placements = {
+      a: { groupKey: 'tests', reason: 'jev' },
+      b: { groupKey: 'feature', reason: 'jev' },
+    } as const;
+    const resolved = resolveGroups([file('a'), file('b')], groups, placements, {
+      a: { testsOnly: 0.9, storedData: 0.9 },
+      b: { generated: 0.9, personalData: 0.9 },
+    });
+    expect(resolved.map((group) => group.critical)).toEqual([false, false]);
   });
 
   it('puts the synthetic guidance group first when the LLM defined no docs group', () => {
