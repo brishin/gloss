@@ -6,6 +6,7 @@ import type { SourceRef, TraceStep } from '@gloss/protocol';
 import { describeRef } from '@gloss/protocol';
 import { Link, useRouter } from '@tanstack/react-router';
 import { AsyncResult } from 'effect/reactivity';
+import { BracesIcon, ScaleIcon, SparklesIcon } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { pipelineAtom } from '../lib/client.ts';
 import { navigateToPipeline, navigateToRef, RefLink } from '../lib/source-routes.tsx';
@@ -125,7 +126,7 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
                   onClick={() => open(step.id)}
                 >
                   <span className="graph-node-head">
-                    <span className="actor-dot" data-actor={STEP_KINDS[step.kind].actor} />
+                    <ActorIcon actor={STEP_KINDS[step.kind].actor} />
                     <span className="graph-node-label">{STEP_KINDS[step.kind].label}</span>
                   </span>
                   <span className="graph-node-sub">
@@ -139,6 +140,23 @@ export function PipelinePage({ sourceRef, jobId, stepId }: { sourceRef: SourceRe
         </div>
       )}
     </div>
+  );
+}
+
+/** Who ran a step: a model call (sparkles), a Jev judgment (scale), or plain code (braces). */
+const ACTORS = {
+  llm: { Icon: SparklesIcon, title: 'LLM call' },
+  notes: { Icon: SparklesIcon, title: 'LLM call' },
+  jev: { Icon: ScaleIcon, title: 'Jev' },
+  code: { Icon: BracesIcon, title: 'Code' },
+} as const;
+
+function ActorIcon({ actor }: { actor: keyof typeof ACTORS }) {
+  const { Icon, title } = ACTORS[actor];
+  return (
+    <span className="actor-icon" data-actor={actor} title={title}>
+      <Icon size={13} strokeWidth={2.25} aria-hidden="true" />
+    </span>
   );
 }
 
