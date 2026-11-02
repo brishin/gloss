@@ -516,6 +516,34 @@ const shows = (row: { at: number; kind: string }, from: number, to: number) =>
   row.at >= from && row.at <= (row.kind === '-' ? to + 1 : to);
 
 /**
+ * The last line up to `to` at which the excerpt shows at most `MAX_EXCERPT_LINES` rows,
+ * removed ones too, so a large replacement cannot flood the step; `undefined` when even
+ * `from` alone shows more. One pass: a kept line `p` as the end shows every row before the
+ * next kept line (the rows removed right after `p` included).
+ */
+function cappedEnd(rows: readonly { at: number; kind: string }[], from: number, to: number): number | undefined {
+  let count = 0;
+  let best: number | undefined;
+  let pending: number | undefined;
+  for (const row of rows) {
+    if (row.at < from) {
+      continue;
+    }
+    if (row.kind !== '-') {
+      if (pending !== undefined && count <= MAX_EXCERPT_LINES) {
+        best = pending;
+      }
+      if (row.at > to || count > MAX_EXCERPT_LINES) {
+        return best;
+      }
+      pending = row.at;
+    }
+    count++;
+  }
+  return pending !== undefined && count <= MAX_EXCERPT_LINES ? pending : best;
+}
+
+/**
  * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
  * wrong), its range clamped to the hunk, then trimmed to the changes in it plus a little context.
  */
@@ -551,17 +579,16 @@ function normalizeExcerpt(
   from = Math.max(from, first);
   to = Math.min(to, last);
   const changed = rows.filter((row) => row.kind !== ' ' && shows(row, from, to)).map((row) => row.at);
+  // Rows run in line order, so the first and last changed rows bound the change.
   if (changed.length) {
-    from = Math.max(from, Math.min(...changed) - EXCERPT_CONTEXT);
-    to = Math.min(to, Math.max(...changed) + EXCERPT_CONTEXT);
+    from = Math.max(from, changed[0]! - EXCERPT_CONTEXT);
+    to = Math.min(to, changed.at(-1)! + EXCERPT_CONTEXT);
   }
-  // The cap counts rows shown, removed ones too, so a large replacement cannot flood the step.
-  while (to > from && rows.filter((row) => shows(row, from, to)).length > MAX_EXCERPT_LINES) {
-    to--;
-  }
-  if (rows.filter((row) => shows(row, from, to)).length > MAX_EXCERPT_LINES) {
+  const capped = cappedEnd(rows, from, to);
+  if (capped === undefined) {
     return undefined;
   }
+  to = capped;
   return { fileId: file.id, hunkId: hunk.id, from, to };
 }
 

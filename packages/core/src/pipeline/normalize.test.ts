@@ -500,4 +500,35 @@ describe('normalizeWalkthrough', () => {
     // 40 removed rows at one spot can never fit in 30, so the excerpt goes.
     expect(excerpts([replaced], 'f4', 'h4').walkthrough).toBeUndefined();
   });
+
+  it('caps a very large hunk in one pass', () => {
+    const rows = 20_000;
+    const huge: FileChange = {
+      ...file,
+      id: 'f5',
+      hunks: [
+        {
+          id: 'h5',
+          header: `@@ -0,0 +1,${rows} @@`,
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: rows,
+          patch: Array.from({ length: rows }, (_, i) => `+line ${i}`).join('\n'),
+        },
+      ],
+    };
+    const started = performance.now();
+    const { walkthrough } = walk(
+      {
+        steps: [
+          step([{ fileId: 'f5', hunkId: 'h5', from: 0, to: 0 }]),
+          step([{ fileId: 'f5', hunkId: 'h5', from: 0, to: 0 }]),
+        ],
+      },
+      [huge],
+    );
+    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f5', hunkId: 'h5', from: 1, to: 30 }]);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
