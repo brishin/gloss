@@ -28,6 +28,8 @@ export interface CacheStore {
    * show stacks without walking them again. Not a cache: it never answers a stack request.
    */
   recordStack(stack: Stack): void;
+  /** Fills in authors (keyed by `serializeRef`) for recent PRs recorded without one. */
+  recordAuthors(authors: ReadonlyMap<string, string>): void;
   /** Recent tours, newest first, each PR with its author and last-seen stack. */
   listRecent(limit?: number): RecentTour[];
   /** Deletes entries older than `olderThanMs`; returns how many were removed. */
@@ -54,6 +56,14 @@ export function createMemoryCacheStore(): CacheStore {
     recordStack: (stack) => {
       for (const key of stackMemberKeys(stack)) {
         stacks.set(key, stack);
+      }
+    },
+    recordAuthors: (authors) => {
+      for (const [sourceKey, tour] of recent) {
+        const author = authors.get(serializeRef(tour.ref));
+        if (author && !tour.author) {
+          recent.set(sourceKey, { ...tour, author });
+        }
       }
     },
     listRecent: (limit = 20) =>

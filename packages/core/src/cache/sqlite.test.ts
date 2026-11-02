@@ -54,7 +54,16 @@ describe('sqlite cache store', () => {
     });
     store.recordStack({ owner: 'o', repo: 'r', base: 'main', members: [member(1), member(2)] });
 
-    const [pr, local] = store.listRecent();
+    store.recordRecent({ ...ref, number: 3 }, 'pr3', 'Three');
+    store.recordAuthors(
+      new Map([
+        ['github:o/r#3', 'bo'],
+        ['github:o/r#2', 'not-ana'],
+      ]),
+    );
+    const byTitle = new Map(store.listRecent().map((tour) => [tour.title, tour]));
+    const [three, pr, local] = [byTitle.get('Three'), byTitle.get('Two'), byTitle.get('Old')];
+    expect(three).toMatchObject({ title: 'Three', author: 'bo' });
     expect(pr).toMatchObject({ title: 'Two', author: 'ana', stack: { members: [{ number: 1 }, { number: 2 }] } });
     expect(local).toMatchObject({ title: 'Old' });
     expect(local).not.toHaveProperty('author');

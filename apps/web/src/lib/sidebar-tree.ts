@@ -177,3 +177,20 @@ export function recentEntries(recent: readonly RecentTour[], skip: ReadonlySet<s
   }
   return entries;
 }
+
+/**
+ * Splits recent rows into the viewer's and others'. A stack is the viewer's when any of its PRs
+ * is; a local diff, or a PR whose author is unknown, counts as theirs. Without a viewer nothing
+ * is split.
+ */
+export function splitByViewer(
+  entries: readonly RecentEntry[],
+  viewer: string | undefined,
+): { mine: RecentEntry[]; others: RecentEntry[] } {
+  const isMine = (entry: RecentEntry) =>
+    !viewer ||
+    (entry.kind === 'stack'
+      ? entry.stack.members.some((member) => member.author === viewer)
+      : entry.tour.ref.kind === 'local' || !entry.tour.author || entry.tour.author === viewer);
+  return { mine: entries.filter(isMine), others: entries.filter((entry) => !isMine(entry)) };
+}

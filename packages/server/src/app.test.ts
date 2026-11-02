@@ -61,6 +61,8 @@ function scripted() {
 
 /** Repository access that fails unless a test scripts it. */
 const unscripted = (): Repos['Service'] => ({
+  authors: () => Effect.succeed(new Map()),
+  viewer: Effect.succeed(undefined),
   asset: () => Effect.succeed(undefined),
   stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   review: () => Effect.fail(new RepoError({ message: 'unscripted' })),
@@ -169,6 +171,38 @@ describe('stack API', () => {
     base: 'main',
     members: [{ number: 1, title: 't', state: 'open' as const, baseRef: 'main', headRef: 'feature' }],
   };
+
+  it('fills in missing PR authors with one lookup, keeps them, and names the viewer', async () => {
+    const asked: unknown[][] = [];
+    const { client, runtime } = setup(scripted().run, {
+      repos: {
+        viewer: Effect.succeed('me'),
+        authors: (refs) => {
+          asked.push([...refs]);
+          return Effect.succeed(new Map([['github:o/r#1', 'ana']]));
+        },
+      },
+    });
+    const pr = { kind: 'github-pr', owner: 'o', repo: 'r', number: 1 } as const;
+    await runtime.runPromise(
+      TourCache.use((cache) =>
+        Effect.sync(() => {
+          cache.recordRecent(pr, 'pr1', 'One');
+          cache.recordRecent({ ...pr, number: 2 }, 'pr2', 'Two', 'bo');
+        }),
+      ),
+    );
+
+    const first = await client.recent();
+    expect(first.viewer).toBe('me');
+    expect(first.tours.map((tour) => [tour.title, tour.author])).toEqual([
+      ['Two', 'bo'],
+      ['One', 'ana'],
+    ]);
+    expect(asked).toEqual([[pr]]);
+    await client.recent();
+    expect(asked).toEqual([[pr]]);
+  });
 
   it('round-trips a stack through the client', async () => {
     const asked: unknown[] = [];

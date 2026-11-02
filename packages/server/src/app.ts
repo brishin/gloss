@@ -1,5 +1,5 @@
 import { Repos, TourCache } from '@gloss/core';
-import type { DiffPayload, GithubLogin, Health, SetupStatus, TourEvent, Trace } from '@gloss/protocol';
+import type { DiffPayload, GithubLogin, Health, RecentTours, SetupStatus, TourEvent, Trace } from '@gloss/protocol';
 import {
   encodeNdjson,
   JudgeKeyRequestSchema,
@@ -17,6 +17,9 @@ import { stream, streamSSE } from 'hono/streaming';
 import * as v from 'valibot';
 import { Jobs } from './jobs.ts';
 import { Logins } from './logins.ts';
+
+/** How many recent tours the app lists. */
+const RECENT_LIMIT = 20;
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs, the cache and repository access, with the pipeline's services behind them. */
@@ -58,7 +61,32 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup }: A
   app.get('/api/health', async (c) => c.json(await health()));
 
   app.get('/api/recent', async (c) =>
-    c.json(await run(TourCache.use((cache) => Effect.sync(() => cache.listRecent(20))))),
+    c.json(
+      await run(
+        Effect.gen(function* () {
+          const cache = yield* TourCache;
+          const repos = yield* Repos;
+          const tours = cache.listRecent(RECENT_LIMIT);
+          // Tours recorded before authors were kept: one batched lookup, then stored for good.
+          const missing = tours.flatMap((tour) => (tour.ref.kind === 'github-pr' && !tour.author ? [tour.ref] : []));
+          const [authors, viewer] = yield* Effect.all(
+            [missing.length ? repos.authors(missing) : Effect.succeed(new Map<string, string>()), repos.viewer],
+            {
+              concurrency: 'unbounded',
+            },
+          );
+          if (authors.size) {
+            cache.recordAuthors(authors);
+          }
+          const recent: RecentTours = {
+            ...(viewer ? { viewer } : {}),
+            tours: authors.size ? cache.listRecent(RECENT_LIMIT) : tours,
+          };
+          return recent;
+        }),
+        c.req.raw.signal,
+      ),
+    ),
   );
 
   app.post('/api/tours', async (c) => {

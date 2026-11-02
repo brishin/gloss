@@ -8,7 +8,7 @@ import {
   isLoginFinished,
   type LoginMethod,
   type LoginSession,
-  type RecentTour,
+  type RecentTours,
   reduceTourEvent,
   type ResolvedAsset,
   type SetupStatus,
@@ -52,8 +52,8 @@ export const request = <A>(f: (client: GlossClient) => Promise<A>) =>
 
 export const glossRuntime = Atom.runtime(Gloss.layer);
 
-/** Recent tours, newest first; fetched again whenever a page mounts it afresh. */
-export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTour[], GlossRequestError>> = glossRuntime.atom(
+/** Recent tours, newest first, and whose they are; fetched again whenever a page mounts it afresh. */
+export const recentToursAtom: Atom.Atom<AsyncResult.AsyncResult<RecentTours, GlossRequestError>> = glossRuntime.atom(
   request((client) => client.recent()),
 );
 

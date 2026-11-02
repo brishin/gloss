@@ -1,6 +1,6 @@
 import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { byCategory, countViewed, filterGroups, recentEntries } from './sidebar-tree.ts';
+import { byCategory, countViewed, filterGroups, recentEntries, splitByViewer } from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
   return { key, label, category, critical: false, fileIds, phase: 'resolved', synthetic: false };
@@ -103,5 +103,44 @@ describe('recentEntries', () => {
     expect(shape(recentEntries([pr(2, stack(2, 5)), pr(7), pr(8)], new Set(['github:o/r#5', 'github:o/r#7'])))).toEqual(
       ['#2', '#8'],
     );
+  });
+});
+
+describe('splitByViewer', () => {
+  const tour = (number: number, author?: string): RecentTour => ({
+    ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
+    title: `#${number}`,
+    updatedAt: '',
+    ...(author ? { author } : {}),
+  });
+  const member = (number: number, author: string) => ({
+    number,
+    title: '',
+    state: 'open' as const,
+    author,
+    baseRef: 'b',
+    headRef: 'h',
+  });
+  const stack = (at: number, ...authors: string[]): RecentTour => ({
+    ...tour(at),
+    stack: { owner: 'o', repo: 'r', base: 'main', members: authors.map((author, i) => member(at + i, author)) },
+  });
+  const local: RecentTour = { ref: { kind: 'local', repo: '/repo', target: 'HEAD' }, title: 'local', updatedAt: '' };
+  const titles = (entries: ReturnType<typeof recentEntries>) =>
+    entries.map((entry) => (entry.kind === 'tour' ? entry.tour.title : `stack ${entry.stack.members.length}`));
+
+  test("puts the viewer's PRs, local diffs, unknown authors and stacks they're in first", () => {
+    const entries = recentEntries(
+      [tour(1, 'me'), tour(2, 'ana'), local, tour(3), stack(10, 'ana', 'me'), stack(20, 'ana', 'bo')],
+      new Set(),
+    );
+    const { mine, others } = splitByViewer(entries, 'me');
+    expect(titles(mine)).toEqual(['#1', 'local', '#3', 'stack 2']);
+    expect(titles(others)).toEqual(['#2', 'stack 2']);
+  });
+
+  test('splits nothing without a viewer', () => {
+    const { mine, others } = splitByViewer(recentEntries([tour(2, 'ana')], new Set()), undefined);
+    expect([titles(mine), titles(others)]).toEqual([['#2'], []]);
   });
 });

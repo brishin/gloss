@@ -1,5 +1,5 @@
 import type { FileStatus, ResolvedAsset, SourceRef } from '@gloss/protocol';
-import { isGithubAssetUrl } from '@gloss/protocol';
+import { isGithubAssetUrl, serializeRef } from '@gloss/protocol';
 import { CommandError, run } from './exec.ts';
 import { isGenerated, parseGitattributes } from './gitattributes.ts';
 import { assignIds, countChanges, parseHunks, parsePatch, type ParsedFile } from './patch-parser.ts';
@@ -154,4 +154,54 @@ export async function resolveGithubAsset(url: string, signal?: AbortSignal): Pro
     return undefined;
   }
   return { url: location, contentType: new URL(location).searchParams.get('response-content-type') ?? undefined };
+}
+
+/** PRs per GraphQL query when looking up authors; well under GitHub's node limits. */
+const AUTHORS_PER_QUERY = 50;
+
+/** One GraphQL query that asks for each PR's author, aliased `p0`, `p1`, … in `refs` order. */
+export function pullAuthorsQuery(refs: readonly GithubRef[]): string {
+  // JSON string literals are valid GraphQL string literals, so owner and repo names stay quoted.
+  const fields = refs.map(
+    (ref, index) =>
+      `p${index}: repository(owner: ${JSON.stringify(ref.owner)}, name: ${JSON.stringify(ref.repo)}) { pullRequest(number: ${ref.number}) { author { login } } }`,
+  );
+  return `query { ${fields.join(' ')} }`;
+}
+
+type AuthorsJson = { data: Record<string, { pullRequest: { author: { login: string } | null } | null } | null> };
+
+/**
+ * The author of each PR, keyed by `serializeRef`, in one `gh` call per 50 PRs instead of one
+ * REST call each. A batch GitHub refuses (say, a deleted PR) is left out, not thrown.
+ */
+export async function githubPullAuthors(
+  refs: readonly GithubRef[],
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const authors = new Map<string, string>();
+  for (let start = 0; start < refs.length; start += AUTHORS_PER_QUERY) {
+    const batch = refs.slice(start, start + AUTHORS_PER_QUERY);
+    let json: AuthorsJson;
+    try {
+      json = await ghJson<AuthorsJson>(['graphql', '-f', `query=${pullAuthorsQuery(batch)}`], signal);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      continue;
+    }
+    batch.forEach((ref, index) => {
+      const login = json.data?.[`p${index}`]?.pullRequest?.author?.login;
+      if (login) {
+        authors.set(serializeRef(ref), login);
+      }
+    });
+  }
+  return authors;
+}
+
+/** The `gh` login: whose PRs are "mine". */
+export async function githubViewer(signal?: AbortSignal): Promise<string> {
+  return (await gh(['user', '--jq', '.login'], signal)).trim();
 }
