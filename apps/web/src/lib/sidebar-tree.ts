@@ -245,11 +245,23 @@ export function railSections(recent: RecentTours, skip: ReadonlySet<string>): Ra
   return { reviewRequested: take(recent.reviewRequested), mine: take(recent.authored), recent: take(recent.tours) };
 }
 
+const entryKeys = (entry: RecentEntry) =>
+  (entry.kind === 'tour' ? [entry.tour.ref] : stackRefs(entry.stack)).map(serializeRef);
+
 /** The row that holds the PR (by `serializeRef`): its own row, or the stack it is in. */
 export function findEntry(sections: RailSections, key: string): RecentEntry | undefined {
   return [...sections.reviewRequested, ...sections.mine, ...sections.recent].find((entry) =>
-    entry.kind === 'tour'
-      ? serializeRef(entry.tour.ref) === key
-      : stackRefs(entry.stack).some((ref) => serializeRef(ref) === key),
+    entryKeys(entry).includes(key),
   );
+}
+
+/** Leaves out the rows holding any of `keys` (the toured PR's live stack), but `keep` (its own row). */
+export function withoutRefs(
+  sections: RailSections,
+  keys: ReadonlySet<string>,
+  keep: RecentEntry | undefined,
+): RailSections {
+  const kept = (entries: RecentEntry[]) =>
+    entries.filter((entry) => entry === keep || !entryKeys(entry).some((key) => keys.has(key)));
+  return { reviewRequested: kept(sections.reviewRequested), mine: kept(sections.mine), recent: kept(sections.recent) };
 }

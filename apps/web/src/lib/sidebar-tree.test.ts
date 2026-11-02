@@ -8,6 +8,7 @@ import {
   railSections,
   recentEntries,
   splitByViewer,
+  withoutRefs,
 } from './sidebar-tree.ts';
 
 function group(key: string, category: GroupView['category'], fileIds: string[], label = key): GroupView {
@@ -224,5 +225,30 @@ describe('findEntry', () => {
     expect(findEntry(sections, 'github:o/r#3')).toBe(sections.mine[0]);
     expect(findEntry(sections, 'github:o/r#1')).toBe(sections.reviewRequested[0]);
     expect(findEntry(sections, 'github:o/r#9')).toBeUndefined();
+  });
+});
+
+describe('withoutRefs', () => {
+  test("drops the live stack's other rows but keeps the toured PR's own row", () => {
+    const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
+      ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
+      title: `#${number}`,
+      updatedAt: '',
+      ...extra,
+    });
+    const member = (number: number) => ({ number, title: '', state: 'open' as const, baseRef: 'b', headRef: 'h' });
+    const all = railSections(
+      {
+        reviewRequested: [pr(2)],
+        authored: [pr(3, { stack: { owner: 'o', repo: 'r', base: 'main', members: [member(3), member(4)] } }), pr(5)],
+        tours: [],
+      },
+      new Set(),
+    );
+    const home = findEntry(all, 'github:o/r#4');
+    const live = new Set(['github:o/r#2', 'github:o/r#3', 'github:o/r#4']);
+    const sections = withoutRefs(all, live, home);
+    expect(sections.reviewRequested).toEqual([]);
+    expect(sections.mine).toEqual([home, all.mine[1]]);
   });
 });

@@ -1,5 +1,5 @@
 import type { SourceRef } from '@gloss/protocol';
-import { GlossHttpError } from '@gloss/protocol';
+import { GlossHttpError, serializeRef } from '@gloss/protocol';
 import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
@@ -14,6 +14,7 @@ import {
   init,
   type Msg,
   type Position,
+  type RailAnchor,
   SHORTCUT_KEYS,
   type Spied,
   update,
@@ -153,7 +154,20 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'Scrolled', spied: spy() }))));
     case 'StepNote':
       return once(Effect.sync(() => stepNote(cmd.by)));
-    case 'RestoreRailScroll':
+    case 'SaveRailAnchor':
+      return once(
+        Effect.sync(() => storage(() => sessionStorage.setItem(RAIL_ANCHOR_KEY, JSON.stringify(cmd.anchor)))),
+      );
+    case 'RestoreRailScroll': {
+      // Read and cleared at once, so only the page that click opened uses it.
+      const saved = storage(() => {
+        const json = sessionStorage.getItem(RAIL_ANCHOR_KEY);
+        sessionStorage.removeItem(RAIL_ANCHOR_KEY);
+        return json ? (JSON.parse(json) as RailAnchor) : undefined;
+      });
+      if (!saved || saved.key !== serializeRef(cmd.ref)) {
+        return Stream.empty;
+      }
       return once(
         nextFrame.pipe(
           Effect.map(() => {
@@ -161,17 +175,17 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
             if (!rail) {
               return;
             }
-            rail.scrollTop = railScrollTop;
+            rail.scrollTop = saved.scrollTop;
             // The toured PR's groups now sit under it and the last one's are gone, so the rows
-            // above it moved: keep the opened PR under the pointer instead.
+            // above it moved: put the opened PR's row where the clicked row was.
             const row = rail.querySelector<HTMLElement>('[data-node="pr"]');
-            if (row && railAnchor !== undefined) {
-              rail.scrollTop += row.getBoundingClientRect().top - rail.getBoundingClientRect().top - railAnchor;
+            if (row) {
+              rail.scrollTop += row.getBoundingClientRect().top - rail.getBoundingClientRect().top - saved.offset;
             }
-            railAnchor = undefined;
           }),
         ),
       );
+    }
     case 'FetchStack':
       // No stack (the lookup failed) just means no stack row and no Shift+J/K.
       return once(
@@ -256,21 +270,7 @@ function storage<A>(f: () => A): A | undefined {
   }
 }
 
-/**
- * Where the side rail was scrolled to, and how far below the rail's top the last clicked row
- * was, kept across tour pages for `RestoreRailScroll`.
- */
-let railScrollTop = 0;
-let railAnchor: number | undefined;
-
-export function rememberRailScroll(top: number) {
-  railScrollTop = top;
-}
-
-/** A click on a rail row: the next page puts its toured PR's row where this row was. */
-export function rememberRailAnchor(offset: number) {
-  railAnchor = offset;
-}
+const RAIL_ANCHOR_KEY = 'gloss:rail-anchor';
 
 /** Resolves after the next frame, when a message's render has reached the DOM. */
 const nextFrame = Effect.callback<void>((resume) => {

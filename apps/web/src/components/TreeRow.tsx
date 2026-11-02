@@ -33,7 +33,7 @@ export function TreeRow({
   tabbable?: boolean;
   /** `deep` is true for a shift-click: fold or unfold everything below too. */
   onToggle?: (deep: boolean) => void;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLElement>) => void;
   children: ReactNode;
 }) {
   return (

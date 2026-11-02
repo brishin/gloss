@@ -75,7 +75,7 @@ describe('init', () => {
 
   test('a PR fetches its stack; a local diff has none', () => {
     expect(init(REF, {})[1]).toContainEqual({ type: 'FetchStack', ref: REF });
-    expect(init(REF, {})[1]).toContainEqual({ type: 'RestoreRailScroll' });
+    expect(init(REF, {})[1]).toContainEqual({ type: 'RestoreRailScroll', ref: REF });
     expect(types(init({ kind: 'local', repo: '/r', target: '' }, {})[1])).not.toContain('FetchStack');
   });
 });

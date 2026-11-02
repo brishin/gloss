@@ -28,10 +28,9 @@ import {
   type SidebarState,
   STACK_NODE,
   stackRefs,
+  withoutRefs,
 } from '../lib/sidebar-tree.ts';
-import { useNavigateToRef } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
-import { rememberRailAnchor, rememberRailScroll } from '../lib/tour-program.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
@@ -76,23 +75,14 @@ export function GroupSidebar({
   const { nesting, query } = sidebar;
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), (): RecentTours => ({ tours: [] }));
   const { viewer } = recent;
-  // Only a chain of two or more is worth its own row.
   const currentKey = serializeRef(sourceRef);
   // Only a chain of two or more is worth its own row.
   const fetched = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   // The toured PR shows in place, in the first section that has it; the live stack's other PRs
   // are left out of the sections so none shows twice.
-  const sections = railSections(
-    recent,
-    new Set(
-      fetched
-        ? stackRefs(fetched)
-            .map(serializeRef)
-            .filter((key) => key !== currentKey)
-        : [],
-    ),
-  );
-  const home = findEntry(sections, currentKey);
+  const all = railSections(recent, new Set());
+  const home = findEntry(all, currentKey);
+  const sections = fetched ? withoutRefs(all, new Set(stackRefs(fetched).map(serializeRef)), home) : all;
   // The live stack once fetched; until then the one the toured PR's row already has, so the rail
   // does not move while it loads.
   const stack = fetched ?? (home?.kind === 'stack' ? home.stack : undefined);
@@ -100,7 +90,16 @@ export function GroupSidebar({
     sourceRef.kind === 'github-pr'
       ? (stack ?? fetchedStack)?.members.find((member) => member.number === sourceRef.number)
       : undefined;
-  const navigateToRef = useNavigateToRef();
+  /** Opens a PR from its rail row, noting where the row is so the next page keeps it there. */
+  const openFromRail = (ref: SourceRef, row: HTMLElement) => {
+    const rail = row.closest<HTMLElement>('nav.sidebar');
+    dispatch({
+      type: 'RailOpened',
+      ref,
+      offset: rail ? row.getBoundingClientRect().top - rail.getBoundingClientRect().top : 0,
+      scrollTop: rail?.scrollTop ?? 0,
+    });
+  };
 
   const kept = filterGroups(groups, files, query);
   const isOpen = (id: string) => isNodeOpen(sidebar, id);
@@ -337,7 +336,14 @@ export function GroupSidebar({
           isCurrent(member) ? (
             <Fragment key={member.number}>{prNode}</Fragment>
           ) : showClosed || !isClosed(member.state) ? (
-            <MemberRow key={member.number} stack={stack} member={member} parent={parent} hideAuthor={hideAuthor} />
+            <MemberRow
+              key={member.number}
+              stack={stack}
+              member={member}
+              parent={parent}
+              hideAuthor={hideAuthor}
+              onOpen={openFromRail}
+            />
           ) : null,
         )}
       </div>
@@ -381,7 +387,7 @@ export function GroupSidebar({
           parent=""
           current={false}
           label={`${item.title} · ${describeRef(item.ref)}`}
-          onClick={() => void navigateToRef(item.ref)}
+          onClick={(event) => openFromRail(item.ref, event.currentTarget)}
         >
           <span className="tree-lead">
             <RefIcon kind={item.ref.kind} state={item.state} />
@@ -402,17 +408,7 @@ export function GroupSidebar({
   };
 
   return (
-    <nav
-      className="sidebar"
-      aria-label="Review queue"
-      onScroll={(event) => rememberRailScroll(event.currentTarget.scrollTop)}
-      onClickCapture={(event) => {
-        const row = (event.target as HTMLElement).closest('[data-node]');
-        if (row) {
-          rememberRailAnchor(row.getBoundingClientRect().top - event.currentTarget.getBoundingClientRect().top);
-        }
-      }}
-    >
+    <nav className="sidebar" aria-label="Review queue">
       <div className="side-tools">
         <TextInput
           label="Filter groups and files"
@@ -486,22 +482,23 @@ function MemberRow({
   member,
   parent,
   hideAuthor,
+  onOpen,
 }: {
   stack: Stack;
   member: StackMember;
   parent: string;
+  onOpen: (ref: SourceRef, row: HTMLElement) => void;
   /** Leaves this login's avatar off: in "My PRs" it would be on every row. */
   hideAuthor?: string | undefined;
 }) {
-  const navigateToRef = useNavigateToRef();
   return (
     <TreeRow
       id={`member:${parent}:${member.number}`}
       parent={parent}
       current={false}
       label={`#${member.number} ${member.title} (${member.state})`}
-      onClick={() =>
-        void navigateToRef({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number })
+      onClick={(event) =>
+        onOpen({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number }, event.currentTarget)
       }
     >
       <span className="tree-lead">
