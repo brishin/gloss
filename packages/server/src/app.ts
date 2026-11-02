@@ -1,15 +1,5 @@
-import { resolveGithubAsset, resolveGithubStack, submitGithubReview, TourCache } from '@gloss/core';
-import type {
-  DiffPayload,
-  Health,
-  ResolvedAsset,
-  ReviewRequest,
-  ReviewResult,
-  SourceRef,
-  Stack,
-  TourEvent,
-  Trace,
-} from '@gloss/protocol';
+import { Repos, TourCache } from '@gloss/core';
+import type { DiffPayload, Health, TourEvent, Trace } from '@gloss/protocol';
 import {
   encodeNdjson,
   LoginAnswerSchema,
@@ -28,19 +18,13 @@ import { Jobs } from './jobs.ts';
 import { Logins } from './logins.ts';
 
 export interface AppOptions {
-  /** Runs handlers' effects: the jobs and the cache, with the pipeline's services behind them. */
-  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins, never>;
+  /** Runs handlers' effects: the jobs, the cache and repository access, with the pipeline's services behind them. */
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins | Repos, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
   /** Browser origins allowed to call the API cross-origin (the dev web server, a hosted frontend). */
   corsOrigins?: string[];
-  /** Resolves a PR body attachment to a URL the browser can load; defaults to the `gh` login. */
-  resolveAsset?: (url: string, signal?: AbortSignal) => Promise<ResolvedAsset | undefined>;
-  /** Finds the stack a PR sits in; defaults to walking branches through the `gh` login. */
-  resolveStack?: (ref: Extract<SourceRef, { kind: 'github-pr' }>, signal?: AbortSignal) => Promise<Stack>;
-  /** Posts a review to GitHub; defaults to the `gh` login. */
-  submitReview?: (review: ReviewRequest, signal?: AbortSignal) => Promise<ReviewResult>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -48,17 +32,9 @@ const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boo
 const PING_MS = 15_000;
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
-export function createApp({
-  runtime,
-  health,
-  token,
-  corsOrigins = [],
-  resolveAsset = resolveGithubAsset,
-  resolveStack = resolveGithubStack,
-  submitReview = submitGithubReview,
-}: AppOptions): Hono {
+export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptions): Hono {
   const app = new Hono();
-  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins>, signal?: AbortSignal) =>
+  const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos>, signal?: AbortSignal) =>
     runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
     app.use('/api/*', cors({ origin: corsOrigins, allowHeaders: ['Authorization', 'Content-Type', 'Last-Event-ID'] }));
@@ -151,8 +127,30 @@ export function createApp({
     return diff ? c.json(diff) : c.json({ error: 'Unknown diff' }, 404);
   });
 
+  app.get('/api/diffs/:id/files/:fileId', async (c) => {
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(c.req.param('id')))));
+    const file = diff?.files.find((candidate) => candidate.id === c.req.param('fileId'));
+    if (!diff || !file) {
+      return c.json({ error: 'Unknown diff or file' }, 404);
+    }
+    // Not cached: a PR's head is a fixed sha, and the page keeps what it loaded.
+    return run(
+      Repos.use((repos) => repos.contents(diff, file)).pipe(
+        Effect.match({
+          onSuccess: (contents) =>
+            contents ? c.json(contents) : c.json({ error: 'This file has no unchanged lines to show' }, 404),
+          onFailure: (error) => c.json({ error: error.message }, error._tag === 'StaleFileError' ? 409 : 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
+
   app.get('/api/assets', async (c) => {
-    const asset = await resolveAsset(c.req.query('url') ?? '', c.req.raw.signal).catch(() => undefined);
+    const asset = await run(
+      Repos.use((repos) => repos.asset(c.req.query('url') ?? '')),
+      c.req.raw.signal,
+    );
     // Signed URLs expire within minutes, so neither side may cache the answer.
     c.header('Cache-Control', 'no-store');
     return asset ? c.json(asset) : c.json({ error: 'Unknown asset' }, 404);
@@ -168,12 +166,17 @@ export function createApp({
     if (!parsed.success || parsed.output.kind !== 'github-pr') {
       return c.json({ error: 'Expected owner, repo and number' }, 400);
     }
-    try {
-      // Not cached: stacks change as PRs merge and retarget.
-      return c.json(await resolveStack(parsed.output, c.req.raw.signal));
-    } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Stack lookup failed' }, 502);
-    }
+    const ref = parsed.output;
+    // Not cached: stacks change as PRs merge and retarget.
+    return run(
+      Repos.use((repos) => repos.stack(ref)).pipe(
+        Effect.match({
+          onSuccess: (stack) => c.json(stack),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
   });
 
   /**
@@ -201,12 +204,15 @@ export function createApp({
     if (problem) {
       return c.json({ error: problem }, 400);
     }
-    try {
-      // Not aborted with the request: once sent, a review should land even if the tab closes.
-      return c.json(await submitReview(parsed.output));
-    } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Review failed' }, 502);
-    }
+    // Not interrupted with the request: once sent, a review should land even if the tab closes.
+    return run(
+      Repos.use((repos) => repos.review(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: (result) => c.json(result),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
   });
 
   /** The provider logins, as the runtime's `Logins` layer scopes them. */
