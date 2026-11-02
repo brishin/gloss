@@ -135,7 +135,9 @@ const tourProgram = Effect.fnUntraced(function* (
     send({ type: 'stage.status', stage: name, state: value, detail });
   const warn = (warnStage: Stage, message: string, fileId?: string) =>
     send({ type: 'job.warning', stage: warnStage, message, fileId });
-  const models: ModelConfig = { ...model.config(), judge: judge?.model };
+  // The tour's tiers only: they are part of the tour's cache key.
+  const { define, followup, notes } = model.config();
+  const models: ModelConfig = { define, followup, notes, judge: judge?.model };
   const trace = createTracer(options.onStep);
   const sourceKey = serializeRef(ref);
 

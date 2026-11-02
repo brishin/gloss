@@ -5,33 +5,42 @@ import { glossPath } from './paths.ts';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface GlossConfig {
-  /** `provider/model` per pipeline tier. */
-  tiers: { define: string; followup: string; notes: string };
-  thinking: { define: ThinkingLevel; followup: ThinkingLevel; notes: ThinkingLevel };
+  /** `provider/model` per pipeline tier; `small` is a cheap model for one-line jobs such as stack names. */
+  tiers: { define: string; followup: string; notes: string; small: string };
+  thinking: { define: ThinkingLevel; followup: ThinkingLevel; notes: ThinkingLevel; small: ThinkingLevel };
   /** Jev classifier (`typesafe/jev-latest`); set to `null` to turn judging off. */
   judge: string | null;
   /** Third-party pi provider packages to load (each default-exports a `Provider` or a factory). */
   providerPackages: string[];
 }
 
-/** Fast tier where latency dominates (small structured outputs), strong tier for the notes. */
+/**
+ * Fast tier where latency dominates (small structured outputs), strong tier for the notes, and
+ * the small tier stays the provider's cheapest model even when the others are raised.
+ */
 export const PROFILES = {
   anthropic: {
     tiers: {
       define: 'anthropic/claude-haiku-5-5',
       followup: 'anthropic/claude-haiku-5-5',
       notes: 'anthropic/claude-sonnet-5-5',
+      small: 'anthropic/claude-haiku-5-5',
     },
   },
   openai: {
-    tiers: { define: 'openai/gpt-6-luna', followup: 'openai/gpt-6-luna', notes: 'openai/gpt-6-sol' },
+    tiers: {
+      define: 'openai/gpt-6-luna',
+      followup: 'openai/gpt-6-luna',
+      notes: 'openai/gpt-6-sol',
+      small: 'openai/gpt-6-luna',
+    },
   },
 } as const satisfies Record<string, Pick<GlossConfig, 'tiers'>>;
 export type Profile = keyof typeof PROFILES;
 
 const DEFAULTS: GlossConfig = {
   tiers: { ...PROFILES.anthropic.tiers },
-  thinking: { define: 'low', followup: 'low', notes: 'medium' },
+  thinking: { define: 'low', followup: 'low', notes: 'medium', small: 'off' },
   judge: 'typesafe/jev-latest',
   providerPackages: [],
 };
@@ -57,11 +66,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
   const profile = (env.GLOSS_PROFILE as Profile | undefined) ?? file.profile;
   const tiers = { ...DEFAULTS.tiers, ...(profile ? PROFILES[profile]?.tiers : undefined), ...file.tiers };
   if (env.GLOSS_MODEL) {
-    tiers.define = tiers.followup = tiers.notes = env.GLOSS_MODEL;
+    tiers.define = tiers.followup = tiers.notes = tiers.small = env.GLOSS_MODEL;
   }
   tiers.define = env.GLOSS_MODEL_DEFINE ?? tiers.define;
   tiers.followup = env.GLOSS_MODEL_FOLLOWUP ?? tiers.followup;
   tiers.notes = env.GLOSS_MODEL_NOTES ?? tiers.notes;
+  tiers.small = env.GLOSS_MODEL_SMALL ?? (file.tiers?.small || env.GLOSS_MODEL ? tiers.small : smallFor(tiers.define));
   return {
     tiers,
     thinking: { ...DEFAULTS.thinking, ...file.thinking },
@@ -74,6 +84,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
         .filter(Boolean) ?? []),
     ],
   };
+}
+
+/**
+ * The small tier when nothing sets it: the cheap model of the define tier's provider, so it
+ * never needs a login the tour tiers do not; the define model itself for other providers.
+ */
+function smallFor(define: string): string {
+  const provider = define.slice(0, define.indexOf('/'));
+  return Object.values(PROFILES).find((p) => p.tiers.small.startsWith(`${provider}/`))?.tiers.small ?? define;
 }
 
 export function splitSpecifier(specifier: string): { provider: string; id: string } {

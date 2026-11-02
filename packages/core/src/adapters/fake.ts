@@ -23,7 +23,7 @@ export function createFakeModelClient(
   const calls: ModelRequest<v.GenericSchema>[] = [];
   return {
     calls,
-    config: () => ({ define: 'fake/define', followup: 'fake/followup', notes: 'fake/notes' }),
+    config: () => ({ define: 'fake/define', followup: 'fake/followup', notes: 'fake/notes', small: 'fake/small' }),
     prompt: (request) =>
       Effect.gen(function* () {
         calls.push(request);

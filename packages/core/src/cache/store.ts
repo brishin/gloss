@@ -12,6 +12,7 @@ export type CacheKind =
   | 'walkthrough'
   | 'followup'
   | 'notes'
+  | 'stack-name'
   | 'tour'
   | 'trace';
 

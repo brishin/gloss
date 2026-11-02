@@ -14,4 +14,5 @@ export {
   tourCacheKey,
 } from './pipeline/orchestrator.ts';
 export { PROMPTS_VERSION } from './pipeline/prompts.ts';
+export { nameStack, STACK_NAME_VERSION } from './pipeline/stack-name.ts';
 export * from './sources/index.ts';
