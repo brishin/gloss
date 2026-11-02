@@ -14,6 +14,6 @@
   },
   "background": { "service_worker": "background.js", "type": "module" },
   "permissions": ["activeTab", "contextMenus", "declarativeContent", "nativeMessaging"],
-  "host_permissions": ["http://127.0.0.1/*"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "externally_connectable": { "matches": ["http://127.0.0.1/*", "http://localhost/*"] }
 }

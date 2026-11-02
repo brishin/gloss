@@ -22,7 +22,7 @@ chrome.runtime.onInstalled.addListener(() => {
     targetUrlPatterns: ['https://github.com/*/*/pull/*'],
   });
   // An open setup page sees the extension only after a reload (Chrome sets up `chrome.runtime` per page load).
-  chrome.tabs.query({ url: 'http://127.0.0.1/setup*' }, (tabs) => {
+  chrome.tabs.query({ url: ['http://127.0.0.1/setup*', 'http://localhost/setup*'] }, (tabs) => {
     for (const tab of tabs) {
       if (tab.id !== undefined) chrome.tabs.reload(tab.id);
     }
