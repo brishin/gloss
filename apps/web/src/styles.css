@@ -1049,7 +1049,7 @@
     height: 13px;
   }
 
-  /* The tour's visual: one picture of the main decision, drawn from checked data. */
+  /* The tour's visuals: one or two pictures of the main decision, drawn from checked data. */
 
   .visual {
     margin: 0;
@@ -1362,11 +1362,11 @@
     overflow-x: auto;
   }
 
+  /* At its natural size (13px labels) or narrower: a height cap shrank tall flowcharts past reading. */
   .visual-mermaid svg {
     display: block;
     margin-inline: auto;
     height: auto;
-    max-height: 420px;
   }
 
   .decisions .decision-priority {

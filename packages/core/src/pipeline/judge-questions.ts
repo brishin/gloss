@@ -250,20 +250,34 @@ export const ACCURATE = NO;
 export const WORKFLOW = 0.9;
 
 /**
- * Of the candidates Jev thinks are accurate and more than a list: the sketch, unless the
- * change is a workflow (Brian prefers hand-drawn sketches to diagrams except for those).
- * Otherwise the one Jev rates highest for showing the whole change and being easy to
- * follow; model order breaks ties. `undefined` hides the visual.
+ * How sure Jev must be on every question before a second picture joins the first. High
+ * because two pictures are the exception: the second has to be as good as a first pick.
  */
-export function pickVisual(kinds: readonly Visual['kind'][], answers: Record<string, JudgeAnswer>): number | undefined {
+export const SECOND = 0.8;
+
+/**
+ * The pictures to show, in order, or none. First, of the candidates Jev thinks are accurate
+ * and more than a list: the sketch, unless the change is a workflow (Brian prefers
+ * hand-drawn sketches to diagrams except for those). Otherwise the one Jev rates highest
+ * for showing the whole change and being easy to follow; model order breaks ties.
+ *
+ * At most one more joins it. Two are the exception: both must be strong on every question
+ * Jev answered, and the second must be of another kind (two flowcharts say it twice).
+ */
+export function pickVisuals(kinds: readonly Visual['kind'][], answers: Record<string, JudgeAnswer>): number[] {
   const p = (i: number, question: string) => bool(answers[`c${i + 1}_${question}`]);
   const weight = (i: number) => (p(i, 'whole') ?? 1) * (p(i, 'easy') ?? 1);
   const shown = kinds
     .map((_, i) => i)
-    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE);
+    .filter((i) => (p(i, 'accurate') ?? 0) >= ACCURATE && (p(i, 'beyond_text') ?? 1) >= ACCURATE)
+    .sort((a, b) => weight(b) - weight(a) || a - b);
   const sketch = shown.find((i) => kinds[i] === 'svg');
-  if (sketch !== undefined && (bool(answers.workflow) ?? 0) < WORKFLOW) {
-    return sketch;
+  const first = sketch !== undefined && (bool(answers.workflow) ?? 0) < WORKFLOW ? sketch : shown[0];
+  if (first === undefined) {
+    return [];
   }
-  return shown.sort((a, b) => weight(b) - weight(a) || a - b)[0];
+  const strong = (i: number) =>
+    ['accurate', 'beyond_text', 'whole', 'easy'].every((question) => (p(i, question) ?? 1) >= SECOND);
+  const second = shown.find((i) => i !== first && kinds[i] !== kinds[first] && strong(first) && strong(i));
+  return second === undefined ? [first] : [first, second];
 }

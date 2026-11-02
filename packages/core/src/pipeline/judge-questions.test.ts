@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { JudgeAnswer } from '../adapters/types.ts';
-import { pickVisual, visualQuestions } from './judge-questions.ts';
+import { pickVisuals, visualQuestions } from './judge-questions.ts';
 
 const yes = (probability: number): JudgeAnswer => ({ type: 'bool', probability });
 
-describe('pickVisual', () => {
+const pickVisual = (...args: Parameters<typeof pickVisuals>) => pickVisuals(...args)[0];
+
+describe('pickVisuals', () => {
   // Rows: per candidate [accurate, whole, easy, beyond_text = 0.9] -> the candidate shown.
   it.each([
     [
@@ -96,6 +98,30 @@ describe('pickVisual', () => {
         c2_whole: yes(0.7),
       }),
     ).toBe(1);
+  });
+
+  // Two pictures only when both are strong and differ in kind; one stays the norm.
+  const strong = (i: number, score = 0.9) =>
+    Object.fromEntries(['accurate', 'beyond_text', 'whole', 'easy'].map((q) => [`c${i}_${q}`, yes(score)]));
+  it.each([
+    ['a strong sketch and a strong flowchart', ['svg', 'mermaid'], { ...strong(1), ...strong(2) }, [0, 1]],
+    [
+      'the flowchart first for a workflow',
+      ['svg', 'mermaid'],
+      { workflow: yes(0.95), ...strong(1), ...strong(2, 0.95) },
+      [1, 0],
+    ],
+    ['one when the second is only fair', ['svg', 'mermaid'], { ...strong(1), ...strong(2, 0.7) }, [0]],
+    ['one when the first is only fair', ['svg', 'mermaid'], { ...strong(1, 0.7), ...strong(2) }, [0]],
+    ['one of two strong flowcharts', ['mermaid', 'mermaid'], { ...strong(1), ...strong(2) }, [0]],
+    [
+      'the best two of three kinds',
+      ['svg', 'mermaid', 'timeline'],
+      { ...strong(1), ...strong(2, 0.85), ...strong(3) },
+      [0, 2],
+    ],
+  ] as const)('shows %s', (_, kinds, answers, expected) => {
+    expect(pickVisuals(kinds, answers)).toEqual(expected);
   });
 
   it('names each picture as the image Jev is sent', () => {
