@@ -15,6 +15,8 @@ describe('lfsPointer', () => {
       { oldSize: 100, newSize: 200 },
     ],
     ['same size', file(` ${V}`, `-${oid('a')}`, `+${oid('b')}`, ' size 7'), { oldSize: 7, newSize: 7 }],
+    ['oid removed', file(` ${V}`, `-${oid('a')}`, ' size 7'), undefined],
+    ['size missing on one side', file(` ${V}`, `-${oid('a')}`, `+${oid('b')}`, '-size 7'), undefined],
     ['no version line', file(`-${oid('a')}`, `+${oid('b')}`), undefined],
     ['other lines', file(`+${V}`, `+${oid('a')}`, '+size 1', '+hello'), undefined],
     ['source code', file('+const size = 1;'), undefined],

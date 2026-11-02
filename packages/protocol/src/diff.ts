@@ -91,7 +91,8 @@ const LFS_LINE =
  * as git diffs a file tracked by LFS without its smudge filter. Undefined for any other file.
  */
 export function lfsPointer(file: { hunks: readonly Pick<DiffHunk, 'patch'>[] }): LfsSizes | undefined {
-  let version = false;
+  // Each side's pointer keys; a side with lines must hold a whole pointer, or its diff stays visible.
+  const sides = { old: new Set<string>(), new: new Set<string>() };
   let oldSize: number | undefined;
   let newSize: number | undefined;
   for (const hunk of file.hunks) {
@@ -103,19 +104,21 @@ export function lfsPointer(file: { hunks: readonly Pick<DiffHunk, 'patch'>[] }):
       if (!match) {
         return undefined;
       }
-      version ||= line.slice(1).startsWith('version ');
-      if (match[1] !== undefined) {
-        const size = Number(match[1]);
-        if (line[0] !== '+') {
-          oldSize = size;
-        }
-        if (line[0] !== '-') {
-          newSize = size;
-        }
+      const key = line.slice(1).split(' ', 1)[0]!;
+      const size = match[1] === undefined ? undefined : Number(match[1]);
+      if (line[0] !== '+') {
+        sides.old.add(key);
+        oldSize = size ?? oldSize;
+      }
+      if (line[0] !== '-') {
+        sides.new.add(key);
+        newSize = size ?? newSize;
       }
     }
   }
-  return version ? { oldSize, newSize } : undefined;
+  const whole = (keys: Set<string>) => keys.has('version') && keys.has('oid') && keys.has('size');
+  const valid = [sides.old, sides.new].every((keys) => keys.size === 0 || whole(keys));
+  return valid && (sides.old.size || sides.new.size) ? { oldSize, newSize } : undefined;
 }
 
 export function summarizeFile(file: FileChange): FileSummary {
