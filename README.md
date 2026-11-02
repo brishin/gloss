@@ -1,57 +1,57 @@
 # gloss
 
-A guided, annotated review tour of a pull request or local diff. gloss splits a change
-into ordered review groups, each with a summary and notes pinned to the lines that
-matter, and streams it to the browser stage by stage. The diff and a path-based first
-grouping appear in under a second; the model's groups, Jev's placements and the notes
-fill in after.
+> **gloss** /ɡlɒs/ _noun_: a note written in the margin or between the lines of a text,
+> explaining a word or passage. _verb_: to add such notes to a text.
 
-```bash
-pnpm install && pnpm --filter @gloss/web build
-node packages/cli/src/bin.ts https://github.com/owner/repo/pull/123   # or owner/repo#123
-node packages/cli/src/bin.ts                                          # this repo: uncommitted changes, else branch vs main
-node packages/cli/src/bin.ts tour main...HEAD                         # print a tour in the terminal
-```
-
-## Open from GitHub
-
-`apps/extension` is a Chrome extension (also Arc, Dia, Brave, Edge): on a pull request page, its
-toolbar button (or Alt+G, or "Open in gloss" on any PR link) opens the PR in the local
-server it finds on ports 4777 to 4786. The app's setup page (`/setup`) walks through
-loading it (Developer mode, Load unpacked) and allowing it to start `gloss serve` itself
-when nothing is running (logs in `~/.gloss/serve.log`); `gloss extension install` does the
-second step from a terminal. Without that, it shows how to start the server and opens the
-PR once it is up.
+gloss turns a pull request or local diff into a guided, annotated review tour. It splits
+the change into ordered review groups, gives each one a summary and notes pinned to the
+lines that matter, and streams it all to your browser as it is written.
 
 ## Setup
 
-The first time gloss opens with no model signed in, it shows `/setup`: sign in to Claude or
-ChatGPT (or add an API key), connect GitHub through `gh`, add the browser extension, and add
-a Jev key. Each step turns done from what the backend and the extension report. The page
-stays at `/setup` (linked from home) as the in-app `gloss status`.
+You need Node 24 or later, [pnpm](https://pnpm.io), and for pull requests the
+[GitHub CLI](https://cli.github.com) signed in (`gh auth login`).
 
-`gloss [target]` keeps its checkout current first: it pulls (fast-forward only), runs
-`pnpm install`, rebuilds the web app when it is stale, and restarts a server that runs an
-older commit (`--no-update` skips this). When the checkout's upstream has new commits, the
-app shows "A new version of gloss is ready" with an Update button that does the same on the
-backend and reloads the page. `gloss update` (or `pnpm gloss:update`) does it from a terminal;
-`gloss restart` only restarts.
+```bash
+git clone https://github.com/brishin/gloss && cd gloss
+pnpm install && pnpm --filter @gloss/web build
+echo "alias gloss='node $PWD/packages/cli/src/bin.ts'" >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
+gloss serve
+```
 
-## Models and keys
+Open http://127.0.0.1:4777. The first time, it shows the setup page: sign in with a
+Claude or ChatGPT subscription (or paste an API key). You can also add the browser
+extension and a Jev key there; both are optional.
 
-- **LLM** (group definitions, follow-up placement, notes) runs through a [Flue](https://flueframework.com) agent on the backend. Defaults: Claude Haiku 5.5 for the fast tiers, Sonnet 5.5 for notes. Set `"profile": "openai"` in `~/.gloss/config.json` for GPT.
-  - Subscriptions: `gloss login claude` (Claude Pro/Max) or `gloss login chatgpt` (ChatGPT Plus/Pro), using pi-ai's OAuth. Tokens live in `~/.gloss/auth.json`. The web app also prompts for this by itself when a provider your models use is not signed in, and runs the same sign-in (or takes an API key) from the page.
-  - API keys also work: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, in the environment or `~/.gloss/.env`.
-  - Third-party pi provider packages: `"providerPackages": ["some-pi-provider"]` in config.
-- **Jev** (TypeSafe's classifier) makes the per-file judgments: which group, generated, tests-only, and whether a file touches auth, stored data, secrets or personal data. Set `TYPESAFE_API_KEY` (or `OPENROUTER_API_KEY`). Without it the LLM places files itself.
+## Use
 
-`gloss status` shows what is configured.
+```bash
+gloss https://github.com/owner/repo/pull/123   # or owner/repo#123
+gloss                                          # this repo: uncommitted changes, else branch vs main
+gloss main...HEAD                              # a range, a commit, or `worktree`
+gloss tour main...HEAD                         # print the tour in the terminal
+```
 
-## Cost
+Each launch first updates gloss (pull, install, build) and restarts its server if the
+code changed. A running app shows an Update button when new commits land.
+`gloss --help` lists every command.
 
-Tours run automatically when opened. Every model and Jev request is cached in
-`~/.gloss/cache.sqlite` by a hash of the exact request, so reopening a tour for the same
-head replays in about 100 ms with no model calls. `--force` (or Re-run) skips cache reads.
-`gloss cache prune --days 30` trims it.
+## Models
+
+- **LLM:** Claude by default (Haiku 5.5 for grouping, Sonnet 5.5 for notes). Set
+  `"profile": "openai"` in `~/.gloss/config.json` to use GPT. `ANTHROPIC_API_KEY` or
+  `OPENAI_API_KEY` in the environment or `~/.gloss/.env` works in place of a subscription.
+- **Jev** (optional, `TYPESAFE_API_KEY`): TypeSafe's classifier places files in groups and
+  flags auth, stored data, secrets and personal data. Without it, the LLM places files.
+
+Model and Jev results are cached in `~/.gloss/cache.sqlite`, so reopening a tour costs
+nothing. `--force` (or Re-run in the app) skips the cache.
+
+## Open from GitHub
+
+The Chrome extension in `apps/extension` (also works in Arc, Dia, Brave and Edge) adds an
+"Open in gloss" button to pull request pages, and can start the server if it is not
+running. The setup page shows how to load it.
 
 See [AGENTS.md](AGENTS.md) and [.agents/](.agents) for the architecture.
