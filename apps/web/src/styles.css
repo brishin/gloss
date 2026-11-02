@@ -647,39 +647,39 @@
     color: var(--color-text-secondary);
   }
 
-  /* GitHub's colours for a PR's state, on the stats-row icon and its hover card's label. */
-  .pull-state {
+  /* GitHub's colours for a PR's state, on its icon here and in the side rail. */
+  .ref-icon {
     display: inline-flex;
-    align-items: center;
-    border-radius: 4px;
   }
 
-  .pull-state,
-  .pull-state-card strong {
+  .ref-icon[data-state='open'],
+  .pull-state[data-state='open'] strong {
     color: var(--color-text-green);
   }
 
-  :is(.pull-state, .pull-state-card strong)[data-state='draft'] {
-    color: var(--color-text-secondary);
-  }
-
-  :is(.pull-state, .pull-state-card strong)[data-state='queued'] {
+  .ref-icon[data-state='queued'],
+  .pull-state[data-state='queued'] strong {
     color: var(--color-text-orange);
   }
 
-  :is(.pull-state, .pull-state-card strong)[data-state='merged'] {
+  .ref-icon[data-state='merged'],
+  .pull-state[data-state='merged'] strong {
     color: var(--color-text-purple);
   }
 
-  :is(.pull-state, .pull-state-card strong)[data-state='closed'] {
+  .ref-icon[data-state='closed'],
+  .pull-state[data-state='closed'] strong {
     color: var(--color-text-red);
   }
 
-  .pull-state-card {
-    display: grid;
-    gap: 2px;
-    font-size: 12px;
-    color: var(--color-text-secondary);
+  .pull-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .pull-state strong {
+    font-weight: 500;
   }
 
   .stats strong {

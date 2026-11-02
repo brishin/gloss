@@ -11,7 +11,7 @@ import type { Tour, TourEvent, TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
 import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { createApp } from './app.ts';
+import { createApp, withPullStates } from './app.ts';
 import { Jobs, type RunTour } from './jobs.ts';
 import { Logins } from './logins.ts';
 
@@ -61,7 +61,7 @@ function scripted() {
 
 /** Repository access that fails unless a test scripts it. */
 const unscripted = (): Repos['Service'] => ({
-  authors: () => Effect.succeed(new Map()),
+  pulls: () => Effect.succeed(new Map()),
   viewer: Effect.succeed(undefined),
   asset: () => Effect.succeed(undefined),
   stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
@@ -172,14 +172,19 @@ describe('stack API', () => {
     members: [{ number: 1, title: 't', state: 'open' as const, baseRef: 'main', headRef: 'feature' }],
   };
 
-  it('fills in missing PR authors with one lookup, keeps them, and names the viewer', async () => {
+  it('fills in missing PR authors and current states with one lookup, keeps authors, and names the viewer', async () => {
     const asked: unknown[][] = [];
     const { client, runtime } = setup(scripted().run, {
       repos: {
         viewer: Effect.succeed('me'),
-        authors: (refs) => {
+        pulls: (refs) => {
           asked.push([...refs]);
-          return Effect.succeed(new Map([['github:o/r#1', 'ana']]));
+          return Effect.succeed(
+            new Map([
+              ['github:o/r#1', { author: 'ana', state: 'merged' as const }],
+              ['github:o/r#2', { author: 'bo', state: 'queued' as const }],
+            ]),
+          );
         },
       },
     });
@@ -195,13 +200,26 @@ describe('stack API', () => {
 
     const first = await client.recent();
     expect(first.viewer).toBe('me');
-    expect(first.tours.map((tour) => [tour.title, tour.author])).toEqual([
-      ['Two', 'bo'],
-      ['One', 'ana'],
+    expect(first.tours.map((tour) => [tour.title, tour.author, tour.state])).toEqual([
+      ['Two', 'bo', 'queued'],
+      ['One', 'ana', 'merged'],
     ]);
-    expect(asked).toEqual([[pr]]);
+    expect(asked).toEqual([[{ ...pr, number: 2 }, pr]]);
     await client.recent();
-    expect(asked).toEqual([[pr]]);
+    expect(asked).toHaveLength(2);
+  });
+
+  it('a stack member takes its state from the lookup, else keeps the recorded one', () => {
+    const two = { ...stack, members: [...stack.members, { ...stack.members[0]!, number: 2 }] };
+    const tour = {
+      ref: { kind: 'github-pr', owner: 'o', repo: 'r', number: 1 },
+      title: 't',
+      stack: two,
+      updatedAt: '',
+    } as const;
+    const fresh = withPullStates(tour, new Map([['github:o/r#2', { state: 'merged' as const }]]));
+    expect(fresh.state).toBeUndefined();
+    expect(fresh.stack?.members.map((member) => member.state)).toEqual(['open', 'merged']);
   });
 
   it('round-trips a stack through the client', async () => {

@@ -1,6 +1,7 @@
 import type { PullState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { isOpen, MAX_STACK, pullState, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
+import { isOpen, MAX_STACK, type StackLookup, type StackPull, walkStack } from './github-stack.ts';
+import { pullState } from './github.ts';
 
 const pr = (
   number: number,

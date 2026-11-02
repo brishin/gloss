@@ -1,5 +1,4 @@
 import { Heading } from '@astryxdesign/core/Heading';
-import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type { GroupView, StackMember, TourState } from '@gloss/protocol';
@@ -54,7 +53,7 @@ export const Overview = memo(function Overview({
         {meta ? <Heading level={1}>{meta.title}</Heading> : <Skeleton width={360} height={24} />}
         {meta && (
           <div className="stats">
-            {pull && <PullStateIcon pull={pull} />}
+            {pull && <PullStateLine pull={pull} />}
             <span>
               {meta.baseRef} ← {meta.headRef}
               {meta.author ? ` · ${meta.author}` : ''}
@@ -176,24 +175,14 @@ function descriptionHeadingStart(markdown: string): 1 | 2 | 3 | 4 {
   return Math.max(1, Math.min(4, 3 - (top - 1))) as 1 | 2 | 3 | 4;
 }
 
-/** The PR's state as a coloured icon; hover or focus it for the state in words. */
-function PullStateIcon({ pull }: { pull: StackMember }) {
-  const label = PULL_STATE_LABEL[pull.state];
+/** The PR's state in its colour, then who and when in plain text. */
+function PullStateLine({ pull }: { pull: StackMember }) {
   const detail = pullStateDetail(pull, Date.now());
   return (
-    <HoverCard
-      placement="below"
-      alignment="start"
-      content={
-        <div className="pull-state-card">
-          <strong data-state={pull.state}>{label}</strong>
-          {detail && <span>{detail}</span>}
-        </div>
-      }
-    >
-      <span className="pull-state" data-state={pull.state} role="img" aria-label={label} tabIndex={0}>
-        <RefIcon kind="github-pr" state={pull.state} />
-      </span>
-    </HoverCard>
+    <span className="pull-state" data-state={pull.state}>
+      <RefIcon kind="github-pr" state={pull.state} />
+      <strong>{PULL_STATE_LABEL[pull.state]}</strong>
+      {detail && <span className="pull-state-detail">{detail}</span>}
+    </span>
   );
 }

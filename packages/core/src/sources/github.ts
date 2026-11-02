@@ -1,4 +1,4 @@
-import type { FileStatus, ResolvedAsset, SourceRef } from '@gloss/protocol';
+import type { FileStatus, PullState, ResolvedAsset, SourceRef } from '@gloss/protocol';
 import { isGithubAssetUrl, serializeRef } from '@gloss/protocol';
 import { CommandError, run } from './exec.ts';
 import { isGenerated, parseGitattributes } from './gitattributes.ts';
@@ -156,36 +156,62 @@ export async function resolveGithubAsset(url: string, signal?: AbortSignal): Pro
   return { url: location, contentType: new URL(location).searchParams.get('response-content-type') ?? undefined };
 }
 
-/** PRs per GraphQL query when looking up authors; well under GitHub's node limits. */
-const AUTHORS_PER_QUERY = 50;
+/** PRs per GraphQL query; well under GitHub's node limits. */
+const PULLS_PER_QUERY = 50;
 
-/** One GraphQL query that asks for each PR's author, aliased `p0`, `p1`, … in `refs` order. */
-export function pullAuthorsQuery(refs: readonly GithubRef[]): string {
+/** GitHub's flags as one state. A merged PR is closed too, so merged wins over closed. */
+export function pullState(pull: { open: boolean; merged: boolean; draft?: boolean; queued?: boolean }): PullState {
+  if (!pull.open) {
+    return pull.merged ? 'merged' : 'closed';
+  }
+  return pull.queued ? 'queued' : pull.draft ? 'draft' : 'open';
+}
+
+/** A PR's author and current state, as the side rail shows them. */
+export interface PullSummary {
+  author?: string;
+  state: PullState;
+}
+
+/** One GraphQL query that asks for each PR's author and state, aliased `p0`, `p1`, … in `refs` order. */
+export function pullsQuery(refs: readonly GithubRef[]): string {
   // JSON string literals are valid GraphQL string literals, so owner and repo names stay quoted.
   const fields = refs.map(
     (ref, index) =>
-      `p${index}: repository(owner: ${JSON.stringify(ref.owner)}, name: ${JSON.stringify(ref.repo)}) { pullRequest(number: ${ref.number}) { author { login } } }`,
+      `p${index}: repository(owner: ${JSON.stringify(ref.owner)}, name: ${JSON.stringify(ref.repo)}) { pullRequest(number: ${ref.number}) { author { login } state isDraft isInMergeQueue } }`,
   );
   return `query { ${fields.join(' ')} }`;
 }
 
-export type AuthorsJson = { data: Record<string, { pullRequest: { author: { login: string } | null } | null } | null> };
+export type PullsJson = {
+  data: Record<
+    string,
+    {
+      pullRequest: {
+        author: { login: string } | null;
+        state: 'OPEN' | 'CLOSED' | 'MERGED';
+        isDraft: boolean;
+        isInMergeQueue: boolean;
+      } | null;
+    } | null
+  >;
+};
 
 /**
- * The author of each PR, keyed by `serializeRef`, in one `gh` call per 50 PRs instead of one
- * REST call each. GitHub fails a whole query when one PR in it is gone or out of reach, so a
- * failed batch is split in half and retried, until the PRs it cannot see are left out alone.
+ * Each PR's author and state, keyed by `serializeRef`, in one `gh` call per 50 PRs instead of
+ * one REST call each. GitHub fails a whole query when one PR in it is gone or out of reach, so
+ * a failed batch is split in half and retried, until the PRs it cannot see are left out alone.
  */
-export async function githubPullAuthors(
+export async function githubPulls(
   refs: readonly GithubRef[],
   signal?: AbortSignal,
-  query: (text: string) => Promise<AuthorsJson> = (text) => ghJson(['graphql', '-f', `query=${text}`], signal),
-): Promise<Map<string, string>> {
-  const authors = new Map<string, string>();
+  query: (text: string) => Promise<PullsJson> = (text) => ghJson(['graphql', '-f', `query=${text}`], signal),
+): Promise<Map<string, PullSummary>> {
+  const pulls = new Map<string, PullSummary>();
   const lookup = async (batch: readonly GithubRef[]): Promise<void> => {
-    let json: AuthorsJson;
+    let json: PullsJson;
     try {
-      json = await query(pullAuthorsQuery(batch));
+      json = await query(pullsQuery(batch));
     } catch (error) {
       if (signal?.aborted) {
         throw error;
@@ -199,16 +225,22 @@ export async function githubPullAuthors(
       return;
     }
     batch.forEach((ref, index) => {
-      const login = json.data?.[`p${index}`]?.pullRequest?.author?.login;
-      if (login) {
-        authors.set(serializeRef(ref), login);
+      const pull = json.data?.[`p${index}`]?.pullRequest;
+      if (pull) {
+        const state = pullState({
+          open: pull.state === 'OPEN',
+          merged: pull.state === 'MERGED',
+          draft: pull.isDraft,
+          queued: pull.isInMergeQueue,
+        });
+        pulls.set(serializeRef(ref), { ...(pull.author?.login ? { author: pull.author.login } : {}), state });
       }
     });
   };
-  for (let start = 0; start < refs.length; start += AUTHORS_PER_QUERY) {
-    await lookup(refs.slice(start, start + AUTHORS_PER_QUERY));
+  for (let start = 0; start < refs.length; start += PULLS_PER_QUERY) {
+    await lookup(refs.slice(start, start + PULLS_PER_QUERY));
   }
-  return authors;
+  return pulls;
 }
 
 /** The `gh` login: whose PRs are "mine". */

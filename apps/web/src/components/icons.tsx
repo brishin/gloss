@@ -129,9 +129,14 @@ export function CategoryIcon({ category }: { category: Category }) {
   return <Icon icon={CATEGORY_ICONS[category]} size="sm" color="inherit" />;
 }
 
+/** A PR's icon, coloured by its state (styles.css `.ref-icon`) once the state is known. */
 export function RefIcon({ kind, state }: { kind: 'github-pr' | 'local'; state?: PullState }) {
   const icon = kind === 'local' ? FOLDER : state === 'merged' ? MERGED : state === 'draft' ? DRAFT : PULL_REQUEST;
-  return <Icon icon={icon} size="sm" color="inherit" />;
+  return (
+    <span className="ref-icon" data-state={state}>
+      <Icon icon={icon} size="sm" color="inherit" />
+    </span>
+  );
 }
 
 export function StackIcon() {

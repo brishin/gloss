@@ -161,19 +161,19 @@ export function ago(iso: string, now: number): string {
     : 'just now';
 }
 
-/** The line under a PR state's label: who, when and, in the merge queue, where. */
+/** What follows a PR state's label: when, who merged it, and its place in the merge queue. */
 export function pullStateDetail(pull: StackMember, now: number): string {
   const when = pull.since ? ago(pull.since, now) : undefined;
   switch (pull.state) {
     case 'queued':
-      return [pull.queuePosition && `Position ${pull.queuePosition}`, when && `queued ${when}`]
+      return [pull.queuePosition && `position ${pull.queuePosition}`, when && `queued ${when}`]
         .filter(Boolean)
         .join(', ');
     case 'merged':
-      return [`Merged into ${pull.baseRef}`, pull.mergedBy && `by ${pull.mergedBy}`, when].filter(Boolean).join(' ');
+      return [pull.mergedBy && `by ${pull.mergedBy}`, when].filter(Boolean).join(' ');
     case 'closed':
-      return ['Closed without merging', when].filter(Boolean).join(' ');
+      return ['without merging', when].filter(Boolean).join(' ');
     default:
-      return when ? `Opened ${when}` : '';
+      return when ? `opened ${when}` : '';
   }
 }

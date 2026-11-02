@@ -68,12 +68,12 @@ describe('pullStateDetail', () => {
   });
 
   test.each([
-    [{ since: '2026-11-02T11:59:30Z' }, 'Opened just now'],
-    [{ state: 'draft', since: '2026-10-31T12:00:00Z' }, 'Opened 2 days ago'],
-    [{ state: 'queued', queuePosition: 3, since: '2026-11-02T11:55:00Z' }, 'Position 3, queued 5 minutes ago'],
-    [{ state: 'merged', mergedBy: 'ann', since: '2026-11-02T09:00:00Z' }, 'Merged into main by ann 3 hours ago'],
-    [{ state: 'merged' }, 'Merged into main'],
-    [{ state: 'closed', since: '2026-11-01T12:00:00Z' }, 'Closed without merging yesterday'],
+    [{ since: '2026-11-02T11:59:30Z' }, 'opened just now'],
+    [{ state: 'draft', since: '2026-10-31T12:00:00Z' }, 'opened 2 days ago'],
+    [{ state: 'queued', queuePosition: 3, since: '2026-11-02T11:55:00Z' }, 'position 3, queued 5 minutes ago'],
+    [{ state: 'merged', mergedBy: 'ann', since: '2026-11-02T09:00:00Z' }, 'by ann 3 hours ago'],
+    [{ state: 'merged' }, ''],
+    [{ state: 'closed', since: '2026-11-01T12:00:00Z' }, 'without merging yesterday'],
     [{}, ''],
   ] as const)('%o reads %s', (fields, text) => {
     expect(pullStateDetail(pull(fields), now)).toBe(text);

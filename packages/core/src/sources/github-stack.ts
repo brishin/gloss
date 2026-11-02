@@ -1,5 +1,5 @@
 import type { PullState, SourceRef, Stack, StackMember } from '@gloss/protocol';
-import { ghJson, ghPaginated } from './github.ts';
+import { ghJson, ghPaginated, pullState } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
 
@@ -98,14 +98,6 @@ interface PullJson {
   user?: { login: string } | null;
   base: { ref: string };
   head: { ref: string; repo: { full_name: string } | null };
-}
-
-/** GitHub's flags as one state. A merged PR is closed too, so merged wins over closed. */
-export function pullState(pull: { open: boolean; merged: boolean; draft?: boolean; queued?: boolean }): PullState {
-  if (!pull.open) {
-    return pull.merged ? 'merged' : 'closed';
-  }
-  return pull.queued ? 'queued' : pull.draft ? 'draft' : 'open';
 }
 
 function toPull(pull: PullJson, repo: string): StackPull {
