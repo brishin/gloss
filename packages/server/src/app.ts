@@ -1,7 +1,8 @@
 import { Repos, TourCache } from '@gloss/core';
-import type { DiffPayload, Health, TourEvent, Trace } from '@gloss/protocol';
+import type { DiffPayload, GithubLogin, Health, SetupStatus, TourEvent, Trace } from '@gloss/protocol';
 import {
   encodeNdjson,
+  JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
@@ -25,6 +26,17 @@ export interface AppOptions {
   token?: string;
   /** Browser origins allowed to call the API cross-origin (the dev web server, a hosted frontend). */
   corsOrigins?: string[];
+  /** First-run setup on the backend's machine (`/api/setup`); a remote backend leaves it out. */
+  setup?: SetupHooks;
+}
+
+/** What the setup page asks of the backend's machine: the CLI implements these (packages/cli/src/setup.ts). */
+export interface SetupHooks {
+  status(): Promise<SetupStatus>;
+  githubLogin(): Promise<GithubLogin>;
+  installNativeHost(): Promise<void>;
+  /** Saves the key, then restarts the server (a new Jev client needs a new runtime). */
+  saveJudgeKey(key: string): Promise<void>;
 }
 
 const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boolean(), false) });
@@ -32,7 +44,7 @@ const StartBodySchema = v.object({ ref: SourceRefSchema, force: v.optional(v.boo
 const PING_MS = 15_000;
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
-export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptions): Hono {
+export function createApp({ runtime, health, token, corsOrigins = [], setup }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos>, signal?: AbortSignal) =>
     runtime.runPromise(effect, { signal });
@@ -270,6 +282,40 @@ export function createApp({ runtime, health, token, corsOrigins = [] }: AppOptio
       ? c.body(null, 204)
       : c.json({ error: 'Unknown or expired login' }, 404);
   });
+
+  if (setup) {
+    const failed = (c: Context, error: unknown) =>
+      c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+
+    app.get('/api/setup', async (c) => c.json(await setup.status()));
+
+    // Each changes the backend's machine, so like logins they take JSON from the app only.
+    app.post('/api/setup/github', async (c) => {
+      if (!fromApp(c)) return c.json({ error: 'Setup is accepted only as JSON from the gloss app' }, 403);
+      return setup.githubLogin().then(
+        (login) => c.json(login, 201),
+        (error) => failed(c, error),
+      );
+    });
+
+    app.post('/api/setup/extension', async (c) => {
+      if (!fromApp(c)) return c.json({ error: 'Setup is accepted only as JSON from the gloss app' }, 403);
+      return setup.installNativeHost().then(
+        () => c.body(null, 204),
+        (error) => failed(c, error),
+      );
+    });
+
+    app.post('/api/setup/judge', async (c) => {
+      if (!fromApp(c)) return c.json({ error: 'Setup is accepted only as JSON from the gloss app' }, 403);
+      const parsed = v.safeParse(JudgeKeyRequestSchema, await c.req.json().catch(() => undefined));
+      if (!parsed.success) return c.json({ error: 'Enter a key' }, 400);
+      return setup.saveJudgeKey(parsed.output.key).then(
+        () => c.body(null, 202),
+        (error) => failed(c, error),
+      );
+    });
+  }
 
   return app;
 }

@@ -17,10 +17,18 @@ node packages/cli/src/bin.ts tour main...HEAD                         # print a 
 
 `apps/extension` is a Chrome extension (also Arc, Dia, Brave, Edge): on a pull request page, its
 toolbar button (or Alt+G, or "Open in gloss" on any PR link) opens the PR in the local
-server it finds on ports 4777 to 4786. Load it once from `chrome://extensions` (Developer
-mode, Load unpacked), then run `gloss extension install` so the button can start
-`gloss serve` itself when nothing is running (logs in `~/.gloss/serve.log`). Without that,
-it shows how to start the server and opens the PR once it is up.
+server it finds on ports 4777 to 4786. The app's setup page (`/setup`) walks through
+loading it (Developer mode, Load unpacked) and allowing it to start `gloss serve` itself
+when nothing is running (logs in `~/.gloss/serve.log`); `gloss extension install` does the
+second step from a terminal. Without that, it shows how to start the server and opens the
+PR once it is up.
+
+## Setup
+
+The first time gloss opens with no model signed in, it shows `/setup`: sign in to Claude or
+ChatGPT (or add an API key), connect GitHub through `gh`, add the browser extension, and add
+a Jev key. Each step turns done from what the backend and the extension report. The page
+stays at `/setup` (linked from home) as the in-app `gloss status`.
 
 `pnpm gloss:update` pulls, installs, rebuilds the web app and restarts the server in the
 background on the new code (`gloss restart` does only the last step).

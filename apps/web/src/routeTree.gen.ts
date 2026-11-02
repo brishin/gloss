@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LocalRouteImport } from './routes/local'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as LocalPipelineRouteImport } from './routes/local_.pipeline'
 import { Route as GhOwnerRepoPullNumberRouteImport } from './routes/gh.$owner.$repo.pull.$number'
 import { Route as GhOwnerRepoPullNumberPipelineRouteImport } from './routes/gh.$owner.$repo.pull.$number_.pipeline'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const LocalRoute = LocalRouteImport.update({
   id: '/local',
   path: '/local',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LocalPipelineRoute = LocalPipelineRouteImport.update({
@@ -45,6 +51,7 @@ const GhOwnerRepoPullNumberPipelineRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/local': typeof LocalRoute
+  '/setup': typeof SetupRoute
   '/local/pipeline': typeof LocalPipelineRoute
   '/gh/$owner/$repo/pull/$number': typeof GhOwnerRepoPullNumberRoute
   '/gh/$owner/$repo/pull/$number/pipeline': typeof GhOwnerRepoPullNumberPipelineRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/local': typeof LocalRoute
+  '/setup': typeof SetupRoute
   '/local/pipeline': typeof LocalPipelineRoute
   '/gh/$owner/$repo/pull/$number': typeof GhOwnerRepoPullNumberRoute
   '/gh/$owner/$repo/pull/$number/pipeline': typeof GhOwnerRepoPullNumberPipelineRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/local': typeof LocalRoute
+  '/setup': typeof SetupRoute
   '/local_/pipeline': typeof LocalPipelineRoute
   '/gh/$owner/$repo/pull/$number': typeof GhOwnerRepoPullNumberRoute
   '/gh/$owner/$repo/pull/$number_/pipeline': typeof GhOwnerRepoPullNumberPipelineRoute
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/local'
+    | '/setup'
     | '/local/pipeline'
     | '/gh/$owner/$repo/pull/$number'
     | '/gh/$owner/$repo/pull/$number/pipeline'
@@ -76,6 +86,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/local'
+    | '/setup'
     | '/local/pipeline'
     | '/gh/$owner/$repo/pull/$number'
     | '/gh/$owner/$repo/pull/$number/pipeline'
@@ -83,6 +94,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/local'
+    | '/setup'
     | '/local_/pipeline'
     | '/gh/$owner/$repo/pull/$number'
     | '/gh/$owner/$repo/pull/$number_/pipeline'
@@ -91,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LocalRoute: typeof LocalRoute
+  SetupRoute: typeof SetupRoute
   LocalPipelineRoute: typeof LocalPipelineRoute
   GhOwnerRepoPullNumberRoute: typeof GhOwnerRepoPullNumberRoute
   GhOwnerRepoPullNumberPipelineRoute: typeof GhOwnerRepoPullNumberPipelineRoute
@@ -110,6 +123,13 @@ declare module '@tanstack/react-router' {
       path: '/local'
       fullPath: '/local'
       preLoaderRoute: typeof LocalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/local_/pipeline': {
@@ -139,6 +159,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LocalRoute: LocalRoute,
+  SetupRoute: SetupRoute,
   LocalPipelineRoute: LocalPipelineRoute,
   GhOwnerRepoPullNumberRoute: GhOwnerRepoPullNumberRoute,
   GhOwnerRepoPullNumberPipelineRoute: GhOwnerRepoPullNumberPipelineRoute,

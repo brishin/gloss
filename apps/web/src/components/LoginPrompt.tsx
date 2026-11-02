@@ -110,7 +110,15 @@ function Choices({
   );
 }
 
-function Progress({ session, onCancel, onDone }: { session: LoginSession; onCancel: () => void; onDone: () => void }) {
+export function Progress({
+  session,
+  onCancel,
+  onDone,
+}: {
+  session: LoginSession;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
   if (session.state === 'succeeded') {
     return <Ended status="success" title="Signed in" description="New tours will use it." onDone={onDone} />;
   }

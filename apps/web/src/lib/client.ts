@@ -11,6 +11,7 @@ import {
   type RecentTour,
   reduceTourEvent,
   type ResolvedAsset,
+  type SetupStatus,
   type SourceRef,
   type Subscription,
   type Trace,
@@ -85,6 +86,68 @@ export const loginAtom = glossRuntime.fn((start: { subscription: Subscription; m
 /** Answers the running login's current question. */
 export const answerLoginAtom = glossRuntime.fn((answer: { loginId: string; promptId: number; value: string }) =>
   request((client) => client.answerLogin(answer.loginId, answer.promptId, answer.value)),
+);
+
+/** GitHub, the extension's native host and the extension's folder, as the setup page shows them. */
+export const setupAtom: Atom.Atom<AsyncResult.AsyncResult<SetupStatus, GlossRequestError>> = glossRuntime.atom(
+  request((client) => client.setup()),
+);
+
+/** Starts `gh auth login --web` on the backend: the code to enter on GitHub. */
+export const githubLoginAtom = glossRuntime.fn(() => request((client) => client.githubLogin()));
+
+/** Registers the extension's native host, so its button can start the server. */
+export const installNativeHostAtom = glossRuntime.fn(() => request((client) => client.installNativeHost()));
+
+/**
+ * Saves a Jev key on the backend, which then restarts; succeeds once the restarted backend
+ * reports Jev (up to 30s).
+ */
+export const saveJudgeKeyAtom = glossRuntime.fn((key: string) =>
+  Effect.gen(function* () {
+    yield* request((client) => client.saveJudgeKey(key));
+    yield* request((client) => client.health()).pipe(
+      Effect.filterOrFail(
+        (health) => health.judge.available,
+        () => new GlossRequestError({ cause: 'Jev is not available yet' }),
+      ),
+      Effect.retry({ schedule: Schedule.spaced(Duration.seconds(1)), times: 30 }),
+    );
+  }),
+);
+
+/**
+ * Whether the gloss extension with id `id` answers in this browser. Chrome gives a page
+ * `chrome.runtime` only when an extension lists its origin in `externally_connectable`.
+ */
+export function pingExtension(id: string): Promise<boolean> {
+  const runtime = (globalThis as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime;
+  if (!runtime?.sendMessage) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    try {
+      runtime.sendMessage(id, { type: 'ping' }, (reply) => {
+        void runtime.lastError;
+        resolve(!!reply);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+interface ChromeRuntime {
+  lastError?: unknown;
+  sendMessage(id: string, message: unknown, reply: (response: unknown) => void): void;
+}
+
+/** Whether the extension `id` is loaded, checked every 2s until it is. */
+export const extensionAtom = Atom.family((id: string) =>
+  glossRuntime.atom(
+    Stream.fromEffectSchedule(
+      Effect.promise(() => pingExtension(id)),
+      Schedule.spaced(Duration.seconds(2)),
+    ).pipe(Stream.takeUntil((found) => found)),
+  ),
 );
 
 /** A GitHub attachment resolved to a short-lived URL the browser can load. */

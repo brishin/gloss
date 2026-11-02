@@ -138,9 +138,9 @@ async function main() {
     }
 
     case 'restart': {
-      const stopped = await stopServer(port);
+      const stopped = await stopServer(port, token);
       if (stopped.length > 0) console.error(`Stopped ${stopped.join(', ')}`);
-      const result = await startDetached(port);
+      const result = await startDetached(port, { host: values.host, token });
       if ('error' in result) throw new Error(result.error);
       console.log(`gloss server on ${result.url} (logs: ${glossPath('serve.log')})`);
       return;
