@@ -355,11 +355,94 @@ Then propose two candidate visuals of the main decision, drawn from data; only o
 
 Call the submit tool once with the complete result.`;
 
+/**
+ * The walkthrough: the call path as a call tree, then a few steps down it, each with the
+ * short slices of code it reaches. Flat frames with a depth, because tool schemas draw
+ * recursion poorly. Frames and excerpts point at numbered lines, which `normalizeWalkthrough`
+ * checks against the diff.
+ */
+export const WalkthroughResultSchema = v.pipe(
+  v.object({
+    frames: v.pipe(
+      v.array(
+        v.object({
+          depth: v.pipe(
+            v.number(),
+            v.description('0 for an entry point; a callee is one deeper than the frame that calls it.'),
+          ),
+          receiver: short(
+            'What the function is called on as the code writes it, e.g. "ScheduleCheck", "permission", "this.tools"; "" for a plain function.',
+          ),
+          name: short('The function or method name only, e.g. "authorize".'),
+          args: short('Its parameters as short names, e.g. "session, check", or "..." when long. Under 40 characters.'),
+          fileId: short('Id of the file that defines it, or "" when no listed file does.'),
+          line: v.pipe(
+            v.number(),
+            v.description(
+              'The new-file line number printed before its definition in the diff, or 0 when the diff does not show the definition.',
+            ),
+          ),
+          status: v.pipe(
+            v.picklist(['new', 'changed', 'same']),
+            v.description(
+              'new: the change adds this function. changed: its body or signature changes. same: unchanged, shown only to connect the path to its entry point.',
+            ),
+          ),
+        }),
+      ),
+      v.description(
+        'The call tree, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no call path.',
+      ),
+    ),
+    steps: v.pipe(
+      v.array(
+        v.object({
+          title: short(
+            'A few words naming what happens at this step, e.g. "The handler schedules the check". No Markdown.',
+          ),
+          text: short(
+            'One or two sentences on what this code does in the change and why it matters to the next step. Code names in backticks.',
+          ),
+          frames: v.pipe(
+            v.array(v.number()),
+            v.description('Indexes into frames (from 0) of the frames this step covers.'),
+          ),
+          excerpts: v.pipe(
+            v.array(
+              v.object({
+                fileId: short('Id of the file, from "## Files".'),
+                hunkId: short('Id of the hunk, from its "@@ hunk" header.'),
+                from: v.pipe(v.number(), v.description('First new-file line number to show, as printed in the diff.')),
+                to: v.pipe(v.number(), v.description('Last new-file line number to show, as printed in the diff.')),
+              }),
+            ),
+            v.description(
+              '1-3 short slices of code this step reads, in reading order: the changed lines that matter and a line or two around them, under 25 lines each. Slices from different files are fine.',
+            ),
+          ),
+        }),
+      ),
+      v.description('2-5 steps that follow the call tree top down. Empty when the tree is not worth walking.'),
+    ),
+  }),
+  v.description('The call path read in order, step by step, with the code each step reaches.'),
+);
+
 export const SKETCH_SYSTEM = `You are a senior engineer drawing the one figure a reviewer sees first in a guided review tour of a code change: an explainer of its main decision, like a figure in a design doc. Read the change and the tour's summary and decisions, find the mechanism the decision changes, then draw it.
 
 ${SKETCH_GUIDE}
 
 Call the submit tool once with the caption and the svg.`;
+
+export const WALKTHROUGH_SYSTEM = `You are a senior engineer walking a reviewer through the call path a code change adds or alters, before they read the change file by file. First draw the path as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
+
+The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters. Use two or three entry points only when the change adds separate paths; each starts again at depth 0. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
+
+The steps: 2-5 steps that follow the tree top down. Each step names the frames it covers and shows 1-3 short slices of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them. Keep each slice under 25 lines; never a whole file. A step can show slices from different files when a call crosses them. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
+
+Return no frames and no steps when the change has no call path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
+
+Call the submit tool once with the frames and the steps.`;
 
 export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
 
@@ -382,13 +465,14 @@ ${MIGRATION_PIN}
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
   FOLLOWUP_SYSTEM,
   NOTES_SYSTEM,
   SKETCH_SYSTEM,
+  WALKTHROUGH_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
   SCHEMA_VERSION,
@@ -517,6 +601,58 @@ export function buildSketchPrompt(
 ): string {
   return [
     definePrompt,
+    '',
+    '## The tour so far',
+    overallSummary,
+    ...(decisions.length ? ['', 'Key decisions:', ...decisions.map((decision) => `- ${decision.text}`)] : []),
+  ].join('\n');
+}
+
+/** Every code file's hunks with numbered lines, within the prompt budget. Guidance files define no calls. */
+function numberedDiffs(files: readonly FileChange[]): string[] {
+  const parts: string[] = [];
+  let remaining = TOTAL_BUDGET;
+  const omitted: string[] = [];
+  for (const file of files) {
+    if (collapsedReason(file) || isGuidance(file)) {
+      continue;
+    }
+    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    if (budget <= 500) {
+      omitted.push(file.id);
+      continue;
+    }
+    if (body.length > budget) {
+      body = `${body.slice(0, budget)}\n... (truncated)`;
+    }
+    remaining -= body.length;
+    parts.push(`### ${file.id} ${file.path}`, body);
+  }
+  if (omitted.length) {
+    parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}.)`);
+  }
+  return parts;
+}
+
+/**
+ * The change with numbered lines, so frames and excerpts can point at them, plus what the
+ * tour already says about it.
+ */
+export function buildWalkthroughPrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  overallSummary: string,
+  decisions: readonly { text: string }[],
+): string {
+  return [
+    header(meta),
+    '',
+    `## Files (${files.length})`,
+    ...files.map(manifestLine),
+    '',
+    '## Diffs',
+    ...numberedDiffs(files),
     '',
     '## The tour so far',
     overallSummary,

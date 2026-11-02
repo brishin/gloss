@@ -216,6 +216,56 @@ describe('runTour', () => {
     expect(model.calls.length).toBe(calls);
   });
 
+  it('writes a walkthrough on every tour, right after the groups are defined', async () => {
+    const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
+    const hunkId = (prompt: string) =>
+      new RegExp(`### ${authId(prompt)} [^\\n]*\\n@@ hunk (h[0-9a-f]+)`).exec(prompt)![1]!;
+    const base = fakeModel();
+    const model = createFakeModelClient({
+      answers: {
+        define: (request) => {
+          if (request.resultName === 'walkthrough') {
+            const fileId = authId(request.prompt);
+            const excerpt = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
+            return {
+              frames: [
+                { depth: 0, receiver: '', name: 'route', args: '', fileId: '', line: 0, status: 'same' },
+                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
+              ],
+              steps: [
+                { title: 'The route asks', text: 'Calls `check`.', frames: [0], excerpts: [excerpt] },
+                { title: 'Only admins pass', text: 'Compares the name.', frames: [1, 9], excerpts: [excerpt] },
+              ],
+            };
+          }
+          return request.resultName === 'sketch' ? sketchAnswer : groupsAnswer;
+        },
+      },
+    });
+    const { events, tour: finished } = await tour({
+      model: {
+        ...model,
+        prompt: (request) => (request.tier === 'define' ? model.prompt(request) : base.prompt(request)),
+      },
+      judge: fakeJudge(),
+    });
+    expect(finished.walkthrough?.frames).toEqual([
+      { depth: 0, name: 'route', status: 'same' },
+      { depth: 1, name: 'check', args: 'user', path: 'src/auth.ts', line: 1, status: 'changed' },
+    ]);
+    expect(finished.walkthrough?.steps.map((step) => step.frames)).toEqual([[0], [1]]);
+    const walk = model.calls.find((call) => call.resultName === 'walkthrough');
+    expect(walk?.prompt).toContain(groupsAnswer.overallSummary);
+    expect(events.findIndex((event) => event.type === 'tour.walkthrough')).toBeGreaterThan(0);
+    expect(events.reduce(reduceTourEvent, initialTourState()).walkthrough).toEqual(finished.walkthrough);
+
+    // Without a call path the model's answer has no steps, and the tour has no walkthrough.
+    const plain = fakeModel();
+    const other = await tour({ model: plain, judge: fakeJudge() });
+    expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(true);
+    expect(other.tour.walkthrough).toBeUndefined();
+  });
+
   it('traces every step as a DAG with tagged prompts, and replays the trace with a cached tour', async () => {
     const cache = createMemoryCacheStore();
     const { trace } = await tour({ model: fakeModel(), judge: fakeJudge(), cache });
@@ -234,6 +284,7 @@ describe('runTour', () => {
         'notes:tests',
         'place',
         'sketch',
+        'walkthrough',
       ].toSorted(),
     );
     for (const step of steps) {

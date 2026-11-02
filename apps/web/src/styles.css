@@ -36,6 +36,9 @@
     --flag-warning: light-dark(#e9a800, #f5c021);
     --flag-investigate: light-dark(#f08a00, #ffa53a);
     --flag-info: light-dark(#8a9096, #8f959b);
+    /* Call tree marks: the neutral theme's success and warning are near-black in light mode too. */
+    --call-new: light-dark(#2da44e, #4ac26b);
+    --call-changed: var(--flag-warning);
     /* Who runs a pipeline step: code, the define-tier LLM, Jev, the notes LLM. */
     --actor-code: light-dark(#64748b, #94a3b8);
     --actor-llm: var(--gloss-ink);
@@ -1047,6 +1050,173 @@
 
   .timeline-outcome.tone-bad {
     color: var(--color-text-red);
+  }
+
+  /* A call tree: rows 28px tall, 22px per level (Walkthrough.tsx uses the same geometry). */
+  .walk-tree {
+    position: relative;
+    margin: var(--spacing-1) 0;
+  }
+
+  .walk-lines {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .walk-lines path {
+    fill: none;
+    stroke: var(--color-border-emphasized);
+    stroke-width: 1.5;
+  }
+
+  .walk-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    min-width: 0;
+    font-size: 12.5px;
+  }
+
+  .walk-mark {
+    flex: none;
+    box-sizing: border-box;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+  }
+
+  .walk-mark.new {
+    background: var(--call-new);
+  }
+
+  .walk-mark.changed {
+    background: var(--call-changed);
+  }
+
+  .walk-mark.same {
+    border: 1px solid var(--color-text-secondary);
+    background: var(--color-background-body);
+  }
+
+  .walk-call,
+  .walk-at {
+    font-family: var(--font-family-code);
+    white-space: nowrap;
+    background: none;
+    padding: 0;
+  }
+
+  .walk-call {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+  }
+
+  .walk-call b {
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .walk-at {
+    flex: none;
+    margin-left: auto;
+    padding-left: var(--spacing-3);
+    color: var(--color-text-primary);
+  }
+
+  .walk-at span {
+    color: var(--color-text-secondary);
+  }
+
+  /* The walkthrough: numbered steps, each a slice of the call tree and short excerpts (Walkthrough.tsx). */
+  .walk-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-8);
+  }
+
+  .walk-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+    min-width: 0;
+  }
+
+  .walk-step h2 {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2);
+  }
+
+  .walk-step-n {
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  .walk-step-text {
+    margin: 0;
+    max-width: 72ch;
+    color: var(--color-text-secondary);
+  }
+
+  .walk-step-text code {
+    font-size: 12px;
+  }
+
+  .walk-row[data-dim],
+  .walk-lines path[data-dim] {
+    opacity: 0.38;
+  }
+
+  .walk-excerpt {
+    margin: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .walk-excerpt-head {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: 4px var(--spacing-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .walk-excerpt-path {
+    all: unset;
+    font-family: var(--font-family-code);
+    font-size: 12px;
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+
+  button.walk-excerpt-path {
+    cursor: pointer;
+  }
+
+  button.walk-excerpt-path:hover {
+    text-decoration: underline;
+  }
+
+  button.walk-excerpt-path:focus-visible {
+    outline: 2px solid var(--color-border-focus, currentColor);
+    outline-offset: 2px;
+  }
+
+  .walk-excerpt-path span {
+    color: var(--color-text-secondary);
   }
 
   /* viewBox-only SVGs have no intrinsic size: draw them at the width Jev judged (760px). */

@@ -3,7 +3,7 @@ import { initialTourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import { groupNode, isNodeOpen } from './sidebar-tree.ts';
 import { type Cmd, init, initialModel, keyToMsg, type Model, type Msg, type Spied, update } from './tour-model.ts';
-import { OVERVIEW } from './tour-view.ts';
+import { OVERVIEW, WALKTHROUGH } from './tour-view.ts';
 
 const REF = { kind: 'github-pr', owner: 'o', repo: 'r', number: 1 } as const;
 
@@ -121,6 +121,30 @@ describe('jumping', () => {
     );
     expect(run(atF3, { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f3');
     expect(run(model(), { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f1');
+  });
+
+  test('the walkthrough is a stop between the overview and the groups, only when the tour has one', () => {
+    const walkthrough = { frames: [], steps: [] };
+    const walking = model({ tour: tour({ walkthrough }) });
+    const [atWalk, cmds] = run(walking, { type: 'GroupStepped', by: 1 });
+    expect(atWalk.position.g).toBe(WALKTHROUGH);
+    expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: WALKTHROUGH });
+    expect(run(atWalk, { type: 'GroupStepped', by: 1 })[0].position.g).toBe('a');
+    expect(run(atWalk, { type: 'GroupStepped', by: -1 })[0].position.g).toBeUndefined();
+    // Scrolling into it makes it current, with no file active.
+    const [scrolledIn] = run(walking, scrolled({ groupKey: WALKTHROUGH }));
+    expect(scrolledIn.position.g).toBe(WALKTHROUGH);
+    expect(scrolledIn.activeFileId).toBeUndefined();
+    // A URL into it restores once the diff is there; without one it is the overview.
+    const [restored, restoring] = run(
+      model({ ...walking, position: { g: WALKTHROUGH }, restoring: { g: WALKTHROUGH } }),
+      {
+        type: 'NavToggled',
+      },
+    );
+    expect(restored.restoring).toBeUndefined();
+    expect(restoring).toContainEqual({ type: 'RestoreGroup', key: WALKTHROUGH });
+    expect(run(model(), { type: 'GroupStepped', by: 1 })[0].position.g).toBe('a');
   });
 
   test('a vanished group falls back to the overview', () => {

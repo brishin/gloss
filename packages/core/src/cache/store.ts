@@ -9,6 +9,7 @@ export type CacheKind =
   | 'judge-group'
   | 'judge-visual'
   | 'sketch'
+  | 'walkthrough'
   | 'followup'
   | 'notes'
   | 'tour'

@@ -12,9 +12,9 @@ import { Link, useRouter } from '@tanstack/react-router';
 import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon, WorkflowIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
-import { canReview, currentGroup, isRunning } from '../lib/tour-model.ts';
+import { canReview, currentGroup, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
-import { OVERVIEW } from '../lib/tour-view.ts';
+import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
@@ -22,6 +22,7 @@ import { Overview } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
+import { Walkthrough } from './Walkthrough.tsx';
 
 /**
  * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,
@@ -40,9 +41,12 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const current = currentGroup(model, groups);
   const index = current ? groups.indexOf(current) : -1;
-  // From the overview (index -1), "next" is the first group.
-  const prev = index > 0 ? groups[index - 1] : undefined;
-  const next = groups[index + 1];
+  // The neighbouring stops: the overview, the walkthrough when there is one, then the groups.
+  const selected = selectedKey(model, groups);
+  const stops = tourStops(model, groups);
+  const at = stops.findIndex((stop) => stop.key === selected);
+  const prev = stops[at - 1];
+  const next = stops[at + 1];
   const running = isRunning(model);
   const select = (key: string) => dispatch({ type: 'GroupSelected', key });
   const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
@@ -166,7 +170,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           author={state.meta?.author}
           groups={groups}
           files={files}
-          selection={current?.key ?? OVERVIEW}
+          selection={selected}
+          walkthrough={!!state.walkthrough}
           activeFileId={model.activeFileId}
           viewed={viewed}
           loading={running}
@@ -188,10 +193,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               <IconButton
                 variant="ghost"
                 label="Previous group"
-                tooltip={prev ? `Previous: ${prev.label} (k)` : current ? 'Overview (k)' : 'Previous group (k)'}
+                tooltip={prev ? `Previous: ${prev.label} (k)` : 'Previous group (k)'}
                 icon={<Icon icon={ChevronLeftIcon} />}
-                isDisabled={!current}
-                onClick={() => select(prev ? prev.key : OVERVIEW)}
+                isDisabled={!prev}
+                onClick={() => prev && select(prev.key)}
               />
               <IconButton
                 variant="ghost"
@@ -203,7 +208,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               />
             </ButtonGroup>
             <nav className="subbar-crumbs" aria-label="Tour position">
-              {current ? (
+              {selected !== OVERVIEW ? (
                 <>
                   <button type="button" className="crumb" title="Overview (o)" onClick={() => select(OVERVIEW)}>
                     Overview
@@ -211,7 +216,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   <span className="crumb-sep" aria-hidden="true">
                     /
                   </span>
-                  <strong aria-current="step">{current.label}</strong>
+                  <strong aria-current="step">{stops[at]?.label}</strong>
                 </>
               ) : (
                 <strong aria-current="step">Overview</strong>
@@ -266,6 +271,11 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 <Skeleton height={160} />
               )}
             </section>
+            {state.walkthrough && (
+              <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
+                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+              </section>
+            )}
             {groups.map((group) => (
               <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
                 <GroupPanel group={group} state={state} diff={diff} controls={controls} />

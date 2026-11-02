@@ -202,6 +202,54 @@ export const TimelineLaneSchema = v.object({
 });
 
 /**
+ * One function on a call path, in a call tree read top down: a frame's callees follow it,
+ * one level deeper. `path` and `line` point at its definition, when the diff shows it.
+ */
+export const CallFrameSchema = v.object({
+  /** 0 for an entry point; never more than one deeper than the frame before. */
+  depth: v.number(),
+  /** What it is called on, e.g. `ScheduleCheck` or `this.tools`; absent for a plain function. */
+  receiver: v.optional(v.string()),
+  name: v.string(),
+  /** Its parameters, short, e.g. `session, check` or `...`. */
+  args: v.optional(v.string()),
+  path: v.optional(v.string()),
+  line: v.optional(v.number()),
+  /** `same` frames are unchanged callers, shown only to connect the path to an entry point. */
+  status: v.picklist(['new', 'changed', 'same']),
+});
+export type CallFrame = v.InferOutput<typeof CallFrameSchema>;
+
+/** A slice of one hunk: its new-side lines `from`..`to`, both shown in the hunk. */
+export const ExcerptSchema = v.object({
+  fileId: v.string(),
+  hunkId: v.string(),
+  from: v.number(),
+  to: v.number(),
+});
+export type Excerpt = v.InferOutput<typeof ExcerptSchema>;
+
+/** One stop on a walkthrough: a sentence, the call-tree frames it covers, and short excerpts from any files. */
+export const WalkStepSchema = v.object({
+  title: v.string(),
+  text: v.string(),
+  /** Indexes into the walkthrough's `frames`. */
+  frames: v.array(v.number()),
+  excerpts: v.array(ExcerptSchema),
+});
+export type WalkStep = v.InferOutput<typeof WalkStepSchema>;
+
+/**
+ * The call path read in order: a few steps down the call tree, each with the code it reaches,
+ * across files. Read-only; notes and comments stay in the groups.
+ */
+export const WalkthroughSchema = v.object({
+  frames: v.array(CallFrameSchema),
+  steps: v.array(WalkStepSchema),
+});
+export type Walkthrough = v.InferOutput<typeof WalkthroughSchema>;
+
+/**
  * One picture of the change's main decision, drawn by the client so every tour looks
  * the same: the old flow next to the new one (two small Mermaid diagrams), lanes over
  * time, one small Mermaid flowchart or state diagram, or a hand-drawn sanitized SVG. Never a text list: the
@@ -256,6 +304,8 @@ export const TourSchema = v.object({
   decisions: v.optional(v.array(DecisionSchema)),
   /** A picture of the change's main decision, when one helps. */
   visual: v.optional(VisualSchema),
+  /** The call path in reading order, when the change is one. */
+  walkthrough: v.optional(WalkthroughSchema),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),
   judgments: v.record(v.string(), FileJudgmentSchema),

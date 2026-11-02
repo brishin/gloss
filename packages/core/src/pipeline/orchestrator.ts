@@ -22,7 +22,7 @@ import {
   SYNTHETIC_GROUPS,
   tourFromState,
 } from '@gloss/protocol';
-import { Data, Effect, Option, Queue, Stream } from 'effect';
+import { Data, Effect, Fiber, Option, Queue, type Scope, Stream } from 'effect';
 import type * as v from 'valibot';
 import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
@@ -40,13 +40,20 @@ import {
   visualQuestions,
   visualState,
 } from './judge-questions.ts';
-import { normalizeDecisionGroups, normalizeNotes, normalizeSketch, normalizeVisuals } from './normalize.ts';
+import {
+  normalizeDecisionGroups,
+  normalizeNotes,
+  normalizeSketch,
+  normalizeVisuals,
+  normalizeWalkthrough,
+} from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
   buildSketchPrompt,
+  buildWalkthroughPrompt,
   DEFINE_SYSTEM,
   flaggedRisks,
   DefineSchema,
@@ -58,6 +65,8 @@ import {
   PROMPTS_VERSION,
   SKETCH_SYSTEM,
   SketchSchema,
+  WALKTHROUGH_SYSTEM,
+  WalkthroughResultSchema,
 } from './prompts.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
@@ -111,7 +120,7 @@ export type Services = ModelClient | DiffSources | TourCache;
 const tourProgram = Effect.fnUntraced(function* (
   options: RunTourOptions,
   emit: (event: TourEventBody) => void,
-): Effect.fn.Return<Tour, PipelineError, Services> {
+): Effect.fn.Return<Tour, PipelineError, Services | Scope.Scope> {
   const { ref } = options;
   const model = yield* ModelClient;
   const judge = Option.getOrUndefined(yield* Effect.serviceOption(JudgeClient));
@@ -195,7 +204,15 @@ const tourProgram = Effect.fnUntraced(function* (
     output: files.map((file) => `${file.id} ${file.status} ${file.path} +${file.additions} -${file.deletions}`),
   });
 
-  const finish = Effect.suspend(() => {
+  /**
+   * The walkthrough runs beside placement and notes, in the stream's scope so it outlives the
+   * visual pick and stops with the tour; the tour waits for it before it finishes.
+   */
+  let walking: Fiber.Fiber<void> | undefined;
+  const finish = Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
+    Effect.andThen(() => complete),
+  );
+  const complete = Effect.suspend(() => {
     const tour = tourFromState(state);
     if (!tour) {
       return Effect.fail(
@@ -421,6 +438,58 @@ const tourProgram = Effect.fnUntraced(function* (
             warn('judge', `Jev could not pick a visual: ${error.message}`);
             trace.end('judge-visual', { warnings: [error.message] }, 'failed');
             show(visuals[0]);
+          }),
+        ),
+      );
+    });
+
+  /**
+   * The walkthrough: its own call on the define model once groups are defined, with a numbered
+   * diff so its call tree and excerpts can point at lines. The model returns nothing for a
+   * change with no call path, and the normalizer drops a weak one. A failed call is only a
+   * warning; the tour reads the same without it.
+   */
+  const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
+    Effect.suspend(() => {
+      const walkPrompt = buildWalkthroughPrompt(meta, files, overallSummary, decisions);
+      trace.begin('walkthrough', 'walkthrough', {
+        inputs: ['define'],
+        model: models.define,
+        system: WALKTHROUGH_SYSTEM,
+        prompt: walkPrompt,
+        sections: promptSections(walkPrompt, { 'The tour so far': 'define' }),
+      });
+      return cached(
+        'walkthrough',
+        { PROMPTS_VERSION, model: models.define, prompt: walkPrompt },
+        prompt('walkthrough', {
+          tier: 'define',
+          system: WALKTHROUGH_SYSTEM,
+          prompt: walkPrompt,
+          result: WalkthroughResultSchema,
+          resultName: 'walkthrough',
+        }),
+        models.define,
+      ).pipe(
+        Effect.map(({ value, hit }) => {
+          const { walkthrough, warnings } = normalizeWalkthrough(value, files);
+          for (const message of warnings) {
+            warn('define', message);
+          }
+          trace.end('walkthrough', {
+            cached: hit,
+            output: value,
+            summary: walkthrough ? `${walkthrough.steps.length} steps` : 'none',
+            ...(warnings.length ? { warnings } : {}),
+          });
+          if (walkthrough) {
+            send({ type: 'tour.walkthrough', walkthrough });
+          }
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync(() => {
+            warn('define', `Writing the walkthrough failed: ${error.message}`);
+            trace.end('walkthrough', { warnings: [error.message] }, 'failed');
           }),
         ),
       );
@@ -652,18 +721,26 @@ const tourProgram = Effect.fnUntraced(function* (
   if (!judge) {
     stage('judge', 'skipped', 'No TypeSafe key: the LLM places files');
   }
+  /** Starts the walkthrough beside everything after define; `finish` joins it. */
+  const startWalkthrough = (defined: { overallSummary: string; decisions: NonNullable<Tour['decisions']> }) =>
+    Effect.forkScoped(writeWalkthrough(defined.overallSummary, defined.decisions)).pipe(
+      Effect.map((fiber) => {
+        walking = fiber;
+      }),
+    );
   const [definition] = yield* Effect.all(
     [
-      judge
-        ? defineGroups.pipe(
-            Effect.tap((defined) =>
-              Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
+      defineGroups.pipe(
+        Effect.tap(startWalkthrough),
+        Effect.tap((defined) =>
+          judge
+            ? Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
                 concurrency: 'unbounded',
                 discard: true,
-              }),
-            ),
-          )
-        : defineGroups.pipe(Effect.tap(showVisual)),
+              })
+            : showVisual(defined),
+        ),
+      ),
       judge ? judgeFiles(judge) : Effect.void,
     ],
     { concurrency: 'unbounded' },
