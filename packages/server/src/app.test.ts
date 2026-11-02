@@ -68,6 +68,7 @@ const unscripted = (): Repos['Service'] => ({
   stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   review: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   contents: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  lfs: () => Effect.fail(new RepoError({ message: 'unscripted' })),
 });
 
 function setup(
@@ -340,6 +341,56 @@ describe('file contents API', () => {
     const { app, runtime } = setup(scripted().run, { repos: { contents: () => Effect.fail(new StaleFileError()) } });
     await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
     expect((await app.request('/api/diffs/d1/files/f1')).status).toBe(409);
+  });
+});
+
+describe('LFS object API', () => {
+  const oid = 'a'.repeat(64);
+  const file = {
+    id: 'f1',
+    path: 'snap/home.png',
+    status: 'added' as const,
+    additions: 3,
+    deletions: 0,
+    isBinary: false,
+    truncated: false,
+    hunks: [
+      {
+        id: 'h1',
+        header: '@@ -0,0 +1,3 @@',
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: 3,
+        patch: `+version https://git-lfs.github.com/spec/v1\n+oid sha256:${oid}\n+size 3`,
+      },
+    ],
+  };
+  const diff = { id: 'd1', ref, sourceKey: 'k', fingerprint: 'f', meta: tour.meta, files: [file] };
+
+  it('serves an object the diff names, as its file type', async () => {
+    const asked: unknown[] = [];
+    const { client, app, runtime } = setup(scripted().run, {
+      repos: {
+        lfs: (fromDiff, object) => {
+          asked.push([fromDiff.id, object]);
+          return Effect.succeed(new Uint8Array([1, 2, 3]));
+        },
+      },
+    });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
+    const blob = await client.lfsObject('d1', oid);
+    expect(blob.type).toBe('image/png');
+    expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([1, 2, 3]);
+    expect(asked).toEqual([['d1', { oid, size: 3 }]]);
+    expect((await app.request(`/api/diffs/d1/lfs/${oid}`)).headers.get('Content-Security-Policy')).toContain('sandbox');
+  });
+
+  it('answers 404 for an object the diff does not name', async () => {
+    const { app, runtime } = setup(scripted().run, { repos: { lfs: () => Effect.succeed(new Uint8Array()) } });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d1', 'diff', diff))));
+    expect((await app.request(`/api/diffs/d1/lfs/${'b'.repeat(64)}`)).status).toBe(404);
+    expect((await app.request(`/api/diffs/nope/lfs/${oid}`)).status).toBe(404);
   });
 });
 

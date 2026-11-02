@@ -1,6 +1,17 @@
-import type { Decision, GroupView, StackMember, TourState } from '@gloss/protocol';
+import type { Decision, GroupView, LfsPointer, StackMember, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { ago, decisionFlag, lfsLabel, pullStateDetail, sectionFlagCounts } from './tour-view.ts';
+import {
+  ago,
+  decisionFlag,
+  defaultExpanded,
+  lfsImageOids,
+  lfsLabel,
+  pullStateDetail,
+  sectionFlagCounts,
+} from './tour-view.ts';
+
+const sha = (c: string) => c.repeat(64);
+const lfs = (c: string, size: number) => ({ oid: sha(c), size });
 
 const decision = (priority: Decision['priority'], extra: Partial<Decision> = {}): Decision => ({
   text: priority,
@@ -87,12 +98,44 @@ describe('pullStateDetail', () => {
 
 describe('lfsLabel', () => {
   test.each([
-    [{ newSize: 82070 }, 'Stored with Git LFS · 80.1 KB'],
-    [{ oldSize: 86536 }, 'Stored with Git LFS · 84.5 KB'],
-    [{ oldSize: 132063, newSize: 84765 }, 'Stored with Git LFS · 129.0 KB → 82.8 KB'],
-    [{ oldSize: 512, newSize: 512 }, 'Stored with Git LFS · 512 B'],
-    [{}, 'Stored with Git LFS'],
-  ])('%o', (sizes, label) => {
-    expect(lfsLabel(sizes)).toBe(label);
+    [{ new: lfs('a', 82070) }, 'Stored with Git LFS · 80.1 KB'],
+    [{ old: lfs('a', 86536) }, 'Stored with Git LFS · 84.5 KB'],
+    [{ old: lfs('a', 132063), new: lfs('b', 84765) }, 'Stored with Git LFS · 129.0 KB → 82.8 KB'],
+    [{ old: lfs('a', 512), new: lfs('b', 512) }, 'Stored with Git LFS · 512 B'],
+  ])('%o', (pointer, label) => {
+    expect(lfsLabel(pointer)).toBe(label);
+  });
+});
+
+describe('LFS images', () => {
+  const file = (path: string, pointer?: LfsPointer) => ({
+    id: path,
+    path,
+    status: 'modified' as const,
+    additions: 3,
+    deletions: 3,
+    isBinary: false,
+    truncated: false,
+    hunkIds: [],
+    lfs: pointer,
+  });
+  const pointer = { old: lfs('a', 1), new: lfs('b', 2) };
+
+  test('an LFS image opens even when generated; other LFS files start collapsed', () => {
+    expect(defaultExpanded(file('snap/home.png', pointer), true, false)).toBe(true);
+    expect(defaultExpanded(file('snap/home.png', pointer), true, true)).toBe(false);
+    expect(defaultExpanded(file('model.bin', pointer), false, false)).toBe(false);
+    expect(defaultExpanded(file('home.png'), false, false)).toBe(true);
+  });
+
+  test('prefetches both sides of each LFS image, and nothing else', () => {
+    expect(
+      lfsImageOids([
+        file('a.PNG', pointer),
+        file('b.bin', pointer),
+        file('c.svg', { new: lfs('c', 3) }),
+        file('d.png'),
+      ]),
+    ).toEqual([sha('a'), sha('b'), sha('c')]);
   });
 });

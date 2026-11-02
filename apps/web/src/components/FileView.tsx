@@ -19,8 +19,17 @@ import { AtomRegistry } from 'effect/reactivity';
 import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
-import { decisionFlag, type FlagLevel, lfsLabel, noteFlag, RISK_SHORT, splitPath } from '../lib/tour-view.ts';
+import {
+  decisionFlag,
+  type FlagLevel,
+  isLfsImage,
+  lfsLabel,
+  noteFlag,
+  RISK_SHORT,
+  splitPath,
+} from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
+import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
 export function unifiedText(file: FileChange): string {
@@ -246,7 +255,11 @@ export const FileView = memo(function FileView({
       {expanded &&
         // A pointer diff is noise, unless something is pinned to its lines.
         (lfs && !annotations.length ? (
-          <div className="collapsed">{lfsLabel(lfs)}</div>
+          diffId && isLfsImage({ path: summary.path, lfs }) ? (
+            <LfsImageDiff diffId={diffId} pointer={lfs} path={summary.path} />
+          ) : (
+            <div className="collapsed">{lfsLabel(lfs)}</div>
+          )
         ) : summary.isBinary ? (
           <div className="collapsed">Binary file</div>
         ) : summary.truncated ? (

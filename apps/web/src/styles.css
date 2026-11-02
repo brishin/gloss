@@ -1375,6 +1375,71 @@
     font-size: 12px;
   }
 
+  /* A changed image: both sides at the same scale, the old one edged red and the new one green. */
+  /* Before on the left, after on the right, even when a side is missing (an added or removed image). */
+  .image-diff {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-3);
+    padding: var(--spacing-3);
+  }
+
+  .image-diff-side[data-side='new'] {
+    grid-column: 2;
+  }
+
+  @media (max-width: 640px) {
+    .image-diff {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .image-diff-side[data-side='new'] {
+      grid-column: 1;
+    }
+  }
+
+  .image-diff-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    min-width: 0;
+    margin: 0;
+  }
+
+  .image-diff-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-element);
+    overflow: hidden;
+    /* A checkerboard, so transparent pixels read as transparent. */
+    background: repeating-conic-gradient(var(--color-background-surface) 0 25%, var(--color-background-body) 0 50%) 0
+      0 / 16px 16px;
+  }
+
+  .image-diff-side[data-side='old'] .image-diff-frame {
+    border-color: var(--color-text-red);
+  }
+
+  .image-diff-side[data-side='new'] .image-diff-frame {
+    border-color: var(--color-text-green);
+  }
+
+  .image-diff-image {
+    display: block;
+    max-width: 100%;
+    max-height: 480px;
+  }
+
+  .image-diff-side figcaption,
+  .image-diff-error {
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    text-align: center;
+  }
+
   /* Shortcut help */
 
   .shortcuts {

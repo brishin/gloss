@@ -64,3 +64,37 @@ export async function tryGit(cwd: string, args: readonly string[], options?: Omi
     return undefined;
   }
 }
+
+/** `run` for binary output: stdout as bytes, untouched by any text decoding. */
+export function runBytes(command: string, args: readonly string[], options: RunOptions = {}): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      command,
+      args,
+      {
+        cwd: options.cwd,
+        encoding: 'buffer',
+        maxBuffer: MAX_BUFFER,
+        signal: options.signal,
+        env: { ...process.env, LC_ALL: 'C', GIT_PAGER: 'cat', ...options.env },
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr.toString().trim() || error.message;
+          reject(
+            new CommandError(
+              `${command} ${args.slice(0, 3).join(' ')} failed: ${detail}`,
+              stderr.toString(),
+              error.code,
+            ),
+          );
+          return;
+        }
+        resolve(new Uint8Array(stdout));
+      },
+    );
+    if (options.input !== undefined) {
+      child.stdin?.end(options.input);
+    }
+  });
+}

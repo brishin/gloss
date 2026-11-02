@@ -38,16 +38,20 @@ const fileEntries = {
 export const FileChangeSchema = v.object({ ...fileEntries, hunks: v.array(DiffHunkSchema) });
 export type FileChange = v.InferOutput<typeof FileChangeSchema>;
 
-/** A Git LFS pointer's object sizes in bytes, per side; a side is absent when the file has none there. */
-export const LfsSizesSchema = v.object({ oldSize: v.optional(v.number()), newSize: v.optional(v.number()) });
-export type LfsSizes = v.InferOutput<typeof LfsSizesSchema>;
+/** A Git LFS object: its sha256 and its size in bytes. */
+export const LfsObjectSchema = v.object({ oid: v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/)), size: v.number() });
+export type LfsObject = v.InferOutput<typeof LfsObjectSchema>;
+
+/** The objects a Git LFS pointer names, per side; a side is absent when the file has none there. */
+export const LfsPointerSchema = v.object({ old: v.optional(LfsObjectSchema), new: v.optional(LfsObjectSchema) });
+export type LfsPointer = v.InferOutput<typeof LfsPointerSchema>;
 
 /** A file without its hunk bodies: what the event stream carries. */
 export const FileSummarySchema = v.object({
   ...fileEntries,
   hunkIds: v.array(v.string()),
   /** Set when the diff is only a Git LFS pointer: the content itself is not in the repository. */
-  lfs: v.optional(LfsSizesSchema),
+  lfs: v.optional(LfsPointerSchema),
 });
 export type FileSummary = v.InferOutput<typeof FileSummarySchema>;
 
@@ -84,17 +88,18 @@ export const FileContentsSchema = v.object({ oldContents: v.string(), newContent
 export type FileContents = v.InferOutput<typeof FileContentsSchema>;
 
 const LFS_LINE =
-  /^(?:version https:\/\/git-lfs\.github\.com\/spec\/v1|oid sha256:[0-9a-f]{64}|size (\d+)|ext-\d+-\w+ \S+)$/;
+  /^(?:version https:\/\/git-lfs\.github\.com\/spec\/v1|oid sha256:([0-9a-f]{64})|size (\d+)|ext-\d+-\w+ \S+)$/;
 
 /**
- * The object sizes when every changed line is a Git LFS pointer line (`version`, `oid`, `size`),
- * as git diffs a file tracked by LFS without its smudge filter. Undefined for any other file.
+ * The objects named when every changed line is a Git LFS pointer line (`version`, `oid`, `size`),
+ * as git diffs a file tracked by LFS without its smudge filter. Undefined for any other file, and
+ * when a side with lines is not a whole pointer, so a broken pointer's diff stays visible.
  */
-export function lfsPointer(file: { hunks: readonly Pick<DiffHunk, 'patch'>[] }): LfsSizes | undefined {
-  // Each side's pointer keys; a side with lines must hold a whole pointer, or its diff stays visible.
-  const sides = { old: new Set<string>(), new: new Set<string>() };
-  let oldSize: number | undefined;
-  let newSize: number | undefined;
+export function lfsPointer(file: { hunks: readonly Pick<DiffHunk, 'patch'>[] }): LfsPointer | undefined {
+  const sides = {
+    old: { lines: 0, version: false, oid: undefined as string | undefined, size: undefined as number | undefined },
+    new: { lines: 0, version: false, oid: undefined as string | undefined, size: undefined as number | undefined },
+  };
   for (const hunk of file.hunks) {
     for (const line of hunk.patch.split('\n')) {
       if (line === '' || line.startsWith('\\')) {
@@ -104,21 +109,28 @@ export function lfsPointer(file: { hunks: readonly Pick<DiffHunk, 'patch'>[] }):
       if (!match) {
         return undefined;
       }
-      const key = line.slice(1).split(' ', 1)[0]!;
-      const size = match[1] === undefined ? undefined : Number(match[1]);
-      if (line[0] !== '+') {
-        sides.old.add(key);
-        oldSize = size ?? oldSize;
-      }
-      if (line[0] !== '-') {
-        sides.new.add(key);
-        newSize = size ?? newSize;
+      for (const side of [line[0] !== '+' && sides.old, line[0] !== '-' && sides.new]) {
+        if (side) {
+          side.lines++;
+          side.version ||= line.slice(1).startsWith('version ');
+          side.oid = match[1] ?? side.oid;
+          side.size = match[2] === undefined ? side.size : Number(match[2]);
+        }
       }
     }
   }
-  const whole = (keys: Set<string>) => keys.has('version') && keys.has('oid') && keys.has('size');
-  const valid = [sides.old, sides.new].every((keys) => keys.size === 0 || whole(keys));
-  return valid && (sides.old.size || sides.new.size) ? { oldSize, newSize } : undefined;
+  const pointer: LfsPointer = {};
+  for (const key of ['old', 'new'] as const) {
+    const { lines, version, oid, size } = sides[key];
+    if (!lines) {
+      continue;
+    }
+    if (!version || oid === undefined || size === undefined) {
+      return undefined;
+    }
+    pointer[key] = { oid, size };
+  }
+  return pointer.old || pointer.new ? pointer : undefined;
 }
 
 export function summarizeFile(file: FileChange): FileSummary {
