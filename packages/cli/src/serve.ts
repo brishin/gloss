@@ -74,7 +74,7 @@ export async function startServer(
     health: () => info.health(),
     token: options.token,
     corsOrigins: options.corsOrigins,
-    setup: createSetup({ port: options.port }),
+    setup: createSetup(options),
   });
   const shell = shellHtml();
   if (shell) {

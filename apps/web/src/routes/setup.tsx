@@ -160,8 +160,13 @@ function ModelSection({ health }: { health: Health }) {
 function GithubSection({ github, onChange }: { github: SetupStatus['github']; onChange: () => void }) {
   const result = useAtomValue(githubLoginAtom);
   const start = useAtomSet(githubLoginAtom);
-  const started = AsyncResult.getOrElse(result, () => undefined);
-  const pending = github.state === 'signed-out' ? (github.pending ?? started) : undefined;
+  // The backend's status is the only source of the code: it drops it when gh exits (expired, failed).
+  const pending = github.state === 'signed-out' ? github.pending : undefined;
+  const startedLogin = AsyncResult.isSuccess(result);
+
+  useEffect(() => {
+    if (startedLogin) onChange();
+  }, [startedLogin, onChange]);
 
   // Poll while GitHub waits for the code.
   useEffect(() => {

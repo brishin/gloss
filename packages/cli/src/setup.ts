@@ -48,9 +48,9 @@ function githubUser(): Promise<string | undefined | null> {
 /**
  * The setup page's backend side, on this machine: GitHub through `gh`, the extension's native
  * host, and a Jev key. Saving a key restarts the server on `port` (`gloss restart`), since Jev
- * is chosen when the server starts.
+ * is chosen when the server starts; the restart keeps its host and token.
  */
-export function createSetup({ port }: { port: number }): SetupHooks {
+export function createSetup({ port, host, token }: { port: number; host: string; token?: string }): SetupHooks {
   /** The running `gh auth login --web`, kept until gh exits (signed in, failed or timed out). */
   let pending: { child: ChildProcess; login: Promise<GithubLogin>; code?: string } | undefined;
 
@@ -120,7 +120,12 @@ export function createSetup({ port }: { port: number }): SetupHooks {
       chmodSync(path, 0o600);
       // After the response goes out: the restart stops this server and starts it again.
       setTimeout(() => {
-        spawn(process.execPath, [BIN, 'restart', '--port', String(port)], { detached: true, stdio: 'ignore' }).unref();
+        // Same port, bind address and token as now; the token goes in the environment, not argv.
+        spawn(process.execPath, [BIN, 'restart', '--port', String(port), '--host', host], {
+          detached: true,
+          stdio: 'ignore',
+          env: token ? { ...process.env, GLOSS_TOKEN: token } : process.env,
+        }).unref();
       }, 200);
     },
   };
