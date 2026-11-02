@@ -20,7 +20,7 @@ export class DiffSources extends Context.Service<DiffSources, { make(ref: Source
   static readonly layer = Layer.succeed(DiffSources, { make: createSource });
 }
 
-export { createGithubSource, type PullSummary, resolveGithubAsset } from './github.ts';
+export { createGithubSource, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
 export { reviewPayload, submitGithubReview } from './github-review.ts';
 export { MAX_STACK, resolveGithubStack, type StackLookup, walkStack } from './github-stack.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';

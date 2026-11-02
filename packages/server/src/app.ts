@@ -126,10 +126,11 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
               refs.set(serializeRef(ref), ref);
             }
           }
-          const [pulls, viewer] = yield* Effect.all(
+          const [pulls, viewer, inbox] = yield* Effect.all(
             [
               refs.size ? repos.pulls([...refs.values()]) : Effect.succeed(new Map<string, PullSummary>()),
               repos.viewer,
+              repos.inbox,
             ],
             { concurrency: 'unbounded' },
           );
@@ -144,6 +145,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           }
           const recent: RecentTours = {
             ...(viewer ? { viewer } : {}),
+            ...inbox,
             tours: (authors.size ? cache.listRecent(RECENT_LIMIT) : tours).map((tour) => withPullStates(tour, pulls)),
           };
           return recent;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { githubPulls, type PullsJson, pullsQuery } from './github.ts';
+import { githubPulls, inboxTours, type PullsJson, pullsQuery } from './github.ts';
 
 describe('pullsQuery', () => {
   it('asks for every PR in one query, aliased by position, with names quoted', () => {
@@ -47,5 +47,44 @@ describe('githubPulls', () => {
       ['github:o/r#5', { author: 'u5', state: 'merged' }],
     ]);
     expect(calls).toBe(5);
+  });
+});
+
+describe('inboxTours', () => {
+  const node = (number: number, base: string, head: string, repo = 'r') => ({
+    number,
+    title: `#${number}`,
+    state: 'OPEN' as const,
+    isDraft: number === 3,
+    isInMergeQueue: false,
+    updatedAt: '2026-11-02T00:00:00Z',
+    author: { login: 'me' },
+    baseRefName: base,
+    headRefName: head,
+    repository: { owner: { login: 'o' }, name: repo },
+  });
+
+  it('chains PRs on each other into one stack, bottom first, and leaves the rest alone', () => {
+    const tours = inboxTours([
+      node(3, 'b', 'c'),
+      node(9, 'main', 'x'),
+      node(1, 'main', 'a'),
+      node(2, 'a', 'b'),
+      node(4, 'a', 'b', 'other'),
+    ]);
+    expect(tours.map((tour) => [tour.title, tour.state, tour.stack?.members.map((m) => m.number)])).toEqual([
+      ['#3', 'draft', [1, 2, 3]],
+      ['#9', 'open', undefined],
+      ['#1', 'open', [1, 2, 3]],
+      ['#2', 'open', [1, 2, 3]],
+      ['#4', 'open', undefined],
+    ]);
+    expect(tours[0]!.stack?.base).toBe('main');
+  });
+
+  it('stops at a cycle of branches', () => {
+    expect(inboxTours([node(1, 'b', 'a'), node(2, 'a', 'b')]).map((tour) => tour.stack?.members.length)).toEqual([
+      2, 2,
+    ]);
   });
 });

@@ -1,4 +1,4 @@
-import type { FileStatus, PullState, ResolvedAsset, SourceRef } from '@gloss/protocol';
+import type { FileStatus, PullState, RecentTour, ResolvedAsset, SourceRef, StackMember } from '@gloss/protocol';
 import { isGithubAssetUrl, serializeRef } from '@gloss/protocol';
 import { CommandError, run } from './exec.ts';
 import { isGenerated, parseGitattributes } from './gitattributes.ts';
@@ -246,4 +246,103 @@ export async function githubPulls(
 /** The `gh` login: whose PRs are "mine". */
 export async function githubViewer(signal?: AbortSignal): Promise<string> {
   return (await gh(['user', '--jq', '.login'], signal)).trim();
+}
+
+/** Open PRs per inbox list; the side rail shows them all. */
+const INBOX_LIMIT = 50;
+
+const INBOX_FIELDS =
+  'nodes { ... on PullRequest { number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName repository { owner { login } name } } }';
+
+/** One GraphQL query for the open PRs that ask for the viewer's review and the open PRs they wrote. */
+export const INBOX_QUERY = `query {
+  review: search(query: "is:pr is:open archived:false review-requested:@me sort:updated-desc", type: ISSUE, first: ${INBOX_LIMIT}) { ${INBOX_FIELDS} }
+  authored: search(query: "is:pr is:open archived:false author:@me sort:updated-desc", type: ISSUE, first: ${INBOX_LIMIT}) { ${INBOX_FIELDS} }
+}`;
+
+interface InboxNode {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  isDraft: boolean;
+  isInMergeQueue: boolean;
+  updatedAt: string;
+  author: { login: string } | null;
+  baseRefName: string;
+  headRefName: string;
+  repository: { owner: { login: string }; name: string };
+}
+
+export type InboxJson = { data: { review: { nodes: InboxNode[] }; authored: { nodes: InboxNode[] } } };
+
+/** The viewer's open PRs and the open PRs waiting on their review, newest first, each in its stack. */
+export interface Inbox {
+  reviewRequested: RecentTour[];
+  authored: RecentTour[];
+}
+
+/**
+ * PRs from a search as rows, newest first. PRs in one repo whose base branch is another's
+ * head branch chain into a stack (bottom first), so a stack of open PRs shows as one, without
+ * walking it on GitHub.
+ */
+export function inboxTours(nodes: readonly InboxNode[]): RecentTour[] {
+  const pulls = nodes.filter((node) => node.number !== undefined && node.repository);
+  const repoOf = (node: InboxNode) => `${node.repository.owner.login}/${node.repository.name}`.toLowerCase();
+  const byHead = new Map(pulls.map((node) => [`${repoOf(node)}:${node.headRefName}`, node]));
+  const above = new Map(pulls.map((node) => [`${repoOf(node)}:${node.baseRefName}`, node]));
+  const member = (node: InboxNode): StackMember => ({
+    number: node.number,
+    title: node.title,
+    state: pullState({
+      open: node.state === 'OPEN',
+      merged: node.state === 'MERGED',
+      draft: node.isDraft,
+      queued: node.isInMergeQueue,
+    }),
+    ...(node.author?.login ? { author: node.author.login } : {}),
+    baseRef: node.baseRefName,
+    headRef: node.headRefName,
+  });
+  return pulls.map((node) => {
+    // Walk down to the bottom, then up to the top; `seen` stops a cycle of branches.
+    const seen = new Set([node]);
+    let bottom = node;
+    for (let below = byHead.get(`${repoOf(bottom)}:${bottom.baseRefName}`); below && !seen.has(below);) {
+      seen.add(below);
+      bottom = below;
+      below = byHead.get(`${repoOf(bottom)}:${bottom.baseRefName}`);
+    }
+    const chain = [bottom];
+    for (let next = above.get(`${repoOf(bottom)}:${bottom.headRefName}`); next && !chain.includes(next);) {
+      chain.push(next);
+      next = above.get(`${repoOf(next)}:${next.headRefName}`);
+    }
+    const ref: GithubRef = {
+      kind: 'github-pr',
+      owner: node.repository.owner.login,
+      repo: node.repository.name,
+      number: node.number,
+    };
+    const own = member(node);
+    return {
+      ref,
+      title: node.title,
+      ...(own.author ? { author: own.author } : {}),
+      state: own.state,
+      updatedAt: node.updatedAt,
+      ...(chain.length > 1
+        ? { stack: { owner: ref.owner, repo: ref.repo, base: bottom.baseRefName, members: chain.map(member) } }
+        : {}),
+    };
+  });
+}
+
+/** The viewer's inbox through one `gh` GraphQL call. */
+export async function githubInbox(
+  signal?: AbortSignal,
+  query: () => Promise<InboxJson> = () => ghJson(['graphql', '-f', `query=${INBOX_QUERY}`], signal),
+): Promise<Inbox> {
+  const { data } = await query();
+  return { reviewRequested: inboxTours(data.review.nodes), authored: inboxTours(data.authored.nodes) };
 }
