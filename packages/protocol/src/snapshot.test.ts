@@ -87,6 +87,7 @@ describe('tour snapshots', () => {
     expect(await client.fileContents('d', 'f2')).toEqual(contents.f2);
     expect(await client.asset('https://github.com/user-attachments/assets/abc-1')).toEqual({
       url: 'data:image/png;base64,AQID',
+      contentType: 'image/png',
     });
   });
 

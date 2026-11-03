@@ -174,7 +174,12 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     lfsObject: missing('An LFS object'),
     health: missing('Health'),
     recent: () => Promise.resolve({ tours: [] }),
-    asset: (url) => found(snapshot.assets[url], 'That attachment').then((data) => ({ url: data })),
+    // The page picks <video> or <img> by the type, which the data: URL carries.
+    asset: (url) =>
+      found(snapshot.assets[url], 'That attachment').then((data) => ({
+        url: data,
+        contentType: /^data:([^;,]+)/.exec(data)?.[1],
+      })),
     stack: (ref) => found(serializeRef(ref) === serializeRef(snapshot.ref) ? snapshot.stack : undefined, 'That stack'),
     stackName: () => found(snapshot.stackName, 'The stack name'),
     review: missing('Review'),
