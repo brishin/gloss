@@ -475,16 +475,17 @@ const shows = (row: { at: number; kind: string }, from: number, to: number) =>
 /**
  * A snippet the diff can show: a known file and the hunk that holds its focus (the id is only a
  * hint), its range clamped to that hunk and grown to hold the focus, then narrowed around the
- * focus to at most `MAX_SNIPPET_ROWS` rows. A focus the hunk does not show moves to the first
- * added line in range, so the marked line is always one the reviewer sees.
+ * focus to at most `MAX_SNIPPET_ROWS` rows (or dropped, when the focus alone shows more). A focus
+ * the hunk does not show moves to the first added line in range, so the marked line is always one
+ * the reviewer sees. A dropped snippet returns why.
  */
 function normalizeSnippet(
   raw: Partial<RawWalk['snippets'][number]>,
   byKey: ReadonlyMap<string, FileChange>,
-): Snippet | undefined {
+): Snippet | string {
   const file = byKey.get(String(raw.fileId ?? ''));
   if (!file) {
-    return undefined;
+    return 'is not in the diff';
   }
   let from = whole(raw.from);
   let to = whole(raw.to);
@@ -494,14 +495,15 @@ function normalizeSnippet(
   let focus = whole(raw.focus);
   const holds = (hunk: FileChange['hunks'][number], line: number) =>
     hunkRows(hunk).some((row) => row.kind !== '-' && row.at === line);
+  // The focus wins over the id: a hint that names another hunk would move the marked line.
+  const hinted = (candidate: FileChange['hunks'][number]) => candidate.id === raw.hunkId;
   const hunk =
-    file.hunks.find(
-      (candidate) => candidate.id === raw.hunkId && (holds(candidate, focus) || holds(candidate, from)),
-    ) ??
+    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, focus)) ??
     file.hunks.find((candidate) => holds(candidate, focus)) ??
+    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, from)) ??
     file.hunks.find((candidate) => holds(candidate, from));
   if (!hunk) {
-    return undefined;
+    return 'is not in the diff';
   }
   const rows = hunkRows(hunk);
   const lines = rows.filter((row) => row.kind !== '-').map((row) => row.at);
@@ -522,6 +524,10 @@ function normalizeSnippet(
     } else {
       from++;
     }
+  }
+  if (count() > MAX_SNIPPET_ROWS) {
+    // The focus alone sits beside more removed rows than a snippet shows.
+    return `shows more than ${MAX_SNIPPET_ROWS} rows at its focus`;
   }
   const note = clip(String(raw.note ?? ''), 200);
   return {
@@ -623,10 +629,8 @@ export function normalizeWalkthrough(
     const kept = new Map<number, number>();
     for (const [index, rawSnippet] of (Array.isArray(entry.snippets) ? entry.snippets : []).entries()) {
       const snippet = normalizeSnippet(rawSnippet, byKey);
-      if (!snippet) {
-        warnings.push(
-          `Dropped a snippet of decision ${decision}: ${rawSnippet.fileId}:${rawSnippet.from} is not in the diff.`,
-        );
+      if (typeof snippet === 'string') {
+        warnings.push(`Dropped a snippet of decision ${decision}: ${rawSnippet.fileId}:${rawSnippet.from} ${snippet}.`);
         continue;
       }
       const same = snippets.findIndex(

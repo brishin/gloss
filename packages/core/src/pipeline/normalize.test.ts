@@ -445,6 +445,59 @@ describe('normalizeWalkthrough', () => {
     expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ from: 1, to: 3, focus: 3 });
   });
 
+  it('keeps the hunk that shows the focus over a hunk id that names another', () => {
+    const split: FileChange = {
+      ...file,
+      id: 'f4',
+      hunks: [
+        {
+          id: 'a',
+          header: '@@ -1,5 +1,5 @@',
+          oldStart: 1,
+          oldLines: 5,
+          newStart: 1,
+          newLines: 5,
+          patch: ' 1\n 2\n+3\n 4\n 5',
+        },
+        {
+          id: 'b',
+          header: '@@ -20,5 +20,5 @@',
+          oldStart: 20,
+          oldLines: 5,
+          newStart: 20,
+          newLines: 5,
+          patch: ' 20\n 21\n+22\n 23\n 24',
+        },
+      ],
+    };
+    const { walkthrough } = walk([entry(0, [snippet('f4', 'a', 3, 22, 22)])], 1, [split]);
+    expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ hunkId: 'b', from: 20, to: 22, focus: 22 });
+  });
+
+  it('drops a snippet whose focus alone sits beside more removed rows than a snippet shows', () => {
+    const replaced: FileChange = {
+      ...file,
+      id: 'f6',
+      hunks: [
+        {
+          id: 'h6',
+          header: '@@ -1,40 +1,1 @@',
+          oldStart: 1,
+          oldLines: 40,
+          newStart: 1,
+          newLines: 1,
+          patch: [...Array.from({ length: 40 }, (_, i) => `-old ${i}`), '+new'].join('\n'),
+        },
+      ],
+    };
+    const { walkthrough, warnings } = walk([entry(0, [snippet('f6', 'h6', 1, 1, 1)])], 1, [replaced]);
+    expect(walkthrough).toBeUndefined();
+    expect(warnings).toEqual([
+      'Dropped a snippet of decision 0: f6:1 shows more than 16 rows at its focus.',
+      'Dropped the walkthrough of decision 0: none of its code is in the diff.',
+    ]);
+  });
+
   it('narrows a very large hunk quickly', () => {
     const rows = 20_000;
     const huge: FileChange = {
