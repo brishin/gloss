@@ -57,16 +57,8 @@ A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, ar
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
-Every tour also gets one more define-tier call right after the groups are defined (`WALKTHROUGH_SYSTEM`, a numbered diff). It draws the call path
-as a call tree (flat frames with a depth, each `new`, `changed` or `same`) and writes 2-5
-steps down it, each citing frames and short slices of hunks by file id, hunk id and new-side
-lines. `normalizeWalkthrough` makes the depths a tree, keeps a frame's line only where the
-diff shows it, repairs a wrong hunk id from the line, clamps each slice to its hunk, trims it
-to the changes plus 3 lines (30 at most), and drops steps with no code, a tree with no call or
-nothing new, and any walkthrough under two steps. It runs forked in the stream's scope beside
-placement and notes; the tour joins it before it finishes. A change with no call path gets an
-answer with no steps, so no walkthrough. A Jev `call_path` gate was tried and dropped: on 24 PRs
-it hid most walkthroughs worth showing. No visual candidates means no pick.
+A tour with change-wide decisions also gets one more define-tier call right after the groups are defined (`WALKTHROUGH_SYSTEM`, a numbered diff and the decisions numbered from 0): the walkthrough reads each decision in code, so a reviewer understands it, sees where it lives and reads the few lines that build it (Brian's ask, 2026-11-03, after mocks in the project's mocks/decision-walkthrough/). Per decision: a short claim as title, why, the option not taken, what to check, 1-3 snippets of 2-12 lines with the line that makes the choice as `focus` and an optional note under it, and a tree only when it helps: calls when the decision runs across a call path or many callers reach it, concepts when it is a hierarchy (what counts, which case resolves how). The page hangs each snippet under the tree row that points at it. `normalizeWalkthrough` keeps one entry per listed decision, moves a snippet to the hunk that shows its focus, moves a focus the diff does not show onto the first added line, narrows a snippet to 16 rows around its focus, makes tree depths a tree, keeps a row's line only where the diff shows it, drops a tree with no child or a call path with nothing new, and drops an entry with no code. It runs forked in the stream's scope beside placement and notes; the tour joins it before it finishes. The step was a call-path walkthrough (frames and 2-5 steps) until 2026-11-03; a Jev `call_path` gate on that was tried and dropped, because on 24 PRs it hid most walkthroughs worth showing.
+No visual candidates means no pick.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is

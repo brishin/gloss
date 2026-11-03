@@ -108,7 +108,12 @@ const sketch = {
 function fakeModel() {
   return createFakeModelClient({
     answers: {
-      define: (request) => (request.resultName === 'sketch' ? sketchAnswer : groupsAnswer),
+      define: (request) =>
+        request.resultName === 'sketch'
+          ? sketchAnswer
+          : request.resultName === 'walkthrough'
+            ? { decisions: [] }
+            : groupsAnswer,
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -216,7 +221,7 @@ describe('runTour', () => {
     expect(model.calls.length).toBe(calls);
   });
 
-  it('writes a walkthrough on every tour, right after the groups are defined', async () => {
+  it('reads the change-wide decisions in code, right after the groups are defined', async () => {
     const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
     const hunkId = (prompt: string) =>
       new RegExp(`### ${authId(prompt)} [^\\n]*\\n@@ hunk (h[0-9a-f]+)`).exec(prompt)![1]!;
@@ -226,15 +231,33 @@ describe('runTour', () => {
         define: (request) => {
           if (request.resultName === 'walkthrough') {
             const fileId = authId(request.prompt);
-            const excerpt = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
+            const at = {
+              fileId,
+              hunkId: hunkId(request.prompt),
+              from: 1,
+              to: 3,
+              focus: 2,
+              caption: 'The check.',
+              note: '',
+            };
+            const call = { receiver: '', args: '', label: '', note: '', fileId: '', line: 0, snippet: -1 };
             return {
-              frames: [
-                { depth: 0, receiver: '', name: 'route', args: '', fileId: '', line: 0, status: 'same' },
-                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
-              ],
-              steps: [
-                { title: 'The route asks', text: 'Calls `check`.', frames: [0], excerpts: [excerpt] },
-                { title: 'Only admins pass', text: 'Compares the name.', frames: [1, 9], excerpts: [excerpt] },
+              decisions: [
+                {
+                  decision: 0,
+                  title: 'Only admins pass',
+                  why: 'Compares the name.',
+                  instead: 'A role table',
+                  check: 'Existing sessions keep access.',
+                  snippets: [at],
+                  tree: 'calls',
+                  nodes: [
+                    { ...call, depth: 0, name: 'route', status: 'same' },
+                    { ...call, depth: 1, name: 'check', args: 'user', fileId, line: 1, status: 'changed', snippet: 0 },
+                  ],
+                  refs: [],
+                  links: [{ to: 1, text: 'The docs say so.' }],
+                },
               ],
             };
           }
@@ -249,17 +272,29 @@ describe('runTour', () => {
       },
       judge: fakeJudge(),
     });
-    expect(finished.walkthrough?.frames).toEqual([
-      { depth: 0, name: 'route', status: 'same' },
-      { depth: 1, name: 'check', args: 'user', path: 'src/auth.ts', line: 1, status: 'changed' },
+    const [walk] = finished.walkthrough!.decisions;
+    expect(walk).toMatchObject({ decision: 0, title: 'Only admins pass', instead: 'A role table' });
+    expect(walk!.tree).toEqual([
+      { kind: 'call', depth: 0, name: 'route', status: 'same' },
+      {
+        kind: 'call',
+        depth: 1,
+        name: 'check',
+        args: 'user',
+        path: 'src/auth.ts',
+        line: 1,
+        status: 'changed',
+        snippet: 0,
+      },
     ]);
-    expect(finished.walkthrough?.steps.map((step) => step.frames)).toEqual([[0], [1]]);
-    const walk = model.calls.find((call) => call.resultName === 'walkthrough');
-    expect(walk?.prompt).toContain(groupsAnswer.overallSummary);
+    expect(walk!.snippets).toEqual([expect.objectContaining({ from: 1, to: 3, focus: 2, caption: 'The check.' })]);
+    // The prompt numbers the decisions it reads, from 0.
+    const call = model.calls.find((call) => call.resultName === 'walkthrough');
+    expect(call?.prompt).toContain(`0. (urgent) ${groupsAnswer.decisions[0]!.text}`);
     expect(events.findIndex((event) => event.type === 'tour.walkthrough')).toBeGreaterThan(0);
     expect(events.reduce(reduceTourEvent, initialTourState()).walkthrough).toEqual(finished.walkthrough);
 
-    // Without a call path the model's answer has no steps, and the tour has no walkthrough.
+    // When no decision shows in code, the tour has no walkthrough.
     const plain = fakeModel();
     const other = await tour({ model: plain, judge: fakeJudge() });
     expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(true);

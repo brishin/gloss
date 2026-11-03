@@ -13,6 +13,7 @@ import {
   pullStateDetail,
   REVIEW_STATE_LABEL,
   splitPath,
+  WALKTHROUGH,
 } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
@@ -99,6 +100,8 @@ export const Overview = memo(function Overview({
   const meta = state.meta;
   const description = meta?.description ? githubBodyToMarkdown(meta.description) : '';
   const decisions = decisionsInOrder(state, groups);
+  // A change-wide decision the walkthrough reads in code opens it, instead of pointing at its group.
+  const walked = new Set(state.walkthrough?.decisions.map((walk) => state.decisions?.[walk.decision]));
 
   return (
     <div className="page">
@@ -126,14 +129,31 @@ export const Overview = memo(function Overview({
             <tbody>
               {decisions.map(({ decision, groupKey }, index) => {
                 const path = decision.fileId ? files.get(decision.fileId)?.path : undefined;
+                const inWalk = walked.has(decision);
                 const section =
-                  !decision.fileId && groupKey ? groups.find((group) => group.key === groupKey) : undefined;
+                  !decision.fileId && groupKey && !inWalk ? groups.find((group) => group.key === groupKey) : undefined;
                 return (
                   <tr key={index}>
                     <td className="decision-priority">
                       <FlagIcon level={decisionFlag(decision)} />
                     </td>
-                    <td>{decision.text}</td>
+                    <td>
+                      {inWalk ? (
+                        <a
+                          className="decision-walk"
+                          href={`#group-${WALKTHROUGH}`}
+                          title="Read it in code"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelectGroup(WALKTHROUGH);
+                          }}
+                        >
+                          {decision.text}
+                        </a>
+                      ) : (
+                        decision.text
+                      )}
+                    </td>
                     <td className="stat">
                       {path && groupKey && decision.fileId && (
                         <a

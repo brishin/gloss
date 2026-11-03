@@ -455,12 +455,15 @@ const tourProgram = Effect.fnUntraced(function* (
 
   /**
    * The walkthrough: its own call on the define model once groups are defined, with a numbered
-   * diff so its call tree and excerpts can point at lines. The model returns nothing for a
-   * change with no call path, and the normalizer drops a weak one. A failed call is only a
-   * warning; the tour reads the same without it.
+   * diff so snippets and trees can point at lines. It reads each change-wide decision in code,
+   * so a change with none has no walkthrough; the normalizer drops entries with no code to show.
+   * A failed call is only a warning; the overview still lists the decisions.
    */
   const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
     Effect.suspend(() => {
+      if (decisions.length === 0) {
+        return Effect.void;
+      }
       const walkPrompt = buildWalkthroughPrompt(meta, files, overallSummary, decisions);
       trace.begin('walkthrough', 'walkthrough', {
         inputs: ['define'],
@@ -484,7 +487,7 @@ const tourProgram = Effect.fnUntraced(function* (
         models.define,
       ).pipe(
         Effect.map(({ value, hit }) => {
-          const { walkthrough, warnings } = normalizeWalkthrough(value, files);
+          const { walkthrough, warnings } = normalizeWalkthrough(value, files, decisions.length);
           for (const message of warnings) {
             warn('define', message);
           }
@@ -492,7 +495,7 @@ const tourProgram = Effect.fnUntraced(function* (
             cached: hit,
             output: value,
             ...readFields(reading.reads()),
-            summary: walkthrough ? `${walkthrough.steps.length} steps` : 'none',
+            summary: walkthrough ? `${walkthrough.decisions.length} of ${decisions.length} decisions` : 'none',
             ...(warnings.length ? { warnings } : {}),
           });
           if (walkthrough) {

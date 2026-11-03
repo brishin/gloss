@@ -1,6 +1,6 @@
-import type { CallFrame, DiffHunk } from '@gloss/protocol';
+import type { DiffHunk } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { callParents, sliceHunk, stepFrames } from './excerpt.ts';
+import { callParents, sliceHunk, snippetHosts } from './excerpt.ts';
 
 describe('sliceHunk', () => {
   const hunk: DiffHunk = {
@@ -27,11 +27,19 @@ describe('sliceHunk', () => {
   });
 });
 
-describe('stepFrames', () => {
-  it('keeps the picked frames and their callers, in tree order', () => {
-    const frame = (depth: number, name: string): CallFrame => ({ depth, name, status: 'new' });
-    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(1, 'd'), frame(0, 'e')];
-    expect(stepFrames(frames, callParents(frames), [3, 2])).toEqual([0, 1, 2, 3]);
-    expect(stepFrames(frames, callParents(frames), [])).toEqual([]);
+describe('callParents', () => {
+  it('finds the nearest row one level up', () => {
+    const rows = [0, 1, 2, 1, 0, 1].map((depth) => ({ depth }));
+    expect(callParents(rows)).toEqual([-1, 0, 1, 0, -1, 4]);
+  });
+});
+
+describe('snippetHosts', () => {
+  it('hangs each snippet under the last row of the first run that shows it, once', () => {
+    const rows = [undefined, 1, 1, undefined, 0, 1, 0].map((snippet) => ({ snippet }));
+    expect([...snippetHosts(rows)]).toEqual([
+      [2, 1],
+      [4, 0],
+    ]);
   });
 });

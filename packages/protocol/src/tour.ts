@@ -228,23 +228,72 @@ export const ExcerptSchema = v.object({
 });
 export type Excerpt = v.InferOutput<typeof ExcerptSchema>;
 
-/** One stop on a walkthrough: a sentence, the call-tree frames it covers, and short excerpts from any files. */
-export const WalkStepSchema = v.object({
-  title: v.string(),
-  text: v.string(),
-  /** Indexes into the walkthrough's `frames`. */
-  frames: v.array(v.number()),
-  excerpts: v.array(ExcerptSchema),
+/**
+ * A few lines of one hunk that show how a decision is built: new-side lines `from`..`to`, the
+ * line `focus` among them where the choice is made, a one-sentence `caption` on what the lines
+ * show, and at most one `note` pinned under `focus`.
+ */
+export const SnippetSchema = v.object({
+  fileId: v.string(),
+  hunkId: v.string(),
+  from: v.number(),
+  to: v.number(),
+  focus: v.number(),
+  caption: v.string(),
+  note: v.optional(v.string()),
 });
-export type WalkStep = v.InferOutput<typeof WalkStepSchema>;
+export type Snippet = v.InferOutput<typeof SnippetSchema>;
 
 /**
- * The call path read in order: a few steps down the call tree, each with the code it reaches,
- * across files. Read-only; notes and comments stay in the groups.
+ * A row of a decision's tree, read top down like a call tree: a call (a `CallFrame`) when the
+ * decision sits on a call path, or a concept when it is a hierarchy (what counts, which case
+ * resolves how). `snippet` indexes the decision's snippets: it shows under this row.
+ */
+export const DecisionNodeSchema = v.variant('kind', [
+  v.object({
+    kind: v.literal('call'),
+    ...CallFrameSchema.entries,
+    note: v.optional(v.string()),
+    snippet: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal('concept'),
+    depth: v.number(),
+    label: v.string(),
+    note: v.optional(v.string()),
+    path: v.optional(v.string()),
+    line: v.optional(v.number()),
+    snippet: v.optional(v.number()),
+  }),
+]);
+export type DecisionNode = v.InferOutput<typeof DecisionNodeSchema>;
+
+/**
+ * One change-wide decision read in code: why it was made, what it chose against, what to check,
+ * then the snippets that build it, hung under a tree when the decision has one. `refs` are the
+ * rest of its reach, one line each; `links` tie it to other decisions.
+ */
+export const DecisionWalkSchema = v.object({
+  /** Index into the tour's `decisions`. */
+  decision: v.number(),
+  title: v.string(),
+  why: v.string(),
+  instead: v.optional(v.string()),
+  check: v.optional(v.string()),
+  tree: v.optional(v.array(DecisionNodeSchema)),
+  snippets: v.array(SnippetSchema),
+  refs: v.array(v.object({ label: v.string(), fileId: v.string(), line: v.optional(v.number()) })),
+  /** `to` indexes the tour's `decisions`. */
+  links: v.array(v.object({ to: v.number(), text: v.string() })),
+});
+export type DecisionWalk = v.InferOutput<typeof DecisionWalkSchema>;
+
+/**
+ * The change's key decisions read in code, in the order of the tour's `decisions`. Read-only;
+ * notes and comments stay in the groups.
  */
 export const WalkthroughSchema = v.object({
-  frames: v.array(CallFrameSchema),
-  steps: v.array(WalkStepSchema),
+  decisions: v.array(DecisionWalkSchema),
 });
 export type Walkthrough = v.InferOutput<typeof WalkthroughSchema>;
 
@@ -308,7 +357,7 @@ export const TourSchema = v.object({
   visuals: v.optional(v.array(VisualSchema)),
   /** The single picture of tours written before `visuals`; read as `visuals: [visual]`. */
   visual: v.optional(VisualSchema),
-  /** The call path in reading order, when the change is one. */
+  /** The change-wide decisions read in code, when any can be shown in it. */
   walkthrough: v.optional(WalkthroughSchema),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),

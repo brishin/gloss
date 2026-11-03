@@ -275,7 +275,12 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             </section>
             {state.walkthrough && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
-                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+                <Walkthrough
+                  walkthrough={state.walkthrough}
+                  decisions={state.decisions ?? []}
+                  diff={diff}
+                  onJumpToFile={jumpToFile}
+                />
               </section>
             )}
             {groups.map((group) => (
