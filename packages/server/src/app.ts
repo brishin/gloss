@@ -1,4 +1,13 @@
-import { type ModelClient, nameStack, type PullSummary, Repos, runAsk, TourCache } from '@gloss/core';
+import {
+  checkDecisionRules,
+  DecisionRules,
+  type ModelClient,
+  nameStack,
+  type PullSummary,
+  Repos,
+  runAsk,
+  TourCache,
+} from '@gloss/core';
 import type {
   DiffPayload,
   GithubLogin,
@@ -20,6 +29,7 @@ import {
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
+  SaveDecisionRulesSchema,
   serializeRef,
   SourceRefSchema,
   StackSchema,
@@ -454,6 +464,38 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     return (await withLogins((logins) => logins.cancel(id)))
       ? c.body(null, 204)
       : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
+  // The user's decision rules: read with what Jev finds in them (cached), saved the same way.
+  const rulesState = (save?: readonly string[]) =>
+    Effect.gen(function* () {
+      const service = yield* Effect.serviceOption(DecisionRules);
+      if (service._tag === 'None') {
+        return undefined;
+      }
+      if (save) {
+        yield* service.value.save(save);
+      }
+      const rules = save ?? (yield* service.value.get);
+      return { rules: [...rules], ...(yield* checkDecisionRules(rules)) };
+    });
+
+  app.get('/api/rules', async (c) => {
+    const state = await run(rulesState());
+    return state ? c.json(state) : c.json({ error: 'This backend keeps no decision rules' }, 404);
+  });
+
+  // It writes the backend's config, so like setup it takes JSON from the app only.
+  app.put('/api/rules', async (c) => {
+    if (!fromApp(c)) return c.json({ error: 'Rules are accepted only as JSON from the gloss app' }, 403);
+    const parsed = v.safeParse(SaveDecisionRulesSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
+    try {
+      const state = await run(rulesState(parsed.output.rules));
+      return state ? c.json(state) : c.json({ error: 'This backend keeps no decision rules' }, 404);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
   });
 
   if (setup) {

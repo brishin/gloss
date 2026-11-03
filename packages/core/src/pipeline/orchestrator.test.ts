@@ -7,7 +7,7 @@ import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protoco
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import { DecisionRules, type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import { DiffSources } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
@@ -50,6 +50,7 @@ async function tour(options: {
   model: ModelClient['Service'];
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
+  rules?: string[];
 }): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
@@ -57,6 +58,9 @@ async function tour(options: {
     Layer.succeed(TourCache, options.cache ?? createMemoryCacheStore()),
     DiffSources.layer,
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
+    options.rules
+      ? Layer.succeed(DecisionRules, { get: Effect.succeed(options.rules), save: () => Effect.void })
+      : Layer.empty,
   );
   const trace = new Map<string, TraceStep>();
   const onStep = (step: TraceStep) => trace.set(step.id, step);
@@ -214,6 +218,29 @@ describe('runTour', () => {
     const second = await tour({ model, judge: fakeJudge(), cache });
     expect(second.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
     expect(model.calls.length).toBe(calls);
+  });
+
+  it("puts the user's decision rules in the define and notes prompts, and keys the tour on them", async () => {
+    const cache = createMemoryCacheStore();
+    const model = fakeModel();
+    await tour({ model, judge: fakeJudge(), cache });
+    const plain = model.calls.length;
+    expect(model.calls.some((call) => call.prompt.includes("## Reviewer's decision rules"))).toBe(false);
+
+    const rule = 'Flag every new environment variable';
+    const second = await tour({ model, judge: fakeJudge(), cache, rules: [rule] });
+    // A tour cached without rules is not reused once there are rules.
+    expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
+    const calls = model.calls.slice(plain);
+    for (const call of calls.filter((call) => call.resultName === 'groups' || call.tier === 'notes')) {
+      expect(call.prompt).toContain(`## Reviewer's decision rules`);
+      expect(call.prompt).toContain(`- ${rule}`);
+    }
+    expect(calls.filter((call) => call.tier === 'notes').length).toBeGreaterThan(0);
+
+    // Same rules again: the finished tour replays.
+    const third = await tour({ model, judge: fakeJudge(), cache, rules: [rule] });
+    expect(third.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
   });
 
   it('writes a walkthrough on every tour, right after the groups are defined', async () => {

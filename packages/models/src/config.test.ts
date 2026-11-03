@@ -1,6 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import process from 'node:process';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { loadConfig } from './config.ts';
+import { loadConfig, readDecisionRules, saveDecisionRules } from './config.ts';
 
 // No config file: the gloss home points nowhere.
 beforeAll(() => {
@@ -28,5 +31,43 @@ describe('small tier', () => {
     ['takes GLOSS_MODEL_SMALL', { GLOSS_MODEL_DEFINE: 'openai/gpt-6-sol', GLOSS_MODEL_SMALL: 'x/y' }, 'x/y'],
   ])('%s', (_, env, small) => {
     expect(load(env)).toBe(small);
+  });
+});
+
+describe('decision rules', () => {
+  test('save keeps the rest of the config, and no rules drops the key', () => {
+    const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
+    const before = process.env.GLOSS_HOME;
+    process.env.GLOSS_HOME = home;
+    try {
+      writeFileSync(join(home, 'config.json'), JSON.stringify({ profile: 'openai', judge: null }));
+      saveDecisionRules(['Flag every new environment variable']);
+      expect(readDecisionRules()).toEqual(['Flag every new environment variable']);
+      expect(loadConfig({}).decisionRules).toEqual(['Flag every new environment variable']);
+      expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({
+        profile: 'openai',
+        judge: null,
+        decisionRules: ['Flag every new environment variable'],
+      });
+      saveDecisionRules([]);
+      expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({ profile: 'openai', judge: null });
+    } finally {
+      process.env.GLOSS_HOME = before;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('save refuses to overwrite a config it cannot parse', () => {
+    const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
+    const before = process.env.GLOSS_HOME;
+    process.env.GLOSS_HOME = home;
+    try {
+      writeFileSync(join(home, 'config.json'), '{ "profile": ');
+      expect(() => saveDecisionRules(['Flag A'])).toThrow(/Could not read/);
+      expect(readFileSync(join(home, 'config.json'), 'utf8')).toBe('{ "profile": ');
+    } finally {
+      process.env.GLOSS_HOME = before;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

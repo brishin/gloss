@@ -109,3 +109,16 @@ export class JudgeClient extends Context.Service<
     }): Effect.Effect<Record<string, JudgeAnswer>, JudgeError>;
   }
 >()('@gloss/core/JudgeClient') {}
+
+/**
+ * The user's own rules for which decisions to flag (`decisionRules` in `~/.gloss/config.json`).
+ * Read at the start of every tour, so a saved change applies to the next tour without a
+ * restart. Optional: without it tours use only the built-in rules.
+ */
+export class DecisionRules extends Context.Service<
+  DecisionRules,
+  {
+    get: Effect.Effect<readonly string[]>;
+    save(rules: readonly string[]): Effect.Effect<void>;
+  }
+>()('@gloss/core/DecisionRules') {}

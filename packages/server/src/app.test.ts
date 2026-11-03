@@ -1,6 +1,9 @@
 import {
+  createFakeJudgeClient,
   createFakeModelClient,
+  DecisionRules,
   DiffSources,
+  JudgeClient,
   ModelClient,
   RepoError,
   Repos,
@@ -76,13 +79,16 @@ function setup(
   {
     repos,
     model = createFakeModelClient({ answers: {} }),
+    extra = Layer.empty,
     ...options
   }: Partial<Parameters<typeof createApp>[0]> & {
     repos?: Partial<Repos['Service']>;
     model?: ModelClient['Service'];
+    /** Optional services the pipeline reads with `serviceOption`. */
+    extra?: Layer.Layer<DecisionRules | JudgeClient> | Layer.Layer<never>;
   } = {},
 ) {
-  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer);
+  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer, extra);
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
       Layer.provideMerge(services),
@@ -524,6 +530,67 @@ describe('setup API', () => {
     });
     expect(empty.status).toBe(400);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('decision rules API', () => {
+  function rulesLayer(judge = true) {
+    let saved: readonly string[] = ['Flag A'];
+    const layer = Layer.mergeAll(
+      Layer.succeed(DecisionRules, {
+        get: Effect.sync(() => saved),
+        save: (rules) => Effect.sync(() => void (saved = rules)),
+      }),
+      judge
+        ? Layer.succeed(
+            JudgeClient,
+            createFakeJudgeClient((_, id) =>
+              id === 'overlaps_r2' ? { type: 'bool', probability: 0.9 } : { type: 'bool', probability: 0.1 },
+            ),
+          )
+        : Layer.empty,
+    );
+    return { layer, saved: () => saved };
+  }
+
+  it('reads and saves the rules, with what Jev finds in them', async () => {
+    const rules = rulesLayer();
+    const { client } = setup(scripted().run, { extra: rules.layer });
+    expect(await client.decisionRules()).toEqual({ rules: ['Flag A'], findings: [], checked: true });
+    expect(await client.saveDecisionRules(['Flag A', ' Flag a too '])).toEqual({
+      rules: ['Flag A', 'Flag a too'],
+      findings: [{ rule: 0, kind: 'overlap', other: 1 }],
+      checked: true,
+    });
+    expect(rules.saved()).toEqual(['Flag A', 'Flag a too']);
+  });
+
+  it('saves unchecked without Jev', async () => {
+    const { client } = setup(scripted().run, { extra: rulesLayer(false).layer });
+    expect(await client.saveDecisionRules(['Flag B'])).toEqual({ rules: ['Flag B'], findings: [], checked: false });
+  });
+
+  it('takes rules only as JSON from the app, within the limits', async () => {
+    const rules = rulesLayer();
+    const { app } = setup(scripted().run, { extra: rules.layer });
+    const form = await app.request('/api/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ rules: [] }),
+    });
+    expect(form.status).toBe(403);
+    const many = await app.request('/api/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules: Array.from({ length: 21 }, (_, i) => `Flag ${i}`) }),
+    });
+    expect(many.status).toBe(400);
+    expect(rules.saved()).toEqual(['Flag A']);
+  });
+
+  it('has no rules when the backend keeps none', async () => {
+    const { app } = setup(scripted().run);
+    expect((await app.request('/api/rules')).status).toBe(404);
   });
 });
 

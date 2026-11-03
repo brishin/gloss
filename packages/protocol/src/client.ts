@@ -13,6 +13,7 @@ import {
   type Subscription,
 } from './login.ts';
 import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
+import { type DecisionRulesState, DecisionRulesStateSchema } from './rules.ts';
 import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
@@ -115,6 +116,10 @@ export interface GlossClient {
   installNativeHost(): Promise<void>;
   /** Saves a TypeSafe key for Jev in the backend's `~/.gloss/.env`, then the backend restarts to use it. */
   saveJudgeKey(key: string): Promise<void>;
+  /** The user's rules for which decisions to flag, with what Jev found when it checked them. */
+  decisionRules(): Promise<DecisionRulesState>;
+  /** Saves the rules in the backend's `~/.gloss/config.json`; later tours use them. Jev checks them on the way. */
+  saveDecisionRules(rules: readonly string[]): Promise<DecisionRulesState>;
   /** Whether the backend's checkout has newer code (fetches its upstream at most every few minutes). */
   updateStatus(): Promise<UpdateStatus>;
   /** Pulls, installs and builds on the backend, then restarts it; resolves before the restart. */
@@ -289,6 +294,13 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         body: JSON.stringify({ key }),
       });
     },
+    decisionRules: () => json(DecisionRulesStateSchema, '/api/rules'),
+    saveDecisionRules: (rules) =>
+      json(DecisionRulesStateSchema, '/api/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      }),
     updateStatus: () => json(UpdateStatusSchema, '/api/update'),
     async update() {
       await request('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

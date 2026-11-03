@@ -32,11 +32,13 @@
   configured. 16 in flight, with retry on 429/529. TypeSafe refuses browser requests,
   so Jev runs only on the backend.
 - **Config** (`config.ts`): defaults → `~/.gloss/config.json` (`profile`, `tiers`,
-  `thinking`, `judge`, `providerPackages`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
+  `thinking`, `judge`, `providerPackages`, `decisionRules`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
   `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`). The `small` tier
   (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
   Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
-  loudly at startup on ids missing from pi-ai's catalog.
+  loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the
+  start of each tour (`DecisionRules` service), so a save on the setup page needs no restart;
+  `saveDecisionRules` rewrites only that key.
 
 Tests: `flue-runtime.test.ts` drives the real Flue runtime with pi-ai's faux provider:
 a submit call, a prose reply followed by a reminder, and a validation retry.
