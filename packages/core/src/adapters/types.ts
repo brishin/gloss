@@ -41,15 +41,6 @@ export interface ModelResponse<T> {
   usage?: ModelUsage;
 }
 
-/** A read-only tool a chat model may call; `run` answers with text for the model. */
-export interface ChatTool {
-  name: string;
-  description: string;
-  /** Valibot object schema of the tool's input; field descriptions instruct the model. */
-  input: v.GenericSchema;
-  run(input: unknown): Promise<string>;
-}
-
 /** What a chat call streams while it runs. */
 export type ChatEvent =
   | { type: 'text'; text: string }
