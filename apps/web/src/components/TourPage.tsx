@@ -72,11 +72,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       viewed,
       onToggleExpanded: (fileId) => dispatch({ type: 'ExpandedToggled', fileId }),
       onToggleViewed: (fileId) => dispatch({ type: 'ViewedToggled', fileId }),
-      onJumpToFile: jumpToFile,
       review,
       reviewer,
     }),
-    [expanded, viewed, dispatch, jumpToFile, review, reviewer],
+    [expanded, viewed, dispatch, review, reviewer],
   );
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 

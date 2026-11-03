@@ -19,15 +19,7 @@ import { AtomRegistry } from 'effect/reactivity';
 import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
-import {
-  decisionFlag,
-  type FlagLevel,
-  isLfsImage,
-  lfsLabel,
-  noteFlag,
-  RISK_SHORT,
-  splitPath,
-} from '../lib/tour-view.ts';
+import { decisionFlag, type FlagLevel, isLfsImage, lfsLabel, noteFlag, splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
 import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
@@ -205,7 +197,6 @@ export const FileView = memo(function FileView({
   const lfs = useMemo(() => summary.lfs ?? (change && lfsPointer(change)), [summary.lfs, change]);
   const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);
-  const riskKinds = [...new Set(risks.map((risk) => risk.risk))];
 
   return (
     <section className="file" id={`file-${summary.id}`} data-file-id={summary.id} data-expanded={expanded}>
@@ -224,13 +215,6 @@ export const FileView = memo(function FileView({
             <strong>{base}</strong>
           </span>
         </button>
-        {/* The warning mark the group head uses; a pill would outshout the file name. */}
-        {riskKinds.map((risk) => (
-          <span key={risk} className="risk-kind" title={RISK_SHORT[risk]}>
-            <FlagIcon level="warning" />
-            <span className="risk-kind-label">{RISK_SHORT[risk]}</span>
-          </span>
-        ))}
         {generated && <Badge variant="neutral" label="generated" />}
         {summary.status !== 'modified' && <Badge variant="neutral" label={summary.status} />}
         <span className="stat" aria-label={`${summary.additions} additions, ${summary.deletions} deletions`}>
@@ -242,8 +226,14 @@ export const FileView = memo(function FileView({
           Viewed
         </label>
       </header>
-      {expanded && fileNotes.length + fileDecisions.length > 0 && (
+      {expanded && risks.length + fileNotes.length + fileDecisions.length > 0 && (
         <div className="file-notes">
+          {/* A confirmed risk is a warning flag on its file, read before the file's other flags. */}
+          {risks.map((risk, index) => (
+            <FlagCard key={`r${index}`} level="warning">
+              {risk.text}
+            </FlagCard>
+          ))}
           {fileDecisions.map((decision, index) => (
             <DecisionCard key={`d${index}`} decision={decision} />
           ))}

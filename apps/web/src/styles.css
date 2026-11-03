@@ -283,27 +283,14 @@
   }
 
   /* One vocabulary for "watch out": a dot and a word, the same in the sidebar, the overview and a group's head. */
-  .tree-critical,
-  .risk-kind {
+  .tree-critical {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-semibold);
     white-space: nowrap;
-  }
-
-  .tree-critical {
     color: var(--color-error);
-  }
-
-  .risk-kind {
-    color: var(--color-text-secondary);
-  }
-
-  .risk-kind .flag-icon {
-    width: 12px;
-    height: 12px;
   }
 
   .tree-ring {
@@ -701,33 +688,6 @@
 
   .muted {
     color: var(--color-text-secondary);
-  }
-
-  /* A beat below the summary, still inside the head: the risks are part of what the group is. */
-  .risk-list {
-    margin: var(--spacing-1-5) 0 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-1);
-  }
-
-  .risk-row {
-    display: flex;
-    align-items: baseline;
-    gap: var(--spacing-2);
-    font-size: 12px;
-  }
-
-  .risk-row > :first-child {
-    flex: none;
-  }
-
-  .risk-row a {
-    flex: none;
-    font-family: var(--font-family-code);
-    color: var(--color-text-primary);
   }
 
   /* Overview */
@@ -1973,21 +1933,6 @@
     /* Shortcuts need a keyboard; a phone has none to press. */
     .shortcuts-button {
       display: none;
-    }
-
-    /* The file name keeps the room; the risk's name is in the group head and the title. */
-    .file-head .risk-kind-label {
-      display: none;
-    }
-
-    /* Kind and file on one line, the text under them at full width. */
-    .risk-row {
-      flex-wrap: wrap;
-      row-gap: 0;
-    }
-
-    .risk-row > :last-child {
-      flex-basis: 100%;
     }
 
     /* A decision reads at full width; where it points sits under it. */

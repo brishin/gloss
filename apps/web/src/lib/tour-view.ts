@@ -6,7 +6,6 @@ import type {
   GroupView,
   PullState,
   ReviewState,
-  RiskKey,
   RiskNote,
   StackMember,
   TourState,
@@ -21,13 +20,6 @@ export const WALKTHROUGH = '__walkthrough';
 
 /** Matches `--sticky-h` in styles.css (top bar + PR head + sub-bar): content scrolled under it is hidden. */
 export const STICKY_OFFSET = 136;
-
-export const RISK_SHORT: Record<RiskKey, string> = {
-  authCheck: 'auth',
-  storedData: 'stored data',
-  secretsSigning: 'secrets',
-  personalData: 'personal data',
-};
 
 /** Confirmed risk notes per file in a group. */
 export function risksByFile(group: GroupView | undefined): Map<string, RiskNote[]> {

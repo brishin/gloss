@@ -6,17 +6,9 @@ import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, 
 import { memo, useMemo } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
-import {
-  isGeneratedFile,
-  orderedFileIds,
-  RISK_SHORT,
-  risksByFile,
-  sectionDecisions,
-  sectionFlagCounts,
-  splitPath,
-} from '../lib/tour-view.ts';
+import { isGeneratedFile, orderedFileIds, risksByFile, sectionDecisions, sectionFlagCounts } from '../lib/tour-view.ts';
 import { DecisionCard, FileView } from './FileView.tsx';
-import { FlagCounts, FlagIcon } from './icons.tsx';
+import { FlagCounts } from './icons.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
@@ -30,7 +22,6 @@ export interface FileControls {
   viewed: ReadonlySet<string>;
   onToggleExpanded: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
-  onJumpToFile: (fileId: string) => void;
   review: ReviewDraft;
   reviewer: Reviewer | undefined;
 }
@@ -82,7 +73,6 @@ export const GroupPanel = memo(function GroupPanel({
     group.key !== 'generated' &&
     state.stages.notes.state !== 'done' &&
     state.stages.notes.state !== 'failed';
-  const riskNotes = notes?.riskNotes ?? [];
   const decisions = useMemo(() => sectionDecisions(state, group.key), [state, group.key]);
   const flagCounts = useMemo(() => sectionFlagCounts(state, group), [state, group]);
 
@@ -119,33 +109,6 @@ export const GroupPanel = memo(function GroupPanel({
               <DecisionCard key={index} decision={decision} />
             ))}
           </div>
-        )}
-        {/* Where the risk is, read right after what the group does: a list under the summary, not an alert. */}
-        {riskNotes.length > 0 && (
-          <ul className="risk-list" aria-label="Risk flags">
-            {riskNotes.map((risk, index) => {
-              const path = files.get(risk.fileId)?.path ?? risk.fileId;
-              return (
-                <li className="risk-row" key={index}>
-                  <span className="risk-kind">
-                    <FlagIcon level="warning" />
-                    {RISK_SHORT[risk.risk]}
-                  </span>
-                  <a
-                    href={`#file-${risk.fileId}`}
-                    title={path}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      controls.onJumpToFile(risk.fileId);
-                    }}
-                  >
-                    {splitPath(path).base}
-                  </a>
-                  <span>{risk.text}</span>
-                </li>
-              );
-            })}
-          </ul>
         )}
       </header>
       <div className="files">
