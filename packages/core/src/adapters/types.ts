@@ -20,8 +20,19 @@ export interface ModelRequest<S extends v.GenericSchema> {
   result: S;
   /** Short name of the result, e.g. "groups"; adapters use it to name the submit tool. */
   resultName: string;
+  /** Read-only tools the model may call before it submits, e.g. `read_file`. */
+  tools?: readonly ChatTool[];
   /** Streamed model text/reasoning, for progress only. */
   onDelta?: (delta: { kind: 'text' | 'reasoning'; text: string }) => void;
+}
+
+/** A read-only tool a model may call; `run` answers with text for the model. */
+export interface ChatTool {
+  name: string;
+  description: string;
+  /** Valibot object schema of the tool's input; field descriptions instruct the model. */
+  input: v.GenericSchema;
+  run(input: unknown): Promise<string>;
 }
 
 export interface ModelResponse<T> {

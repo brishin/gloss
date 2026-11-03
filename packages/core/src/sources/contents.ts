@@ -93,6 +93,40 @@ async function readHead(diff: DiffPayload, path: string, signal?: AbortSignal): 
 }
 
 /**
+ * A repository path as a model may name it: relative, with no `.` or `..` segments, so a read
+ * stays inside the repository. Undefined for anything else.
+ */
+export function repoPath(path: string): string | undefined {
+  const trimmed = path.trim().replace(/^\.\//, '');
+  const segments = trimmed.split('/');
+  if (
+    !trimmed ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('-') ||
+    /[\0\\:]/.test(trimmed) ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * Any file of the repository as it reads at the diff's head, changed or not, for a model that
+ * needs code the diff does not show. `path` must already be a `repoPath`. Only a changed file is
+ * read from a working tree; any other file reads as HEAD, which a working-tree diff starts from,
+ * so a read never leaves git's tree.
+ */
+export async function readRepoFile(diff: DiffPayload, path: string, signal?: AbortSignal): Promise<string> {
+  const { ref, meta } = diff;
+  const changed = diff.files.some((file) => file.path === path && file.status !== 'removed');
+  if (ref.kind === 'local' && !meta.headSha && !changed) {
+    return git(ref.repo, ['cat-file', '--textconv', `HEAD:${path}`], { signal });
+  }
+  return readHead(diff, path, signal);
+}
+
+/**
  * Both sides of a changed file in full, so the page can show the unchanged lines between
  * hunks. Undefined for files without a partial diff to fill in: added, removed, binary, truncated.
  */

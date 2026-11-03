@@ -1,5 +1,6 @@
 'use agent';
 import { defineTool, useAgentFinish, useDataWriter, useInitialData, useModel, useTool } from '@flue/runtime';
+import type { ChatTool } from '@gloss/core';
 import type * as v from 'valibot';
 import type { ThinkingLevel } from './config.ts';
 
@@ -10,10 +11,15 @@ export interface StageInit {
   system: string;
   schemaId: string;
   resultName: string;
+  /** Read-only tools the model may call before it submits, by id in `stageTools`. */
+  toolsId?: string;
 }
 
 /** Result schemas by id, registered in-process by `FlueModelClient` before each dispatch. */
 export const stageSchemas = new Map<string, v.GenericSchema>();
+
+/** Stage tools by id, registered in-process by `FlueModelClient` before each dispatch. */
+export const stageTools = new Map<string, readonly ChatTool[]>();
 
 const MAX_SUBMIT_REMINDERS = 2;
 
@@ -21,7 +27,8 @@ const MAX_SUBMIT_REMINDERS = 2;
  * One pipeline stage as a Flue agent: the delivered message is the prompt, and the
  * model answers by calling `submit` once with input validated against the stage's
  * schema. The validated input is written as the `result` data part, and `submit`
- * terminates the turn, so a stage costs one model turn when the model behaves.
+ * terminates the turn, so a stage costs one model turn when the model behaves. A stage
+ * with tools (`read_file`) may call them first; each call is one more turn.
  */
 export function GlossStage() {
   // Undefined only on bare tooling renders, which never call a model.
@@ -37,6 +44,16 @@ export function GlossStage() {
   const schema = stageSchemas.get(init.schemaId);
   if (!schema) {
     throw new Error(`Unknown stage schema ${init.schemaId}`);
+  }
+  for (const tool of init.toolsId ? (stageTools.get(init.toolsId) ?? []) : []) {
+    useTool(
+      defineTool({
+        name: tool.name,
+        description: tool.description,
+        input: tool.input as v.ObjectSchema<v.ObjectEntries, undefined>,
+        run: async ({ data }) => ({ output: await tool.run(data) }),
+      }),
+    );
   }
   useTool(
     defineTool({

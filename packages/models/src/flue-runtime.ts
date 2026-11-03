@@ -7,7 +7,7 @@ import { Effect } from 'effect';
 import * as v from 'valibot';
 import type { GlossConfig } from './config.ts';
 import { getModels } from './registry.ts';
-import { GlossStage, stageSchemas, type StageInit } from './stage-agent.ts';
+import { GlossStage, stageSchemas, type StageInit, stageTools } from './stage-agent.ts';
 
 /**
  * Re-registers each of gloss's providers for Flue with auth delegated to gloss's own
@@ -78,6 +78,10 @@ async function promptStage<S extends v.GenericSchema>(
   const tier: ModelTier = request.tier;
   const schemaId = randomUUID();
   stageSchemas.set(schemaId, request.result);
+  const toolsId = request.tools?.length ? schemaId : undefined;
+  if (toolsId) {
+    stageTools.set(toolsId, request.tools!);
+  }
   const handle = init(GlossStage);
   const onAbort = () => void handle.abort().catch(() => {});
   signal.addEventListener('abort', onAbort, { once: true });
@@ -88,6 +92,7 @@ async function promptStage<S extends v.GenericSchema>(
       system: request.system,
       schemaId,
       resultName: request.resultName,
+      ...(toolsId ? { toolsId } : {}),
     };
     const receipt = await handle.dispatch({ message: { kind: 'user', body: request.prompt }, initialData });
     const reply = await handle.read(receipt, {
@@ -108,5 +113,6 @@ async function promptStage<S extends v.GenericSchema>(
   } finally {
     signal.removeEventListener('abort', onAbort);
     stageSchemas.delete(schemaId);
+    stageTools.delete(schemaId);
   }
 }

@@ -368,6 +368,37 @@ describe('runTour', () => {
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
   });
 
+  it('lets notes and the walkthrough read files at the head, and traces what they read', async () => {
+    const base = fakeModel();
+    const outputs: string[][] = [];
+    const model: ModelClient['Service'] = {
+      ...base,
+      prompt: (request) =>
+        Effect.gen(function* () {
+          const read = request.tools?.find((tool) => tool.name === 'read_file');
+          if (read && (request.tier === 'notes' ? request.prompt.includes('src/auth.ts') : true)) {
+            const answers: string[] = [];
+            outputs.push(answers);
+            for (const path of ['src/auth.ts', '.gitattributes', '../outside.txt']) {
+              answers.push(yield* Effect.promise(() => read.run({ path })));
+            }
+          }
+          return yield* base.prompt(request);
+        }),
+    };
+    const { trace } = await tour({ model });
+    // A changed file reads from the working tree, any other file from HEAD; nothing outside the repository.
+    expect(outputs).toHaveLength(2);
+    expect(outputs[0]).toEqual(outputs[1]);
+    expect(outputs[0]).toEqual([
+      '1 export function check(user: string) {\n2   return user === "admin";\n3 }',
+      '1 api/*.gen.ts linguist-generated',
+      '../outside.txt is not a path inside the repository.',
+    ]);
+    expect(trace.get('walkthrough')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+    expect(trace.get('notes:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+  });
+
   it('ends with a pipeline error when the model cannot define groups, and traces the failed step', async () => {
     const trace = new Map<string, TraceStep>();
     const onStep = (step: TraceStep) => trace.set(step.id, step);

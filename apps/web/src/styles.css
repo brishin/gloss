@@ -2252,7 +2252,8 @@
     padding: 0 var(--spacing-5);
   }
 
-  .step-warnings {
+  .step-warnings,
+  .step-reads {
     margin: 0 var(--spacing-5) var(--spacing-3);
     padding: var(--spacing-2) var(--spacing-3);
     border-radius: 6px;
@@ -2260,7 +2261,8 @@
     color: var(--color-text-secondary);
   }
 
-  .step-warnings strong {
+  .step-warnings strong,
+  .step-reads strong {
     color: var(--color-text-primary);
   }
 
