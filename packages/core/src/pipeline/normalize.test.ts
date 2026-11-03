@@ -857,11 +857,11 @@ describe('normalizeWalkthrough call paths', () => {
             tree: 'calls',
             nodes: [
               { ...row, depth: 0, name: 'handler', status: 'same' },
-              { ...row, depth: 1, name: 'check', status: 'new' },
+              { ...row, depth: 1, name: 'check', status: 'new', fileId: 'f1' },
             ],
           },
         ],
-        frames: rawFrames,
+        frames: [frame(0, 'handler', 'same', ''), frame(1, 'check', 'new', 'f1')],
         steps: [step([at]), step([at])],
       },
       files,
@@ -869,5 +869,25 @@ describe('normalizeWalkthrough call paths', () => {
     );
     expect(covered.walkthrough).toMatchObject({ frames: [], steps: [] });
     expect(covered.warnings).toEqual(['Dropped the call path: the decisions already walk it.']);
+    // The same name in another file, or in no known file, is another function: the path stays.
+    const elsewhere = normalizeWalkthrough(
+      {
+        decisions: [
+          {
+            ...decision,
+            tree: 'calls',
+            nodes: [
+              { ...row, depth: 0, name: 'handler', status: 'same' },
+              { ...row, depth: 1, name: 'check', status: 'new', fileId: 'f2' },
+            ],
+          },
+        ],
+        frames: [frame(0, 'handler', 'same', ''), frame(1, 'check', 'new', 'f1')],
+        steps: [step([at]), step([at])],
+      },
+      files,
+      1,
+    );
+    expect(elsewhere.walkthrough!.steps).toHaveLength(2);
   });
 });

@@ -891,16 +891,20 @@ function normalizePaths(
   return { frames, steps };
 }
 
-/** A call is the same function when its receiver and name match. */
-const callKey = (call: { receiver?: string; name: string }) => `${call.receiver ?? ''}.${call.name}`;
+/** A call is the same function when its file, receiver and name match; without a file it is unknown. */
+const callKey = (call: { path?: string; receiver?: string; name: string }) =>
+  call.path === undefined ? undefined : `${call.path}:${call.receiver ?? ''}.${call.name}`;
 
-/** Whether the decisions' call trees already show every new or changed function on the path. */
+/**
+ * Whether the decisions' call trees already show every new or changed function on the path. A
+ * frame whose file is unknown cannot be matched, so the path stays.
+ */
 function walked(frames: readonly CallFrame[], walks: readonly DecisionWalk[]): boolean {
   const shown = new Set(
     walks.flatMap((walk) => (walk.tree ?? []).flatMap((node) => (node.kind === 'call' ? [callKey(node)] : []))),
   );
   const changed = frames.filter((frame) => frame.status !== 'same');
-  return changed.length > 0 && changed.every((frame) => shown.has(callKey(frame)));
+  return changed.length > 0 && changed.every((frame) => callKey(frame) !== undefined && shown.has(callKey(frame)));
 }
 
 /**
