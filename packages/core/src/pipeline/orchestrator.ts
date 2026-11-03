@@ -1,3 +1,4 @@
+import process from 'node:process';
 import type {
   DiffPayload,
   FileChange,
@@ -90,7 +91,17 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
 }> {}
 
 export function tourCacheKey(sourceKey: string, fingerprint: string, models: ModelConfig): string {
-  return hashOf({ kind: 'tour', PIPELINE_VERSION, PROMPTS_VERSION, QUESTIONS_VERSION, sourceKey, fingerprint, models });
+  const evalArm = process.env.GLOSS_EVAL_CHECKS;
+  return hashOf({
+    kind: 'tour',
+    PIPELINE_VERSION,
+    PROMPTS_VERSION,
+    QUESTIONS_VERSION,
+    sourceKey,
+    fingerprint,
+    models,
+    ...(evalArm ? { evalArm } : {}),
+  });
 }
 
 /** The trace of the run that produced a cached tour, so its debug view outlives the job. */
