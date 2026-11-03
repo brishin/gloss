@@ -30,3 +30,15 @@ describe('small tier', () => {
     expect(load(env)).toBe(small);
   });
 });
+
+describe('ask models', () => {
+  test.each([
+    ['offers Claude, starting on Sonnet', {}, 'anthropic/claude-sonnet-5-5', 3],
+    ['follows the OpenAI profile', { GLOSS_PROFILE: 'openai' }, 'openai/gpt-6-sol', 3],
+    ['offers the notes model for another provider', { GLOSS_MODEL: 'other/one' }, 'other/one', 1],
+  ])('%s', (_, env, model, count) => {
+    const { ask } = loadConfig(env);
+    expect(ask.default).toBe(model);
+    expect(ask.models).toHaveLength(count);
+  });
+});

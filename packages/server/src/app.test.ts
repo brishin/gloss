@@ -574,16 +574,20 @@ describe('update API', () => {
 describe('ask API', () => {
   const diff: DiffPayload = { id: 'd', ref, sourceKey: 'k', fingerprint: 'x', meta: tour.meta, files: [] };
 
-  it('streams the answer of the model that wrote the tour', async () => {
+  it.each([
+    ['the default model', undefined, 'fake/mid'],
+    ['the picked model', 'fake/large', 'fake/large'],
+    ['the default for a model the backend does not offer', 'other/model', 'fake/mid'],
+  ])('streams the answer of %s', async (_, picked, used) => {
     const model = createFakeModelClient({ answers: {}, chat: (request) => `Asked ${request.model}.` });
     const { client, runtime } = setup(scripted().run, { model });
     await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d', 'diff', diff))));
     const events: AskEvent[] = [];
-    for await (const event of client.ask({ tour, question: 'Why?' })) {
+    for await (const event of client.ask({ tour, question: 'Why?', ...(picked ? { model: picked } : {}) })) {
       events.push(event);
     }
     expect(events.map((event) => (event.type === 'ask.delta' ? event.text : event.type)).join('')).toBe(
-      'Asked a.ask.done',
+      `Asked ${used}.ask.done`,
     );
   });
 

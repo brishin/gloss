@@ -43,7 +43,13 @@ export function createFakeModelClient(
         }
         return { text, model: request.model };
       }),
-    config: () => ({ define: 'fake/define', followup: 'fake/followup', notes: 'fake/notes', small: 'fake/small' }),
+    config: () => ({
+      define: 'fake/define',
+      followup: 'fake/followup',
+      notes: 'fake/notes',
+      small: 'fake/small',
+      ask: { models: ['fake/small', 'fake/mid', 'fake/large'], default: 'fake/mid' },
+    }),
     prompt: (request) =>
       Effect.gen(function* () {
         calls.push(request);

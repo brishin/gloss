@@ -113,7 +113,8 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
         Effect.sync((): Msg => {
           const stored = storage(() => localStorage.getItem(askKey(cmd.diffId)));
           const turns = (stored ? storage(() => JSON.parse(stored) as AskTurnView[]) : undefined) ?? [];
-          return { type: 'AskLoaded', diffId: cmd.diffId, turns: savedTurns(turns) };
+          const model = storage(() => localStorage.getItem(ASK_MODEL_KEY)) ?? undefined;
+          return { type: 'AskLoaded', diffId: cmd.diffId, turns: savedTurns(turns), model };
         }),
       );
     case 'SaveAsk':
@@ -126,6 +127,8 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           ),
         ),
       );
+    case 'SaveAskModel':
+      return once(Effect.sync(() => storage(() => localStorage.setItem(ASK_MODEL_KEY, cmd.model))));
     case 'LoadViewed':
       return once(
         Effect.sync((): Msg => {
@@ -299,6 +302,7 @@ function answer(turnId: string, body: Parameters<GlossClient['ask']>[0]): Stream
 const ASK_INPUT = '.ask-panel textarea, .ask-panel [contenteditable="true"]';
 
 const askKey = (diffId: string) => `gloss.ask.${diffId}`;
+const ASK_MODEL_KEY = 'gloss.ask.model';
 
 /** A one-shot command: its message if it has one. A failure sends nothing. */
 function once<E, R>(effect: Effect.Effect<Msg | void, E, R>): Stream.Stream<Msg, never, R> {

@@ -15,6 +15,8 @@ export interface RunAskOptions {
   question: string;
   context?: AskContext;
   history?: readonly AskTurn[];
+  /** One of `ModelClient.config().ask.models`; the config's default when it names none. */
+  model?: string;
 }
 
 /** What a question is about, in words for the prompt: lines of a file, a file, or a group. */
@@ -94,7 +96,7 @@ const ReadFileInput = v.object({
 });
 
 /**
- * Answers one question about a finished tour with the model that wrote it. Streams the answer as it
+ * Answers one question about a finished tour with the model the reader picked. Streams the answer as it
  * is written, the files the model reads, then `ask.done` with the citations that check out. Never
  * fails: a model error ends the stream with `ask.failed`. Interrupting it stops the model.
  */
@@ -166,7 +168,7 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
       });
       const result = yield* model
         .chat({
-          model: tour.models.define,
+          model: options.model ?? model.config().ask.default,
           system: ASK_SYSTEM,
           prompt,
           tools: [readFile],

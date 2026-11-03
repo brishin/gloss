@@ -1,5 +1,6 @@
 export {
   login,
+  modelName,
   logout,
   type LoginIO,
   providerLogin,

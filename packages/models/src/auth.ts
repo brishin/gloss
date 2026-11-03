@@ -103,6 +103,12 @@ export async function providerStatus(): Promise<ProviderStatus[]> {
 }
 
 /** Fails loudly, listing what is wrong, when a configured model id is unknown to pi-ai's catalog. */
+/** A model's display name from the registry, e.g. "Claude Sonnet 5.5"; the specifier when it has none. */
+export function modelName(specifier: string): string {
+  const { provider, id } = splitSpecifier(specifier);
+  return getModels().getModel(provider, id)?.name ?? specifier;
+}
+
 export function validateModelIds(specifiers: readonly string[]): void {
   const models = getModels();
   const unknown = specifiers.filter((spec) => {
