@@ -113,7 +113,9 @@ function fakeModel() {
           ? sketchAnswer
           : request.resultName === 'walkthrough'
             ? { decisions: [] }
-            : groupsAnswer,
+            : request.resultName === 'callpath'
+              ? { frames: [], steps: [] }
+              : groupsAnswer,
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -259,14 +261,20 @@ describe('runTour', () => {
                   links: [{ to: 1, text: 'The docs say so.' }],
                 },
               ],
-              // A path the decision does not walk: the call tree and its steps.
+            };
+          }
+          if (request.resultName === 'callpath') {
+            // A path the decision's tree does not walk: its new function is not on that tree.
+            const fileId = authId(request.prompt);
+            const at = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
+            return {
               frames: [
                 { depth: 0, receiver: '', name: 'login', args: '', fileId: '', line: 0, status: 'same' },
-                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
+                { depth: 1, receiver: '', name: 'audit', args: 'user', fileId, line: 1, status: 'new' },
               ],
               steps: [
-                { title: 'Login checks', text: 'Calls the check.', frames: [0], excerpts: [at] },
-                { title: 'The check', text: 'Compares the name.', frames: [1], excerpts: [at] },
+                { title: 'Login audits', text: 'Calls the audit.', frames: [0], excerpts: [at] },
+                { title: 'The audit', text: 'Logs the user.', frames: [1], excerpts: [at] },
               ],
             };
           }
@@ -297,8 +305,9 @@ describe('runTour', () => {
       },
     ]);
     expect(walk!.snippets).toEqual([expect.objectContaining({ from: 1, to: 3, focus: 2, caption: 'The check.' })]);
-    expect(finished.walkthrough!.frames.map((frame) => frame.name)).toEqual(['login', 'check']);
-    expect(finished.walkthrough!.steps.map((step) => step.title)).toEqual(['Login checks', 'The check']);
+    expect(finished.walkthrough!.frames.map((frame) => frame.name)).toEqual(['login', 'audit']);
+    expect(finished.walkthrough!.steps.map((step) => step.title)).toEqual(['Login audits', 'The audit']);
+    expect(model.calls.some((call) => call.resultName === 'callpath')).toBe(true);
     // The prompt numbers the decisions it reads, from 0.
     const call = model.calls.find((call) => call.resultName === 'walkthrough');
     expect(call?.prompt).toContain(`0. (urgent) ${groupsAnswer.decisions[0]!.text}`);
@@ -331,6 +340,7 @@ describe('runTour', () => {
         'place',
         'sketch',
         'walkthrough',
+        'callpath',
       ].toSorted(),
     );
     for (const step of steps) {
@@ -434,14 +444,15 @@ describe('runTour', () => {
     };
     const { trace } = await tour({ model });
     // A changed file reads from the working tree, any other file from HEAD; nothing outside the repository.
-    expect(outputs).toHaveLength(2);
-    expect(outputs[0]).toEqual(outputs[1]);
+    expect(outputs).toHaveLength(3);
+    expect(new Set(outputs.map((answers) => answers.join('\n'))).size).toBe(1);
     expect(outputs[0]).toEqual([
       '1 export function check(user: string) {\n2   return user === "admin";\n3 }',
       '1 api/*.gen.ts linguist-generated',
       '../outside.txt is not a path inside the repository.',
     ]);
     expect(trace.get('walkthrough')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+    expect(trace.get('callpath')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('notes:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
   });
 

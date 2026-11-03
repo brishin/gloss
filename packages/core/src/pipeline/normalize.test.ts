@@ -700,12 +700,12 @@ describe('normalizeWalkthrough call paths', () => {
     expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 29 }]);
   });
 
-  it('drops steps with no code, and paths of fewer than two steps', () => {
+  it('drops steps with no code, and a path of fewer than two steps', () => {
     const one = walk({
       steps: [step([{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }]), step([]), { ...step([]), title: '' }],
     });
     expect(one.walkthrough).toBeUndefined();
-    expect(one.warnings).toEqual(['Dropped the call paths: they have fewer than two steps with code.']);
+    expect(one.warnings).toEqual(['Dropped the call path: it has fewer than two steps with code.']);
     expect(walk({ steps: [] })).toEqual({ warnings: [] });
   });
 
@@ -730,7 +730,7 @@ describe('normalizeWalkthrough call paths', () => {
     ]);
     // A tree with no calls is a list, and one with nothing new is plumbing.
     expect(walk({ frames: [frame(0, 'a', 'new'), frame(0, 'b', 'new')], steps }).warnings).toEqual([
-      'Dropped the call paths: its call tree has no calls, which a list says as well.',
+      'Dropped the call path: its call tree has no calls, which a list says as well.',
     ]);
     expect(walk({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')], steps }).walkthrough).toBeUndefined();
     expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
@@ -846,5 +846,28 @@ describe('normalizeWalkthrough call paths', () => {
     expect(walkthrough!.decisions.map((walk) => walk.title)).toEqual(['A choice']);
     expect(walkthrough!.frames).toEqual(frames);
     expect(walkthrough!.steps).toHaveLength(2);
+
+    // A decision whose call tree already shows every new or changed frame walks the path.
+    const row = { receiver: '', args: '', label: '', note: '', fileId: '', line: 0, snippet: -1 };
+    const covered = normalizeWalkthrough(
+      {
+        decisions: [
+          {
+            ...decision,
+            tree: 'calls',
+            nodes: [
+              { ...row, depth: 0, name: 'handler', status: 'same' },
+              { ...row, depth: 1, name: 'check', status: 'new' },
+            ],
+          },
+        ],
+        frames: rawFrames,
+        steps: [step([at]), step([at])],
+      },
+      files,
+      1,
+    );
+    expect(covered.walkthrough).toMatchObject({ frames: [], steps: [] });
+    expect(covered.warnings).toEqual(['Dropped the call path: the decisions already walk it.']);
   });
 });

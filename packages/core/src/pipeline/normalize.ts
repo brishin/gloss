@@ -14,7 +14,13 @@ import type {
 } from '@gloss/protocol';
 import { sanitizeSvg } from '@gloss/protocol';
 import type * as v from 'valibot';
-import type { DefineSchema, NotesSchema, SketchSchema, WalkthroughResultSchema } from './prompts.ts';
+import type {
+  CallPathResultSchema,
+  DefineSchema,
+  NotesSchema,
+  SketchSchema,
+  WalkthroughResultSchema,
+} from './prompts.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
 function visibleLines(hunk: FileChange['hunks'][number]): { additions: Set<number>; deletions: Set<number> } {
@@ -690,7 +696,12 @@ function normalizeDecisionWalks(
 /** Most frames a path's call tree keeps before it stops reading at a glance. */
 const MAX_FRAMES = 16;
 
-type RawFrame = v.InferOutput<typeof WalkthroughResultSchema>['frames'][number];
+type RawFrame = v.InferOutput<typeof CallPathResultSchema>['frames'][number];
+
+/** The two walkthrough calls' answers together: the decisions, and the call path. */
+type RawWalkthrough = Partial<
+  v.InferOutput<typeof WalkthroughResultSchema> & v.InferOutput<typeof CallPathResultSchema>
+>;
 
 /**
  * A path's call tree, the trust boundary as for a decision's tree. Depths are made a tree, files
@@ -821,12 +832,12 @@ function normalizeExcerpt(
 }
 
 /**
- * The call paths as the client may show them: a checked call tree, and steps that point at its
- * frames and at lines the diff shows. A step with no code is dropped, and so are paths of fewer
+ * The call path as the client may show it: a checked call tree, and steps that point at its
+ * frames and at lines the diff shows. A step with no code is dropped, and so is a path of fewer
  * than two steps: one step is the overview again.
  */
 function normalizePaths(
-  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
+  raw: RawWalkthrough,
   byKey: ReadonlyMap<string, FileChange>,
   warnings: string[],
 ): { frames: CallFrame[]; steps: WalkStep[] } {
@@ -836,7 +847,7 @@ function normalizePaths(
   }
   const { frames, kept, why } = normalizeFrames(raw.frames, byKey);
   if (why) {
-    warnings.push(`Dropped the call paths: ${why}.`);
+    warnings.push(`Dropped the call path: ${why}.`);
     return none;
   }
   const steps: WalkStep[] = [];
@@ -874,26 +885,42 @@ function normalizePaths(
     });
   }
   if (steps.length < 2) {
-    warnings.push('Dropped the call paths: they have fewer than two steps with code.');
+    warnings.push('Dropped the call path: it has fewer than two steps with code.');
     return none;
   }
   return { frames, steps };
 }
 
+/** A call is the same function when its receiver and name match. */
+const callKey = (call: { receiver?: string; name: string }) => `${call.receiver ?? ''}.${call.name}`;
+
+/** Whether the decisions' call trees already show every new or changed function on the path. */
+function walked(frames: readonly CallFrame[], walks: readonly DecisionWalk[]): boolean {
+  const shown = new Set(
+    walks.flatMap((walk) => (walk.tree ?? []).flatMap((node) => (node.kind === 'call' ? [callKey(node)] : []))),
+  );
+  const changed = frames.filter((frame) => frame.status !== 'same');
+  return changed.length > 0 && changed.every((frame) => shown.has(callKey(frame)));
+}
+
 /**
  * The walkthrough as the client may show it: the decision entries (`normalizeDecisionWalks`)
- * and the call paths they do not walk (`normalizePaths`). Either part may be empty; with both
- * empty there is no walkthrough.
+ * and the call path (`normalizePaths`), unless the decisions' trees already walk it. Either part
+ * may be empty; with both empty there is no walkthrough.
  */
 export function normalizeWalkthrough(
-  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
+  raw: RawWalkthrough,
   files: readonly FileChange[],
   decisions: number,
 ): { walkthrough?: Walkthrough; warnings: string[] } {
   const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
   const warnings: string[] = [];
   const walks = normalizeDecisionWalks(Array.isArray(raw.decisions) ? raw.decisions : [], byKey, decisions, warnings);
-  const { frames, steps } = normalizePaths(raw, byKey, warnings);
+  let { frames, steps } = normalizePaths(raw, byKey, warnings);
+  if (steps.length > 0 && walked(frames, walks)) {
+    warnings.push('Dropped the call path: the decisions already walk it.');
+    [frames, steps] = [[], []];
+  }
   if (walks.length === 0 && steps.length === 0) {
     return { warnings };
   }
