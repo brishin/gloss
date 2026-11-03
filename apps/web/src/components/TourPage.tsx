@@ -58,7 +58,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const next = stops[at + 1];
   const running = isRunning(model);
   const select = (key: string) => dispatch({ type: 'GroupSelected', key });
-  const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
+  const jumpToFile = useCallback(
+    (fileId: string, line?: number) => dispatch({ type: 'FileJumped', fileId, line }),
+    [dispatch],
+  );
   const reviewable = canReview(model);
   const askable = canAsk(model);
   const { review } = model;

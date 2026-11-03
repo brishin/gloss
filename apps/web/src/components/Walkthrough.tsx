@@ -48,7 +48,7 @@ export const Walkthrough = memo(function Walkthrough({
   walkthrough: WalkthroughData;
   decisions: readonly Decision[];
   diff: DiffPayload | undefined;
-  onJumpToFile: (fileId: string) => void;
+  onJumpToFile: (fileId: string, line?: number) => void;
 }) {
   const files = useMemo(() => new Map(diff?.files.map((file) => [file.id, file])), [diff]);
   const numbers = new Map(walkthrough.decisions.map((walk, index) => [walk.decision, index + 1]));
@@ -79,7 +79,7 @@ export const Walkthrough = memo(function Walkthrough({
                     <FileRef
                       path={files.get(ref.fileId)?.path}
                       line={ref.line}
-                      onOpen={() => onJumpToFile(ref.fileId)}
+                      onOpen={() => onJumpToFile(ref.fileId, ref.line)}
                     />
                   </li>
                 ))}
@@ -129,7 +129,7 @@ function CallPath({
   steps: WalkthroughData['steps'];
   diff: DiffPayload | undefined;
   files: ReadonlyMap<string, FileChange>;
-  onOpen: (fileId: string) => void;
+  onOpen: (fileId: string, line?: number) => void;
 }) {
   const parents = useMemo(() => callParents(frames), [frames]);
   return (
@@ -168,7 +168,7 @@ function ExcerptView({
 }: {
   files: ReadonlyMap<string, FileChange>;
   excerpt: Excerpt;
-  onOpen: (fileId: string) => void;
+  onOpen: (fileId: string, line?: number) => void;
 }) {
   const file = useMemo(() => excerptFile(files, excerpt), [files, excerpt]);
   const parsed = useMemo(() => (file ? processFile(unifiedText(file)) : undefined), [file]);
@@ -179,7 +179,12 @@ function ExcerptView({
   return (
     <figure className="walk-excerpt">
       <figcaption className="walk-excerpt-head">
-        <button type="button" className="walk-excerpt-path" title="Open in its group" onClick={() => onOpen(file.id)}>
+        <button
+          type="button"
+          className="walk-excerpt-path"
+          title="Open in its group"
+          onClick={() => onOpen(file.id, excerpt.from)}
+        >
           <span>{dir}</span>
           {base}
           <span>:{lines}</span>
@@ -285,7 +290,7 @@ function DecisionCode({
   walk: DecisionWalk;
   diff: DiffPayload | undefined;
   files: ReadonlyMap<string, FileChange>;
-  onOpen: (fileId: string) => void;
+  onOpen: (fileId: string, line?: number) => void;
 }) {
   const hosts = useMemo(() => snippetHosts(walk.tree ?? []), [walk.tree]);
   const hung = new Set(hosts.values());
@@ -403,7 +408,7 @@ function SnippetView({
 }: {
   files: ReadonlyMap<string, FileChange>;
   snippet: Snippet;
-  onOpen: (fileId: string) => void;
+  onOpen: (fileId: string, line?: number) => void;
 }) {
   const file = useMemo(() => excerptFile(files, snippet), [files, snippet]);
   const parsed = useMemo(() => (file ? processFile(unifiedText(file)) : undefined), [file]);
@@ -427,7 +432,7 @@ function SnippetView({
           type="button"
           className="walk-excerpt-path"
           title={`${dir}${base}\nOpen in its group`}
-          onClick={() => onOpen(file.id)}
+          onClick={() => onOpen(file.id, snippet.focus)}
         >
           {base}
           <span>:{lines}</span>

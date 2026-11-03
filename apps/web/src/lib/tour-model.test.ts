@@ -122,6 +122,11 @@ describe('jumping', () => {
     ]);
   });
 
+  test('a jump to a line scrolls to that line of the file', () => {
+    const [, cmds] = run(model({ position: { g: 'a' } }), { type: 'FileJumped', fileId: 'f3', line: 12 });
+    expect(cmds).toContainEqual({ type: 'ScrollToFile', fileId: 'f3', line: 12 });
+  });
+
   test('n and p walk every file down the page, across groups', () => {
     const [atF2] = run(model({ position: { g: 'a' }, activeFileId: 'f1' }), { type: 'FileStepped', by: 1 });
     expect(atF2.activeFileId).toBe('f2');
