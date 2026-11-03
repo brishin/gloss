@@ -47,20 +47,20 @@ const Answer = memo(function Answer({ answer, onJump }: { answer: AskAnswer; onJ
         ) : undefined
       }
     >
-      {answer.tools.length > 0 && (
-        <ChatToolCalls
-          calls={answer.tools.map((tool) => ({
-            key: tool.id,
-            name: tool.name === 'read_file' ? 'Read' : tool.name,
-            target: tool.target,
-            status: tool.state === 'done' ? 'complete' : tool.state === 'failed' ? 'error' : 'running',
-          }))}
-        />
-      )}
-      {(answer.text || streaming) && (
-        <ChatMessageBubble variant="ghost">
+      {/* No bubble: the answer, the files it read and the model name share the list's left edge. */}
+      <div className="ask-answer">
+        {answer.tools.length > 0 && (
+          <ChatToolCalls
+            calls={answer.tools.map((tool) => ({
+              key: tool.id,
+              name: tool.name === 'read_file' ? 'Read' : tool.name,
+              target: tool.target,
+              status: tool.state === 'done' ? 'complete' : tool.state === 'failed' ? 'error' : 'running',
+            }))}
+          />
+        )}
+        {(answer.text || streaming) && (
           <Markdown
-            density="compact"
             isStreaming={streaming}
             onLinkClick={(href) => {
               if (!href.startsWith(REF_PREFIX)) {
@@ -75,13 +75,9 @@ const Answer = memo(function Answer({ answer, onJump }: { answer: AskAnswer; onJ
           >
             {linkRefs(answer)}
           </Markdown>
-        </ChatMessageBubble>
-      )}
-      {answer.state === 'failed' && (
-        <ChatMessageBubble variant="ghost">
-          <span className="ask-error">{answer.error ?? 'The answer failed.'}</span>
-        </ChatMessageBubble>
-      )}
+        )}
+        {answer.state === 'failed' && <span className="ask-error">{answer.error ?? 'The answer failed.'}</span>}
+      </div>
     </ChatMessage>
   );
 });
@@ -163,7 +159,8 @@ export function AskPanel({
       </div>
       <ChatLayout density="compact" composer={composer}>
         {ask.turns.length ? (
-          <ChatMessageList>
+          // Top-aligned: a question stays put under the header while its answer grows below it.
+          <ChatMessageList density="compact" align="top">
             {ask.turns.map((turn) => {
               const about = contextLabel(turn.context, files);
               return [
@@ -185,8 +182,7 @@ export function AskPanel({
         ) : (
           <div className="ask-empty">
             <Text color="secondary">
-              Ask about this change. {model ?? 'The model'}, which wrote this tour, answers with the diff and the tour
-              in context.
+              {model ?? 'The model'}, which wrote this tour, answers with the diff and the tour in context.
             </Text>
           </div>
         )}

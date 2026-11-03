@@ -2298,18 +2298,19 @@
   }
 
   /* Ask: a card floating at the right edge, under the top bar, so the tour does not move. */
+  /* Inset by the top bar's own padding, so its right edge lines up with the toolbar's last button. */
   .ask-panel {
     position: fixed;
     z-index: 30;
-    top: calc(var(--topbar-h) + 12px);
-    right: 16px;
-    bottom: 16px;
+    top: calc(var(--topbar-h) + var(--spacing-3));
+    right: var(--spacing-3);
+    bottom: var(--spacing-3);
     display: flex;
     flex-direction: column;
     width: 400px;
     background: var(--color-background-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-container);
     box-shadow: var(--shadow-high);
     overflow: hidden;
   }
@@ -2319,41 +2320,50 @@
     min-height: 0;
   }
 
+  /* One gutter for everything in the card: the message list's compact inset (spacing-3). */
   .ask-header {
     display: flex;
     flex: none;
     align-items: center;
     justify-content: space-between;
-    height: 40px;
-    padding: 0 8px 0 16px;
+    height: var(--topbar-h);
+    padding: 0 var(--spacing-2) 0 var(--spacing-3);
     border-bottom: 1px solid var(--color-border);
   }
 
-  .ask-composer {
+  .ask-empty {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .ask-answer {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--spacing-1);
   }
 
-  .ask-context {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 4px 0 8px;
-  }
-
+  /* The lines a question was about, set on the bubble's text inset. */
   .ask-quote {
     align-self: flex-end;
-    padding-bottom: 2px;
+    padding: 0 var(--spacing-4) var(--spacing-0-5);
   }
 
   .ask-error {
     color: var(--color-error);
   }
 
-  .ask-empty {
-    padding: 24px 16px;
-    text-align: center;
+  /* The layout's dock insets the composer by spacing-2; this brings it out to the gutter. */
+  .ask-composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-1) var(--spacing-1);
+  }
+
+  .ask-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: var(--spacing-2);
   }
 
   @media (max-width: 767px) {
@@ -2364,7 +2374,8 @@
       bottom: 0;
       width: auto;
       height: 75vh;
-      border-radius: 12px 12px 0 0;
+      border-width: 1px 0 0;
+      border-radius: var(--radius-container) var(--radius-container) 0 0;
     }
   }
 }
