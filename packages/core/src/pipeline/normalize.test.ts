@@ -824,6 +824,36 @@ describe('normalizeWalkthrough call paths', () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
+  it('takes an excerpt from the hunk that holds its lines over a hunk id that names another', () => {
+    const split: FileChange = {
+      ...file,
+      id: 'f4',
+      hunks: [
+        {
+          id: 'a',
+          header: '@@ -1,5 +1,5 @@',
+          oldStart: 1,
+          oldLines: 5,
+          newStart: 1,
+          newLines: 5,
+          patch: ' 1\n 2\n+3\n 4\n 5',
+        },
+        {
+          id: 'b',
+          header: '@@ -20,5 +20,5 @@',
+          oldStart: 20,
+          oldLines: 5,
+          newStart: 20,
+          newLines: 5,
+          patch: ' 20\n 21\n+22\n 23\n 24',
+        },
+      ],
+    };
+    const excerpt = { fileId: 'f4', hunkId: 'a', from: 21, to: 23 };
+    const { walkthrough } = walk({ steps: [step([excerpt]), step([excerpt])] }, [split]);
+    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f4', hunkId: 'b', from: 21, to: 23 }]);
+  });
+
   it('keeps call paths next to decision entries', () => {
     const at = { fileId: 'f1', hunkId: 'h1', from: 10, to: 13 };
     const decision = {

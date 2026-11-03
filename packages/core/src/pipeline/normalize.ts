@@ -783,8 +783,9 @@ function cappedEnd(rows: readonly { at: number; kind: string }[], from: number, 
 }
 
 /**
- * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
- * wrong), its range clamped to the hunk, then trimmed to the changes in it plus a little context.
+ * An excerpt the diff can show: a known file and the hunk that holds `from` (or `to`; the id is
+ * only a hint), its range clamped to the hunk, then trimmed to the changes in it plus a little
+ * context. With neither line in the diff, the named hunk's changes show.
  */
 function normalizeExcerpt(
   raw: { fileId?: string; hunkId?: string; from?: number; to?: number },
@@ -799,9 +800,15 @@ function normalizeExcerpt(
   if (from > to) {
     [from, to] = [to, from];
   }
+  // The lines win over the id: a hint that names another hunk would show unrelated code.
+  const holds = (candidate: FileChange['hunks'][number], line: number) =>
+    hunkRows(candidate).some((row) => row.kind !== '-' && row.at === line);
+  const hinted = (candidate: FileChange['hunks'][number]) => candidate.id === raw.hunkId;
   const hunk =
-    file.hunks.find((candidate) => candidate.id === raw.hunkId) ??
-    file.hunks.find((candidate) => hunkRows(candidate).some((row) => row.kind !== '-' && row.at === from));
+    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, from)) ??
+    file.hunks.find((candidate) => holds(candidate, from)) ??
+    file.hunks.find((candidate) => holds(candidate, to)) ??
+    file.hunks.find(hinted);
   if (!hunk) {
     return undefined;
   }
