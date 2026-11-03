@@ -18,8 +18,15 @@ import { CHECKOUT } from './update.ts';
 /** The export build of the web app (`pnpm --filter @gloss/web build`): one module, nothing to fetch. */
 export const EXPORT_ROOT = join(CHECKOUT, 'apps/web/dist/export');
 
-/** Keeps text from closing the inline `<script>` it sits in. */
-const inlineScript = (text: string) => text.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '\\x3C!--');
+/**
+ * Keeps text from closing the inline `<script>` it sits in. U+FFFD (only ever inside string
+ * literals in the bundle) is escaped too, since some hosts reject a file that contains it.
+ */
+const inlineScript = (text: string) =>
+  text
+    .replace(/<\/(script)/gi, '<\\/$1')
+    .replace(/<!--/g, '\\x3C!--')
+    .replace(/\uFFFD/g, '\\uFFFD');
 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
