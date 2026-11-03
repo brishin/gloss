@@ -156,17 +156,19 @@ export function AskPanel({
         isDisabled={!enabled}
         footerActions={
           offer && offer.models.length > 1 && model ? (
-            <Selector
-              label="Model"
-              isLabelHidden
-              variant="ghost"
-              size="sm"
-              // The composer sits at the bottom of the panel: open upward, over the thread.
-              placement="above"
-              options={offer.models.map((m) => ({ value: m.id, label: m.name }))}
-              value={model.id}
-              onChange={(id) => dispatch({ type: 'AskModelPicked', model: id })}
-            />
+            <div className="ask-model">
+              <Selector
+                label="Model"
+                isLabelHidden
+                variant="ghost"
+                size="sm"
+                // The composer sits at the bottom of the panel: open upward, over the thread.
+                placement="above"
+                options={offer.models.map((m) => ({ value: m.id, label: m.name }))}
+                value={model.id}
+                onChange={(id) => dispatch({ type: 'AskModelPicked', model: id })}
+              />
+            </div>
           ) : undefined
         }
       />
