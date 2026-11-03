@@ -113,7 +113,7 @@ export async function captureTourSnapshot(
   const load = options.fetch ?? fetch;
   const bodies = Object.values(diffs).map((diff) => diff.meta.description ?? '');
   for (const url of new Set(bodies.flatMap(descriptionMedia))) {
-    // The page shows other hosts' images directly; an export embeds those too, so it fetches nothing.
+    // The page shows other hosts' images directly; an export embeds those too, so it needs no other host.
     const resolved = isGithubAssetUrl(url) ? client.asset(url) : Promise.resolve({ url, contentType: undefined });
     const data = await resolved
       .then(async (asset) => {

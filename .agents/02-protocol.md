@@ -60,7 +60,8 @@ and the web app links only those. Threads are saved per diff in the browser (`gl
 trace, the stack and PR body attachments as `data:` URLs. `createSnapshotGlossClient` serves it
 back read-only, so the page replays the log through `reduceTourEvent` as it does live. The CLI
 embeds it, gzipped, in one HTML file with the web app's export build (`vite.export.config.ts`:
-one module, every shiki grammar in one gzipped table). The tour model's `exported` flag hides
+one minified module; shiki grammars and themes, the two highlighter wasm modules and elkjs
+load from jsDelivr at their installed versions, which artifact hosts allow for scripts). The tour model's `exported` flag hides
 what needs a backend (Re-run, Ask, Review, stack stepping).
 
 Change rules: adding an optional field is compatible. A new event type fails

@@ -39,8 +39,9 @@ code changed. A running app shows an Update button when new commits land.
 `gloss --help` lists every command.
 
 An export is the tour page itself, in light and dark, with the tour's events, diff and
-whole files inside. It opens from disk with no server and fetches nothing. Re-run, Ask
-and Review need the server, so an export leaves them out.
+whole files inside. It opens from disk with no server. Syntax grammars, the highlighter's
+WebAssembly and the diagram layout load from jsDelivr, so the file stays near 3 MB plus the
+tour. Re-run, Ask and Review need the server, so an export leaves them out.
 
 ## Models
 

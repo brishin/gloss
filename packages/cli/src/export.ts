@@ -33,7 +33,8 @@ const escapeHtml = (text: string) =>
 
 /**
  * One self-contained HTML file: the tour page as the app renders it (light and dark), over a
- * gzipped snapshot of the tour. It needs no backend and loads nothing from the network.
+ * gzipped snapshot of the tour. It needs no backend; the large leaf libraries (grammars,
+ * highlighter wasm, diagram layout) load from jsDelivr (see apps/web/vite.export.config.ts).
  */
 export function exportHtml(snapshot: TourSnapshot, root = EXPORT_ROOT): string {
   const script = join(root, 'tour.js');
