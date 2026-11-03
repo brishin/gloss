@@ -35,19 +35,23 @@ describe('small tier', () => {
 });
 
 describe('decision rules', () => {
-  test('save keeps the rest of the config, and no rules drops the key', () => {
+  test('save keeps the rest of the config, and no sets drops the key', () => {
     const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
     const before = process.env.GLOSS_HOME;
     process.env.GLOSS_HOME = home;
     try {
       writeFileSync(join(home, 'config.json'), JSON.stringify({ profile: 'openai', judge: null }));
-      saveDecisionRules(['Flag every new environment variable']);
-      expect(readDecisionRules()).toEqual(['Flag every new environment variable']);
-      expect(loadConfig({}).decisionRules).toEqual(['Flag every new environment variable']);
+      const sets = [
+        { rules: ['Flag every new environment variable'] },
+        { files: '\\.py$', rules: ['Flag N+1 queries'] },
+      ];
+      saveDecisionRules(sets);
+      expect(readDecisionRules()).toEqual(sets);
+      expect(loadConfig({}).decisionRules).toEqual(sets);
       expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({
         profile: 'openai',
         judge: null,
-        decisionRules: ['Flag every new environment variable'],
+        decisionRules: sets,
       });
       saveDecisionRules([]);
       expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({ profile: 'openai', judge: null });
@@ -57,13 +61,22 @@ describe('decision rules', () => {
     }
   });
 
+  test('reads a plain list as one set, and leaves out a set that does not parse', () => {
+    expect(readDecisionRules({ decisionRules: [' Flag A ', 'Flag B'] } as never)).toEqual([
+      { rules: ['Flag A', 'Flag B'] },
+    ]);
+    expect(
+      readDecisionRules({ decisionRules: [{ files: '(', rules: ['Bad'] }, { rules: ['Good'] }, 'stray'] } as never),
+    ).toEqual([{ rules: ['Good'] }]);
+  });
+
   test('save refuses to overwrite a config it cannot parse', () => {
     const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
     const before = process.env.GLOSS_HOME;
     process.env.GLOSS_HOME = home;
     try {
       writeFileSync(join(home, 'config.json'), '{ "profile": ');
-      expect(() => saveDecisionRules(['Flag A'])).toThrow(/Could not read/);
+      expect(() => saveDecisionRules([{ rules: ['Flag A'] }])).toThrow(/Could not read/);
       expect(readFileSync(join(home, 'config.json'), 'utf8')).toBe('{ "profile": ');
     } finally {
       process.env.GLOSS_HOME = before;

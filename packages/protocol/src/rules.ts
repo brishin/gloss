@@ -1,37 +1,64 @@
 import * as v from 'valibot';
 
-/** At most this many rules, each at most `RULE_MAX` characters: every rule goes into every decision prompt. */
+/** Limits, because every rule that applies goes into every decision prompt. */
+export const RULE_SETS_MAX = 10;
 export const RULES_MAX = 20;
 export const RULE_MAX = 400;
 
+const isRegex = (pattern: string) => {
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
- * The user's own rules for which decisions to flag, as saved in `~/.gloss/config.json`
- * (`decisionRules`). Each rule is one line of plain text.
+ * Rules for which decisions to flag, and the files they are about: `files` is a regular
+ * expression tested against each changed file's path; without one the rules apply to every file.
  */
-export const DecisionRulesSchema = v.pipe(
-  v.array(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(RULE_MAX))),
-  v.maxLength(RULES_MAX),
+export const DecisionRuleSetSchema = v.object({
+  files: v.optional(
+    v.pipe(v.string(), v.trim(), v.maxLength(RULE_MAX), v.check(isRegex, 'Files must be a regular expression')),
+  ),
+  rules: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(RULE_MAX))), v.minLength(1)),
+});
+export type DecisionRuleSet = v.InferOutput<typeof DecisionRuleSetSchema>;
+
+/** The user's rule sets, as saved in `~/.gloss/config.json` (`decisionRules`). */
+export const DecisionRuleSetsSchema = v.pipe(
+  v.array(DecisionRuleSetSchema),
+  v.maxLength(RULE_SETS_MAX),
+  v.check(
+    (sets) => sets.reduce((count, set) => count + set.rules.length, 0) <= RULES_MAX,
+    `At most ${RULES_MAX} rules`,
+  ),
 );
 
-export const SaveDecisionRulesSchema = v.object({ rules: DecisionRulesSchema });
+export const SaveDecisionRulesSchema = v.object({ sets: DecisionRuleSetsSchema });
+
+/** One rule, by its set and its place in the set. */
+export const RuleRefSchema = v.object({ set: v.number(), rule: v.number() });
+export type RuleRef = v.InferOutput<typeof RuleRefSchema>;
 
 /**
- * What Jev found when it checked the rules. `rule` and `other` index into the rules;
- * `builtIn` is the text of the built-in rule a finding is about.
- * - `overlap`: the built-in rules (or rule `other`) already flag what the rule asks for.
- * - `contradiction`: the rule asks to flag what the built-in rules (or rule `other`) skip, or the reverse.
+ * What Jev found when it checked the rules. `builtIn` is the text of the built-in rule a finding
+ * is about; `other` is the user's rule it is about.
+ * - `overlap`: the built-in rules (or `other`) already flag what the rule asks for.
+ * - `contradiction`: the rule asks to flag what the built-in rules (or `other`) skip, or the reverse.
  * - `vague`: the rule does not say clearly which choices it covers.
  */
 export const RuleFindingSchema = v.object({
-  rule: v.number(),
+  ...RuleRefSchema.entries,
   kind: v.picklist(['overlap', 'contradiction', 'vague']),
   builtIn: v.optional(v.string()),
-  other: v.optional(v.number()),
+  other: v.optional(RuleRefSchema),
 });
 export type RuleFinding = v.InferOutput<typeof RuleFindingSchema>;
 
 export const DecisionRulesStateSchema = v.object({
-  rules: v.array(v.string()),
+  sets: v.array(DecisionRuleSetSchema),
   findings: v.array(RuleFindingSchema),
   /** False when the backend has no Jev, so nothing was checked. */
   checked: v.boolean(),
@@ -51,6 +78,27 @@ export function parseRules(text: string): string[] {
       .replace(/\s+/g, ' ');
     if (rule && !rules.some((seen) => seen.toLowerCase() === rule.toLowerCase())) {
       rules.push(rule);
+    }
+  }
+  return rules;
+}
+
+/**
+ * The rules that apply to a set of changed files: those of every set with no `files`, or whose
+ * `files` matches at least one path. A pattern that does not compile (a hand-edited config)
+ * matches nothing.
+ */
+export function rulesFor(sets: readonly DecisionRuleSet[], paths: readonly string[]): string[] {
+  const rules: string[] = [];
+  for (const set of sets) {
+    let pattern: RegExp | undefined;
+    try {
+      pattern = set.files ? new RegExp(set.files) : undefined;
+    } catch {
+      continue;
+    }
+    if (!pattern || paths.some((path) => pattern.test(path))) {
+      rules.push(...set.rules.filter((rule) => !rules.includes(rule)));
     }
   }
   return rules;

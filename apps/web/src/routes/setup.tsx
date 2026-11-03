@@ -1,23 +1,20 @@
 import { Button } from '@astryxdesign/core/Button';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { Text } from '@astryxdesign/core/Text';
-import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { useAtomRefresh, useAtomSet, useAtomValue } from '@effect/atom-react';
-import { type DecisionRulesState, type Health, parseRules, type RuleFinding, type SetupStatus } from '@gloss/protocol';
+import type { Health, SetupStatus } from '@gloss/protocol';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { AsyncResult, Atom } from 'effect/reactivity';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Progress } from '../components/LoginPrompt.tsx';
 import { Logo } from '../components/Logo.tsx';
 import {
-  decisionRulesAtom,
   extensionAtom,
   githubLoginAtom,
   healthAtom,
   installNativeHostAtom,
   loginAtom,
-  saveDecisionRulesAtom,
   saveJudgeKeyAtom,
   setupAtom,
 } from '../lib/client.ts';
@@ -63,7 +60,6 @@ function Setup() {
         </>
       )}
       {health && <JudgeSection health={health} />}
-      <RulesSection />
       <div className="setup-foot">
         <Button
           variant="primary"
@@ -80,14 +76,11 @@ function Section({
   state,
   title,
   aside,
-  always,
   children,
 }: {
   state: 'done' | 'todo' | 'waiting' | 'optional';
   title: ReactNode;
   aside?: string;
-  /** Keep the body open when done (a setting rather than a step). */
-  always?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -102,7 +95,7 @@ function Section({
             </Text>
           )}
         </div>
-        {(always || state !== 'done') && children}
+        {state !== 'done' && children}
       </div>
     </section>
   );
@@ -336,95 +329,6 @@ function JudgeSection({ health }: { health: Health }) {
         <Button type="submit" variant="secondary" label="Save" isDisabled={!key.trim()} isLoading={waiting} />
       </form>
       {waiting && <Spinner size="sm" label="Restarting gloss…" />}
-    </Section>
-  );
-}
-
-/** One rule per line, as a bulleted list, so rule numbers in findings match the lines. */
-const rulesText = (rules: readonly string[]) => rules.map((rule) => `- ${rule}`).join('\n');
-
-function findingText(finding: RuleFinding): string {
-  const rule = `Rule ${finding.rule + 1}`;
-  if (finding.other !== undefined) {
-    const pair = `Rules ${finding.rule + 1} and ${finding.other + 1}`;
-    return finding.kind === 'contradiction' ? `${pair} conflict.` : `${pair} ask for the same decisions.`;
-  }
-  if (finding.kind === 'vague') {
-    return `${rule} is too vague to apply.`;
-  }
-  const builtIn = finding.builtIn ? `: ${finding.builtIn}` : '.';
-  return finding.kind === 'contradiction'
-    ? `${rule} conflicts with a built-in rule${builtIn}`
-    : `${rule} is already a built-in rule${builtIn}`;
-}
-
-/** Extra decisions to flag, kept in `~/.gloss/config.json`; Jev checks them on save. */
-function RulesSection() {
-  const loaded = AsyncResult.getOrElse(useAtomValue(decisionRulesAtom), () => undefined);
-  const saving = useAtomValue(saveDecisionRulesAtom);
-  const save = useAtomSet(saveDecisionRulesAtom);
-  const [saved, setSaved] = useState<DecisionRulesState | undefined>(undefined);
-  const [text, setText] = useState<string | undefined>(undefined);
-
-  // The rules as the backend has them: first as loaded, then after each save that went through.
-  const show = (state: DecisionRulesState) => {
-    setSaved(state);
-    setText(rulesText(state.rules));
-  };
-  useEffect(() => {
-    if (loaded && !saved) show(loaded);
-  }, [loaded]);
-  useEffect(() => {
-    if (AsyncResult.isSuccess(saving) && !AsyncResult.isWaiting(saving)) show(saving.value);
-  }, [saving]);
-
-  if (!saved || text === undefined) {
-    return null;
-  }
-  const rules = parseRules(text);
-  const dirty = rulesText(rules) !== rulesText(saved.rules);
-  const waiting = AsyncResult.isWaiting(saving);
-  return (
-    <Section state={saved.rules.length ? 'done' : 'optional'} title="Decisions to flag" aside="Optional" always>
-      <Text color="secondary">Your own rules, one per line, added to the ones gloss flags by default.</Text>
-      <form
-        className="setup-rules"
-        onSubmit={(event) => {
-          event.preventDefault();
-          save(rules);
-        }}
-      >
-        <TextArea
-          label="Decisions to flag"
-          isLabelHidden
-          rows={Math.max(4, text.split('\n').length + 1)}
-          placeholder={'- Flag every new environment variable\n- Flag a changed timeout or retry count as high'}
-          value={text}
-          onChange={(next) => setText(next)}
-          isReadOnly={waiting}
-          status={
-            AsyncResult.isFailure(saving) && !waiting
-              ? { type: 'error', message: 'Could not save the rules.' }
-              : undefined
-          }
-        />
-        <div className="setup-actions">
-          <Button type="submit" variant="secondary" label="Save" isDisabled={!dirty} isLoading={waiting} />
-          {waiting && (
-            <Text color="secondary" size="sm">
-              Jev is checking them…
-            </Text>
-          )}
-        </div>
-      </form>
-      {!dirty && !waiting && (
-        <ul className="setup-findings">
-          {saved.findings.map((finding) => (
-            <li key={`${finding.rule}-${finding.kind}-${finding.other ?? ''}`}>{findingText(finding)}</li>
-          ))}
-          {!saved.checked && saved.rules.length > 0 && <li>Jev is off, so the rules were not checked.</li>}
-        </ul>
-      )}
     </Section>
   );
 }

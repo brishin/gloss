@@ -1,4 +1,4 @@
-import type { RuleFinding } from '@gloss/protocol';
+import type { DecisionRuleSet, RuleFinding, RuleRef } from '@gloss/protocol';
 import { Effect, Option } from 'effect';
 import { JudgeClient, type JudgeAnswer, type JudgeQuestion } from '../adapters/types.ts';
 import { TourCache } from '../cache/store.ts';
@@ -87,15 +87,23 @@ export function ruleState(index: number, rules: readonly string[]): Record<strin
 
 const yes = (answer: JudgeAnswer | undefined) => answer?.type === 'bool' && answer.probability >= YES;
 
+/** A finding about flat rule `index`; `rule` and `other` are flat indexes until `checkDecisionRules` maps them. */
+export interface FlatFinding {
+  rule: number;
+  kind: RuleFinding['kind'];
+  builtIn?: string;
+  other?: number;
+}
+
 /** Findings for rule `index` from Jev's answers; a pair finding is reported on the earlier rule. */
 export function ruleFindings(
   index: number,
   rules: readonly string[],
   answers: Record<string, JudgeAnswer>,
-): RuleFinding[] {
+): FlatFinding[] {
   const closest = answers.closest?.type === 'choice' ? BUILT_IN_DECISION_RULES[answers.closest.choice] : undefined;
   const builtIn = closest ? { builtIn: closest } : {};
-  const findings: RuleFinding[] = [];
+  const findings: FlatFinding[] = [];
   // A conflict matters more than a repeat; one built-in finding per rule.
   if (yes(answers.contradicts)) {
     findings.push({ rule: index, kind: 'contradiction', ...builtIn });
@@ -116,16 +124,29 @@ export function ruleFindings(
   return findings;
 }
 
+/** Every rule as Jev reads it, with its scope, and where it sits in the sets. */
+export function flattenRules(sets: readonly DecisionRuleSet[]): { ref: RuleRef; text: string }[] {
+  return sets.flatMap((set, setIndex) =>
+    set.rules.map((rule, ruleIndex) => ({
+      ref: { set: setIndex, rule: ruleIndex },
+      text: set.files ? `${rule} (only in files whose path matches the regular expression /${set.files}/)` : rule,
+    })),
+  );
+}
+
 /**
  * Jev checks each rule against the built-in rules and the rules after it, one call per
- * rule. Answers are cached by the exact request. Without Jev, or when a call fails, the
- * rules are reported unchecked: the check only advises, it never blocks a save.
+ * rule. A rule reads with its files pattern, so rules for different files need not clash.
+ * Answers are cached by the exact request. Without Jev, or when a call fails, the rules are
+ * reported unchecked: the check only advises, it never blocks a save.
  */
-export const checkDecisionRules = Effect.fnUntraced(function* (rules: readonly string[]) {
+export const checkDecisionRules = Effect.fnUntraced(function* (sets: readonly DecisionRuleSet[]) {
   const judge = Option.getOrUndefined(yield* Effect.serviceOption(JudgeClient));
-  if (!judge || rules.length === 0) {
+  const flat = flattenRules(sets);
+  if (!judge || flat.length === 0) {
     return { findings: [] as RuleFinding[], checked: !!judge };
   }
+  const rules = flat.map((rule) => rule.text);
   const cache = yield* TourCache;
   const answered = yield* Effect.forEach(
     rules,
@@ -146,6 +167,13 @@ export const checkDecisionRules = Effect.fnUntraced(function* (rules: readonly s
   ).pipe(Effect.option);
   return Option.match(answered, {
     onNone: () => ({ findings: [] as RuleFinding[], checked: false }),
-    onSome: (findings) => ({ findings: findings.flat(), checked: true }),
+    onSome: (found) => ({
+      findings: found.flat().map(({ rule, other, ...finding }): RuleFinding => ({
+        ...flat[rule]!.ref,
+        ...finding,
+        ...(other === undefined ? {} : { other: flat[other]!.ref }),
+      })),
+      checked: true,
+    }),
   });
 });

@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import process from 'node:process';
+import { type DecisionRuleSet, DecisionRuleSetSchema } from '@gloss/protocol';
+import * as v from 'valibot';
 import { glossPath } from './paths.ts';
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -15,8 +17,8 @@ export interface GlossConfig {
   judge: string | null;
   /** Third-party pi provider packages to load (each default-exports a `Provider` or a factory). */
   providerPackages: string[];
-  /** The user's own rules for which decisions to flag, one line each (`gloss` setup page). */
-  decisionRules: string[];
+  /** The user's own rules for which decisions to flag, each set scoped by a files pattern (settings page). */
+  decisionRules: DecisionRuleSet[];
 }
 
 /**
@@ -111,18 +113,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
   };
 }
 
-/** The saved decision rules, read from the file each time so a tour sees the latest save. */
-export function readDecisionRules(file: ConfigFile = readConfigFile()): string[] {
-  return Array.isArray(file.decisionRules)
-    ? file.decisionRules.filter((rule): rule is string => typeof rule === 'string' && rule.trim() !== '')
-    : [];
+/**
+ * The saved rule sets, read from the file each time so a tour sees the latest save. A set
+ * that does not parse (a hand edit) is left out; a plain list of strings is one set for all files.
+ */
+export function readDecisionRules(file: ConfigFile = readConfigFile()): DecisionRuleSet[] {
+  const saved: unknown = file.decisionRules;
+  if (!Array.isArray(saved)) {
+    return [];
+  }
+  if (saved.every((rule) => typeof rule === 'string')) {
+    const rules = saved.map((rule: string) => rule.trim()).filter(Boolean);
+    return rules.length ? [{ rules }] : [];
+  }
+  return saved.flatMap((set) => {
+    const parsed = v.safeParse(DecisionRuleSetSchema, set);
+    return parsed.success ? [parsed.output] : [];
+  });
 }
 
 /**
- * Saves the decision rules into `~/.gloss/config.json`, keeping every other key as written.
- * No rules removes the key. Writes a temporary file and renames it, so a reader never sees half.
+ * Saves the rule sets into `~/.gloss/config.json`, keeping every other key as written.
+ * No sets removes the key. Writes a temporary file and renames it, so a reader never sees half.
  */
-export function saveDecisionRules(rules: readonly string[]): void {
+export function saveDecisionRules(sets: readonly DecisionRuleSet[]): void {
   const path = configPath();
   let file: Record<string, unknown> = {};
   try {
@@ -133,8 +147,8 @@ export function saveDecisionRules(rules: readonly string[]): void {
       throw new Error(`Could not read ${path}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (rules.length) {
-    file.decisionRules = [...rules];
+  if (sets.length) {
+    file.decisionRules = sets.map((set) => (set.files ? { files: set.files, rules: set.rules } : { rules: set.rules }));
   } else {
     delete file.decisionRules;
   }

@@ -9,6 +9,7 @@ import {
   TourCache,
 } from '@gloss/core';
 import type {
+  DecisionRuleSet,
   DiffPayload,
   GithubLogin,
   Health,
@@ -469,8 +470,8 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       : c.json({ error: 'Unknown or expired login' }, 404);
   });
 
-  // The user's decision rules: read with what Jev finds in them (cached), saved the same way.
-  const rulesState = (save?: readonly string[]) =>
+  // The user's decision rule sets: read with what Jev finds in them (cached), saved the same way.
+  const rulesState = (save?: readonly DecisionRuleSet[]) =>
     Effect.gen(function* () {
       const service = yield* Effect.serviceOption(DecisionRules);
       if (service._tag === 'None') {
@@ -479,8 +480,8 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       if (save) {
         yield* service.value.save(save);
       }
-      const rules = save ?? (yield* service.value.get);
-      return { rules: [...rules], ...(yield* checkDecisionRules(rules)) };
+      const sets = save ?? (yield* service.value.get);
+      return { sets: [...sets], ...(yield* checkDecisionRules(sets)) };
     });
 
   app.get('/api/rules', async (c) => {
@@ -494,7 +495,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     const parsed = v.safeParse(SaveDecisionRulesSchema, await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
     try {
-      const state = await run(rulesState(parsed.output.rules));
+      const state = await run(rulesState(parsed.output.sets));
       return state ? c.json(state) : c.json({ error: 'This backend keeps no decision rules' }, 404);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);

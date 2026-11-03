@@ -14,9 +14,11 @@ import type {
   Visual,
 } from '@gloss/protocol';
 import {
+  type DecisionRuleSet,
   initialTourState,
   PIPELINE_VERSION,
   reduceTourEvent,
+  rulesFor,
   serializeRef,
   summarizeFile,
   SYNTHETIC_GROUPS,
@@ -89,12 +91,12 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
   cause?: unknown;
 }> {}
 
-/** `rules` joins the key only when there are some, so tours cached before rules existed still hit. */
+/** The rule sets join the key only when there are some, so tours cached before rules existed still hit. */
 export function tourCacheKey(
   sourceKey: string,
   fingerprint: string,
   models: ModelConfig,
-  rules: readonly string[] = [],
+  rules: readonly DecisionRuleSet[] = [],
 ): string {
   return hashOf({
     kind: 'tour',
@@ -142,7 +144,7 @@ const tourProgram = Effect.fnUntraced(function* (
   const judge = Option.getOrUndefined(yield* Effect.serviceOption(JudgeClient));
   const cache = yield* TourCache;
   const rulesService = Option.getOrUndefined(yield* Effect.serviceOption(DecisionRules));
-  const rules = rulesService ? yield* rulesService.get : [];
+  const ruleSets: readonly DecisionRuleSet[] = rulesService ? yield* rulesService.get : [];
   const source = (yield* DiffSources).make(ref);
   let state = initialTourState();
   const send = (event: TourEventBody) => {
@@ -191,7 +193,7 @@ const tourProgram = Effect.fnUntraced(function* (
 
   // Stage 0: fetch. A finished tour for this exact head and config replays at once.
   const fingerprint = yield* Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError });
-  const tourKey = tourCacheKey(sourceKey, fingerprint, models, rules);
+  const tourKey = tourCacheKey(sourceKey, fingerprint, models, ruleSets);
   const cachedTour = options.force ? undefined : cache.get<Tour>(tourKey);
   send({ type: 'job.started', ref, sourceKey, pipelineVersion: PIPELINE_VERSION, models, cached: !!cachedTour });
   if (cachedTour) {
@@ -269,7 +271,15 @@ const tourProgram = Effect.fnUntraced(function* (
   const defineGroups = Effect.gen(function* () {
     const listFiles = !judge;
     stage('define', 'running');
-    const definePrompt = buildDefinePrompt(meta, files, listFiles, rules);
+    const definePrompt = buildDefinePrompt(
+      meta,
+      files,
+      listFiles,
+      rulesFor(
+        ruleSets,
+        files.map((file) => file.path),
+      ),
+    );
     trace.begin('define', 'define', {
       inputs: ['fetch'],
       model: models.define,
@@ -676,7 +686,11 @@ const tourProgram = Effect.fnUntraced(function* (
               members,
               state.judgments,
               state.decisions,
-              rules,
+              // Only the rules whose files pattern matches one of this group's files.
+              rulesFor(
+                ruleSets,
+                members.map((file) => file.path),
+              ),
             );
             const stepId = `notes:${group.key}`;
             trace.begin(stepId, 'notes', {

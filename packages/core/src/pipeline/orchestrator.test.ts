@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
+import type { DecisionRuleSet, SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -50,7 +50,7 @@ async function tour(options: {
   model: ModelClient['Service'];
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
-  rules?: string[];
+  rules?: DecisionRuleSet[];
 }): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
@@ -220,26 +220,33 @@ describe('runTour', () => {
     expect(model.calls.length).toBe(calls);
   });
 
-  it("puts the user's decision rules in the define and notes prompts, and keys the tour on them", async () => {
+  it("puts the user's decision rules in the define and notes prompts by files, and keys the tour on them", async () => {
     const cache = createMemoryCacheStore();
     const model = fakeModel();
     await tour({ model, judge: fakeJudge(), cache });
     const plain = model.calls.length;
     expect(model.calls.some((call) => call.prompt.includes("## Reviewer's decision rules"))).toBe(false);
 
-    const rule = 'Flag every new environment variable';
-    const second = await tour({ model, judge: fakeJudge(), cache, rules: [rule] });
+    const sets = [
+      { rules: ['Flag every new environment variable'] },
+      { files: '^src/auth\\.ts$', rules: ['Flag a weaker auth check as urgent'] },
+      { files: '\\.py$', rules: ['Flag a service passed by global'] },
+    ];
+    const second = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     // A tour cached without rules is not reused once there are rules.
     expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
     const calls = model.calls.slice(plain);
-    for (const call of calls.filter((call) => call.resultName === 'groups' || call.tier === 'notes')) {
-      expect(call.prompt).toContain(`## Reviewer's decision rules`);
-      expect(call.prompt).toContain(`- ${rule}`);
-    }
-    expect(calls.filter((call) => call.tier === 'notes').length).toBeGreaterThan(0);
+    const define = calls.find((call) => call.resultName === 'groups')!.prompt;
+    expect(define).toContain('- Flag every new environment variable\n- Flag a weaker auth check as urgent');
+    expect(define).not.toContain('Flag a service passed by global');
+    const notes = (key: string) =>
+      calls.find((call) => call.tier === 'notes' && call.prompt.includes(`## This group: ${key}`))?.prompt ?? '';
+    expect(notes('Auth check')).toContain('- Flag a weaker auth check as urgent');
+    expect(notes('Docs')).toContain('- Flag every new environment variable');
+    expect(notes('Docs')).not.toContain('Flag a weaker auth check');
 
     // Same rules again: the finished tour replays.
-    const third = await tour({ model, judge: fakeJudge(), cache, rules: [rule] });
+    const third = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     expect(third.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
   });
 

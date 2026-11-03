@@ -39,7 +39,7 @@
   (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
   Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the
-  start of each tour (`DecisionRules` service), so a save on the setup page needs no restart;
+  start of each tour (`DecisionRules` service), so a save on the settings page needs no restart;
   `saveDecisionRules` rewrites only that key.
 
 Tests: `flue-runtime.test.ts` drives the real Flue runtime with pi-ai's faux provider:

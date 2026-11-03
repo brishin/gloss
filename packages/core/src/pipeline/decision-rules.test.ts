@@ -53,9 +53,10 @@ describe('rule findings', () => {
 });
 
 describe('checkDecisionRules', () => {
+  const sets = [{ rules: rules.slice(0, 1) }, { files: '\\.env$', rules: rules.slice(1) }];
   const run = (judge?: JudgeClient['Service'], cache = createMemoryCacheStore()) =>
     Effect.runPromise(
-      checkDecisionRules(rules).pipe(
+      checkDecisionRules(sets).pipe(
         Effect.provide(
           Layer.mergeAll(Layer.succeed(TourCache, cache), judge ? Layer.succeed(JudgeClient, judge) : Layer.empty),
         ),
@@ -66,12 +67,19 @@ describe('checkDecisionRules', () => {
     expect(await run()).toEqual({ findings: [], checked: false });
   });
 
-  it('asks Jev once per rule and caches the answers', async () => {
-    const judge = createFakeJudgeClient((state, id) =>
-      id === 'overlaps_r2' && state.rule === rules[0] ? bool(0.95) : id === 'closest' ? closest('choices') : bool(0.1),
-    );
+  it('asks Jev once per rule, with its scope, and points findings at sets and rules', async () => {
+    const seen: string[] = [];
+    const judge = createFakeJudgeClient((state, id) => {
+      if (id === 'vague') seen.push(String(state.rule));
+      if (id === 'contradicts_r3' && state.rule === rules[0]) return bool(0.95);
+      return id === 'closest' ? closest('choices') : bool(0.1);
+    });
     const cache = createMemoryCacheStore();
-    expect(await run(judge, cache)).toEqual({ findings: [{ rule: 0, kind: 'overlap', other: 1 }], checked: true });
+    expect(await run(judge, cache)).toEqual({
+      findings: [{ set: 0, rule: 0, kind: 'contradiction', other: { set: 1, rule: 1 } }],
+      checked: true,
+    });
+    expect(seen).toContain(`${rules[1]} (only in files whose path matches the regular expression /\\.env$/)`);
     expect(judge.calls).toBe(3);
     await run(judge, cache);
     expect(judge.calls).toBe(3);

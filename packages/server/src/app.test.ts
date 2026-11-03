@@ -10,7 +10,7 @@ import {
   StaleFileError,
   TourCache,
 } from '@gloss/core';
-import type { AskEvent, DiffPayload, Tour, TourEvent, TourEventBody } from '@gloss/protocol';
+import type { AskEvent, DecisionRuleSet, DiffPayload, Tour, TourEvent, TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
 import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -535,11 +535,11 @@ describe('setup API', () => {
 
 describe('decision rules API', () => {
   function rulesLayer(judge = true) {
-    let saved: readonly string[] = ['Flag A'];
+    let saved: readonly DecisionRuleSet[] = [{ rules: ['Flag A'] }];
     const layer = Layer.mergeAll(
       Layer.succeed(DecisionRules, {
         get: Effect.sync(() => saved),
-        save: (rules) => Effect.sync(() => void (saved = rules)),
+        save: (sets) => Effect.sync(() => void (saved = sets)),
       }),
       judge
         ? Layer.succeed(
@@ -553,39 +553,40 @@ describe('decision rules API', () => {
     return { layer, saved: () => saved };
   }
 
-  it('reads and saves the rules, with what Jev finds in them', async () => {
+  it('reads and saves the rule sets, with what Jev finds in them', async () => {
     const rules = rulesLayer();
     const { client } = setup(scripted().run, { extra: rules.layer });
-    expect(await client.decisionRules()).toEqual({ rules: ['Flag A'], findings: [], checked: true });
-    expect(await client.saveDecisionRules(['Flag A', ' Flag a too '])).toEqual({
-      rules: ['Flag A', 'Flag a too'],
-      findings: [{ rule: 0, kind: 'overlap', other: 1 }],
+    expect(await client.decisionRules()).toEqual({ sets: [{ rules: ['Flag A'] }], findings: [], checked: true });
+    const sets = [{ rules: ['Flag A'] }, { files: '\\.py$', rules: [' Flag a too '] }];
+    expect(await client.saveDecisionRules(sets)).toEqual({
+      sets: [{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }],
+      findings: [{ set: 0, rule: 0, kind: 'overlap', other: { set: 1, rule: 0 } }],
       checked: true,
     });
-    expect(rules.saved()).toEqual(['Flag A', 'Flag a too']);
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }]);
   });
 
   it('saves unchecked without Jev', async () => {
     const { client } = setup(scripted().run, { extra: rulesLayer(false).layer });
-    expect(await client.saveDecisionRules(['Flag B'])).toEqual({ rules: ['Flag B'], findings: [], checked: false });
+    expect(await client.saveDecisionRules([{ rules: ['Flag B'] }])).toEqual({
+      sets: [{ rules: ['Flag B'] }],
+      findings: [],
+      checked: false,
+    });
   });
 
-  it('takes rules only as JSON from the app, within the limits', async () => {
+  it('takes rules only as JSON from the app, with a valid files pattern', async () => {
     const rules = rulesLayer();
     const { app } = setup(scripted().run, { extra: rules.layer });
-    const form = await app.request('/api/rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ rules: [] }),
-    });
-    expect(form.status).toBe(403);
-    const many = await app.request('/api/rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules: Array.from({ length: 21 }, (_, i) => `Flag ${i}`) }),
-    });
-    expect(many.status).toBe(400);
-    expect(rules.saved()).toEqual(['Flag A']);
+    const put = (contentType: string, body: unknown) =>
+      app.request('/api/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: JSON.stringify(body),
+      });
+    expect((await put('text/plain', { sets: [] })).status).toBe(403);
+    expect((await put('application/json', { sets: [{ files: '(', rules: ['Flag A'] }] })).status).toBe(400);
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
   });
 
   it('has no rules when the backend keeps none', async () => {
