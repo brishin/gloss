@@ -47,7 +47,7 @@ export type ChatEvent =
   | { type: 'tool'; id: string; name: string; input: unknown; state: 'running' | 'done' | 'failed' };
 
 export interface ChatRequest {
-  /** `provider/model`: a chat asks the model that wrote the tour, which may not be today's tier. */
+  /** `provider/model`: one of `config().ask.models`. */
   model: string;
   system: string;
   prompt: string;
@@ -66,7 +66,11 @@ export class ModelClient extends Context.Service<
   ModelClient,
   {
     /** `provider/model` per tier; part of every cache key. */
-    config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'> & { small: string };
+    config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'> & {
+      small: string;
+      /** The models a question may go to, and the one it goes to when it names none. */
+      ask: { models: readonly string[]; default: string };
+    };
     prompt<S extends v.GenericSchema>(
       request: ModelRequest<S>,
     ): Effect.Effect<ModelResponse<v.InferOutput<S>>, ModelError>;

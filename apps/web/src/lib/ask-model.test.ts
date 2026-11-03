@@ -29,6 +29,17 @@ describe('updateAsk', () => {
     ]);
   });
 
+  test('a picked model is kept, sent with each question, and wins over a saved one', () => {
+    const [picked, cmds] = updateAsk(ask(), { type: 'AskModelPicked', model: 'p/large' }, TOUR);
+    expect(cmds).toEqual([{ type: 'SaveAskModel', model: 'p/large' }, { type: 'FocusAsk' }]);
+    const [, start] = updateAsk({ ...picked, draft: 'Why?' }, { type: 'AskSubmitted' }, TOUR);
+    expect(start[0]).toMatchObject({ type: 'StartAsk', request: { model: 'p/large' } });
+    const loaded = (model: AskModel) =>
+      updateAsk(model, { type: 'AskLoaded', diffId: 'd1', turns: [], model: 'p/small' }, TOUR)[0].model;
+    expect(loaded(ask())).toBe('p/small');
+    expect(loaded(picked)).toBe('p/large');
+  });
+
   test('nothing is asked while the tour runs, while an answer streams, or with a blank draft', () => {
     expect(updateAsk(ask({ draft: 'Why?' }), { type: 'AskSubmitted' }, undefined)[1]).toEqual([]);
     expect(updateAsk(ask({ draft: '  ' }), { type: 'AskSubmitted' }, TOUR)[1]).toEqual([]);

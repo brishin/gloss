@@ -118,14 +118,14 @@ describe('describeContext', () => {
 });
 
 describe('runAsk', () => {
-  it('asks the define model with the tour, the numbered diff and the thread, and streams the answer', async () => {
+  it('asks the default model with the tour, the numbered diff and the thread, and streams the answer', async () => {
     const model = createFakeModelClient({ answers: {}, chat: () => 'No: see [repos.ts:12](f1:12) and [x](f1:99).' });
     const events = await collect(model, {
       context: { fileId: 'f1', side: 'additions', from: 11, to: 12 },
       history: [{ question: 'Who reads it?', answer: 'The tour.' }],
     });
     const request = model.chats[0]!;
-    expect(request.model).toBe('p/define');
+    expect(request.model).toBe('fake/mid');
     expect(request.tools.map((tool) => tool.name)).toEqual(['read_file']);
     expect(request.prompt).toContain('+ 12 d');
     expect(request.prompt).toContain('- f1:11: Renamed into place.');
@@ -141,7 +141,7 @@ describe('runAsk', () => {
     ).toBe('No: see [repos.ts:12](f1:12) and [x](f1:99).');
     expect(events.at(-1)).toEqual({
       type: 'ask.done',
-      model: 'p/define',
+      model: 'fake/mid',
       refs: [{ fileId: 'f1', side: 'additions', line: 12 }],
     });
   });

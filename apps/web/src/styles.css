@@ -2394,6 +2394,11 @@
     padding: 0 var(--spacing-1) var(--spacing-1);
   }
 
+  /* The footer sits further in than the text box: pull the picker's label onto the text's edge. */
+  .ask-model {
+    margin-inline-start: calc(-1 * var(--spacing-2));
+  }
+
   .ask-context {
     display: flex;
     align-items: center;

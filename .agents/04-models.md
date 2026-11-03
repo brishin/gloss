@@ -8,7 +8,9 @@
   turn. `useAgentFinish` reminds a model that answered in prose, at most twice.
   Schemas are passed by id through `stageSchemas` because `initialData` must be JSON.
 - **Ask**: `ModelClient.chat` runs the `GlossAsk` agent (`ask-agent.ts`), a fresh prose
-  conversation on the tour's recorded `define` model (thinking from the `define` tier). Its tools
+  conversation on the model the reader picked from `config.ask` (thinking from the `define` tier).
+  `ask.models` defaults to the notes tier's provider profile, fast to strong, starting on the mid
+  model (Claude Sonnet, GPT Sol); `~/.gloss/config.json` can set `ask: { models, default }`. Its tools
   come from the request by id (`askTools`), like stage schemas; today only `read_file`
   (`runAsk` in `packages/core/src/pipeline/ask.ts`, through `Repos.contents`). Text and tool
   calls stream to `onEvent` from Flue's `message-delta` / `tool-input` / `tool-output` chunks.

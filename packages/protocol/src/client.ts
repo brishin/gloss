@@ -37,6 +37,8 @@ export const HealthSchema = v.object({
   pipelineVersion: v.string(),
   judge: v.object({ available: v.boolean(), model: v.optional(v.string()) }),
   models: v.object({ define: v.string(), followup: v.string(), notes: v.string() }),
+  /** The models the Ask panel offers (fast to strong) and the one it starts on. Missing on older servers. */
+  ask: v.optional(v.object({ models: v.array(v.object({ id: v.string(), name: v.string() })), default: v.string() })),
   providers: v.array(
     v.object({
       id: v.string(),
