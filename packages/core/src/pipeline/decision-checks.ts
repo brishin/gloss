@@ -1,4 +1,5 @@
 import type { FileChange } from '@gloss/protocol';
+import { hashOf } from '../hash.ts';
 import { looksLikeTest } from './heuristics.ts';
 
 /**
@@ -69,3 +70,10 @@ export function checksSection(
   if (applicable.length === 0) return [];
   return ['', '## Reviewer checks', INTRO, ...applicable.map((check) => `- ${check.text}`)];
 }
+
+/**
+ * Part of the finished-tour cache key. Per-call caches already hash the prompt text, but a
+ * finished tour is replayed before any notes prompt is built, so without this a Python tour
+ * cached before a check changed would never run the new checks.
+ */
+export const CHECKS_VERSION = hashOf({ INTRO, checks: DECISION_CHECKS.map((check) => check.text) }).slice(0, 12);

@@ -28,6 +28,7 @@ import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from 
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
 import { DiffSources, readRepoFile } from '../sources/index.ts';
+import { CHECKS_VERSION } from './decision-checks.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -90,7 +91,16 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
 }> {}
 
 export function tourCacheKey(sourceKey: string, fingerprint: string, models: ModelConfig): string {
-  return hashOf({ kind: 'tour', PIPELINE_VERSION, PROMPTS_VERSION, QUESTIONS_VERSION, sourceKey, fingerprint, models });
+  return hashOf({
+    kind: 'tour',
+    PIPELINE_VERSION,
+    PROMPTS_VERSION,
+    QUESTIONS_VERSION,
+    CHECKS_VERSION,
+    sourceKey,
+    fingerprint,
+    models,
+  });
 }
 
 /** The trace of the run that produced a cached tour, so its debug view outlives the job. */
