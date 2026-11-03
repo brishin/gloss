@@ -47,11 +47,12 @@ call tree as flat frames with a depth plus steps of `{title, text, frames, excer
 `{fileId, hunkId, from, to}` on new-side lines. The web app shows it as a read-only section
 between the overview and the groups.
 
-**Ask** (`ask.ts`): `POST /api/ask` takes `{ tour, question, context?, history }` and answers as
+**Ask** (`ask.ts`): `POST /api/ask` takes `{ tour, question, context?, history, model? }` and answers as
 SSE `AskEvent`s (`ask.delta`, `ask.tool`, then `ask.done { model, refs }` or `ask.failed`);
 `reduceAskEvent` is the only interpretation. The backend keeps no thread: the client sends the
 finished tour and the answered turns, and the backend reads the diff from its cache by
-`tour.diffId`. Closing the request stops the model. Answers cite lines as `[label](fileId:line)`
+`tour.diffId`. `model` is one of `Health.ask.models` (the panel's model picker); any other, or none,
+gets `Health.ask.default`. Closing the request stops the model. Answers cite lines as `[label](fileId:line)`
 (`fileId:-line` for removed lines); `refs` lists only the citations `citedRefs` found in the diff,
 and the web app links only those. Threads are saved per diff in the browser (`gloss.ask.<diffId>`).
 

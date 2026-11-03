@@ -10,11 +10,15 @@ import {
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Markdown } from '@astryxdesign/core/Markdown';
+import { Selector } from '@astryxdesign/core/Selector';
 import { Text } from '@astryxdesign/core/Text';
+import { useAtomValue } from '@effect/atom-react';
 import { type AskAnswer, type FileSummary, parseAskRef } from '@gloss/protocol';
+import { AsyncResult } from 'effect/reactivity';
 import { XIcon } from 'lucide-react';
 import { type KeyboardEvent, memo } from 'react';
 import { type AskModel, checkedRef, contextLabel } from '../lib/ask-model.ts';
+import { healthAtom } from '../lib/client.ts';
 import type { Msg } from '../lib/tour-model.ts';
 
 /** How a checked citation's link reads once rewritten: a fragment, so the browser never follows it. */
@@ -34,14 +38,23 @@ export function linkRefs(answer: AskAnswer): string {
   });
 }
 
-const Answer = memo(function Answer({ answer, onJump }: { answer: AskAnswer; onJump: (fileId: string) => void }) {
+const Answer = memo(function Answer({
+  answer,
+  onJump,
+  modelName,
+}: {
+  answer: AskAnswer;
+  onJump: (fileId: string) => void;
+  /** The answering model's display name, when the backend offers it. */
+  modelName?: string;
+}) {
   const streaming = answer.state === 'streaming';
   return (
     <ChatMessage
       sender="assistant"
       metadata={
         answer.state === 'done' ? (
-          <ChatMessageMetadata timestamp={answer.model} />
+          <ChatMessageMetadata timestamp={modelName ?? answer.model} />
         ) : answer.state === 'stopped' ? (
           <ChatMessageMetadata timestamp="Stopped" />
         ) : undefined
@@ -84,23 +97,24 @@ const Answer = memo(function Answer({ answer, onJump }: { answer: AskAnswer; onJ
 
 /**
  * The Ask panel: a card floating at the right edge of the tour page, so the tour does not move
- * under the reader. Questions go to the model that wrote the tour, with the diff and the tour
- * as its context. All state is in the tour program's model (`ask-model.ts`).
+ * under the reader. Questions go to the model picked under the text box (the backend's offer,
+ * from health), with the diff and the tour as its context. All state is in the tour program's
+ * model (`ask-model.ts`).
  */
 export function AskPanel({
   ask,
   files,
-  model,
   enabled,
   dispatch,
 }: {
   ask: AskModel;
   files: readonly FileSummary[];
-  /** The model that wrote the tour, which answers. */
-  model: string | undefined;
   enabled: boolean;
   dispatch: (msg: Msg) => void;
 }) {
+  const offer = AsyncResult.getOrElse(useAtomValue(healthAtom), () => undefined)?.ask;
+  // A pick the backend no longer offers falls back to its default, as the backend does.
+  const model = offer?.models.find((m) => m.id === ask.model) ?? offer?.models.find((m) => m.id === offer.default);
   const streaming = ask.turns.some((turn) => turn.answer.state === 'streaming');
   const pending = contextLabel(ask.context, files);
   const onJump = (fileId: string) => dispatch({ type: 'FileJumped', fileId });
@@ -140,6 +154,21 @@ export function AskPanel({
         isStopShown={streaming}
         onStop={() => dispatch({ type: 'AskStopClicked' })}
         isDisabled={!enabled}
+        footerActions={
+          offer && offer.models.length > 1 && model ? (
+            <Selector
+              label="Model"
+              isLabelHidden
+              variant="ghost"
+              size="sm"
+              // The composer sits at the bottom of the panel: open upward, over the thread.
+              placement="above"
+              options={offer.models.map((m) => ({ value: m.id, label: m.name }))}
+              value={model.id}
+              onChange={(id) => dispatch({ type: 'AskModelPicked', model: id })}
+            />
+          ) : undefined
+        }
       />
     </div>
   );
@@ -176,15 +205,18 @@ export function AskPanel({
                   )}
                   <ChatMessageBubble>{turn.question}</ChatMessageBubble>
                 </ChatMessage>,
-                <Answer key={`a${turn.id}`} answer={turn.answer} onJump={onJump} />,
+                <Answer
+                  key={`a${turn.id}`}
+                  answer={turn.answer}
+                  onJump={onJump}
+                  modelName={offer?.models.find((m) => m.id === turn.answer.model)?.name}
+                />,
               ];
             })}
           </ChatMessageList>
         ) : (
           <div className="ask-empty">
-            <Text color="secondary">
-              {model ?? 'The model'}, which wrote this tour, answers with the diff and the tour in context.
-            </Text>
+            <Text color="secondary">Answers draw on the diff and the tour.</Text>
           </div>
         )}
       </ChatLayout>

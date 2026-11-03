@@ -29,6 +29,8 @@ export const AskRequestSchema = v.object({
   question: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(4000)),
   context: v.optional(AskContextSchema),
   history: v.optional(v.array(AskTurnSchema), []),
+  /** `provider/model`, one of `Health.ask.models`; the backend's default when missing or not offered. */
+  model: v.optional(v.string()),
 });
 export type AskRequest = v.InferInput<typeof AskRequestSchema>;
 
