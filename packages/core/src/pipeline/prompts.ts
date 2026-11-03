@@ -300,10 +300,6 @@ export const NotesSchema = v.object({
 });
 
 /**
- * How to draw the sketch, from the bake-off's hand-drawn figures (the style Brian liked) and
- * the artifact diagramming guidance.
- */
-/**
  * One-way doors are the decisions a reviewer most needs to agree with on purpose, so both
  * decision passes look for them first. SQL migrations are the commonest kind: the notes pass
  * pins each one in its file, so the define pass gets only the rollout half of the rule, or it
@@ -315,6 +311,11 @@ const MIGRATION_ROLLOUT = `A later pass pins each SQL migration's schema change,
 
 const MIGRATION_PIN = `SQL migrations are always key decisions: any migration file, raw DDL, or ORM change that alters the database schema. For each migration file in this group, pin exactly one decision to its first statement that drops, renames or rewrites data, or else its first schema statement. Name what it changes (a table or column added, dropped or renamed, a table rebuilt by copy and drop, a type or nullability change, a new constraint or index, a backfill or data rewrite) and whether it can be rolled back, for a backfill the value it writes and what that value gets wrong, and fold any other choice the file makes, such as a cascade or a JSON column, into it. Rate one that drops or rewrites data, cannot be rolled back, or locks a large table urgent, and any other migration high, never medium or low. Pin it even when the change-wide list mentions the migration: that list covers rollout, and this decision names the schema change.`;
 
+/**
+ * How to draw the sketch, from the bake-off's hand-drawn figures (the style Brian liked) and
+ * the artifact diagramming guidance. Its colors are roles: the web app's .visual-sketch
+ * styles map each one to a theme token, so keep the two lists in step.
+ */
 const SKETCH_GUIDE = `Drawing the sketch. Draw it as the engineer who has to live with the decision, like a figure in a design doc:
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step or edge the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over the request plumbing every feature shares. Write the caption first, then draw every noun it names as a box: if it says "plus recent tours", recent tours is a box, and if it says "before", there is a BEFORE band.
 - Color only the part that differs: accent (stroke #5b4cc4, stroke-width 1.5, fill none) for what the change adds, bad (stroke #cf222e, stroke-dasharray "4 3", fill none) for what it removes or fixes. One accent at most. A part that only sometimes exists is a box with stroke-dasharray "4 3" in #8c959f.

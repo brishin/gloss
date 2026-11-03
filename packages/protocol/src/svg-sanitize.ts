@@ -2,7 +2,8 @@
  * The trust boundary for model-drawn SVG. An allowlist, not a filter: the markup is parsed
  * into tags and text, any element outside the list rejects the whole picture, attributes
  * outside the list are dropped, and the picture is written back out from what survived.
- * The client also shows it only as an `<img>`, where no script or link can run.
+ * The normalizer runs it on model output, and the web app runs it again before it inlines
+ * the picture, so a cached or remote tour is held to the same list.
  */
 const ELEMENTS = new Set([
   'svg',

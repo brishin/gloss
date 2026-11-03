@@ -9,9 +9,9 @@ import type {
   Walkthrough,
   WalkStep,
 } from '@gloss/protocol';
+import { sanitizeSvg } from '@gloss/protocol';
 import type * as v from 'valibot';
 import type { DefineSchema, NotesSchema, SketchSchema, WalkthroughResultSchema } from './prompts.ts';
-import { sanitizeSvg } from './svg-sanitize.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
 function visibleLines(hunk: FileChange['hunks'][number]): { additions: Set<number>; deletions: Set<number> } {
