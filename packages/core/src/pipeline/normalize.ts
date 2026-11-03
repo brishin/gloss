@@ -783,9 +783,9 @@ function cappedEnd(rows: readonly { at: number; kind: string }[], from: number, 
 }
 
 /**
- * An excerpt the diff can show: a known file and the hunk that holds `from` (or `to`; the id is
+ * An excerpt the diff can show: a known file and the hunk that shows most of its lines (the id is
  * only a hint), its range clamped to the hunk, then trimmed to the changes in it plus a little
- * context. With neither line in the diff, the named hunk's changes show.
+ * context. With none of its lines in the diff, the named hunk's changes show.
  */
 function normalizeExcerpt(
   raw: { fileId?: string; hunkId?: string; from?: number; to?: number },
@@ -800,15 +800,19 @@ function normalizeExcerpt(
   if (from > to) {
     [from, to] = [to, from];
   }
-  // The lines win over the id: a hint that names another hunk would show unrelated code.
-  const holds = (candidate: FileChange['hunks'][number], line: number) =>
-    hunkRows(candidate).some((row) => row.kind !== '-' && row.at === line);
-  const hinted = (candidate: FileChange['hunks'][number]) => candidate.id === raw.hunkId;
-  const hunk =
-    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, from)) ??
-    file.hunks.find((candidate) => holds(candidate, from)) ??
-    file.hunks.find((candidate) => holds(candidate, to)) ??
-    file.hunks.find(hinted);
+  // The lines win over the id: the hunk that shows most of `from`..`to`, the named one on a tie,
+  // since a hint that names another hunk would show unrelated code, and a range that starts on
+  // the last line of one hunk means the next.
+  const inRange = (candidate: FileChange['hunks'][number]) =>
+    hunkRows(candidate).filter((row) => row.kind !== '-' && row.at >= from && row.at <= to).length;
+  let hunk = file.hunks.find((candidate) => candidate.id === raw.hunkId);
+  let most = hunk ? inRange(hunk) : 0;
+  for (const candidate of file.hunks) {
+    const count = inRange(candidate);
+    if (count > most) {
+      [hunk, most] = [candidate, count];
+    }
+  }
   if (!hunk) {
     return undefined;
   }

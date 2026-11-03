@@ -852,6 +852,10 @@ describe('normalizeWalkthrough call paths', () => {
     const excerpt = { fileId: 'f4', hunkId: 'a', from: 21, to: 23 };
     const { walkthrough } = walk({ steps: [step([excerpt]), step([excerpt])] }, [split]);
     expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f4', hunkId: 'b', from: 21, to: 23 }]);
+    // A range that starts on the last line of one hunk reads the next one.
+    const across = { fileId: 'f4', hunkId: 'a', from: 5, to: 24 };
+    const next = walk({ steps: [step([across]), step([across])] }, [split]);
+    expect(next.walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f4', hunkId: 'b', from: 20, to: 24 }]);
   });
 
   it('keeps call paths next to decision entries', () => {
