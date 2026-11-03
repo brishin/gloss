@@ -43,6 +43,11 @@ describe('reverseApply', () => {
     expect(() => reverseApply('1\ninserted\n2\nTWO\n4\n', patch)).toThrow(StaleFileError);
   });
 
+  it('leaves a file with no hunks (a rename) as it is', () => {
+    expect(reverseApply('a\nb\n', [])).toBe('a\nb\n');
+    expect(reverseApply('a\nb', [])).toBe('a\nb');
+  });
+
   it('rebuilds a large file', () => {
     const tail = Array.from({ length: 200_000 }, (_, i) => `line ${i}`).join('\n');
     expect(reverseApply(`NEW\n${tail}\n`, hunks('@@ -1 +1 @@\n-old\n+NEW'))).toBe(`old\n${tail}\n`);
