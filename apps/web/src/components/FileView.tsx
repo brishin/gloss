@@ -242,8 +242,14 @@ export const FileView = memo(function FileView({
           Viewed
         </label>
       </header>
-      {expanded && fileNotes.length + fileDecisions.length > 0 && (
+      {expanded && risks.length + fileNotes.length + fileDecisions.length > 0 && (
         <div className="file-notes">
+          {/* A confirmed risk is a warning flag on its file, read before the file's other flags. */}
+          {risks.map((risk, index) => (
+            <FlagCard key={`r${index}`} level="warning">
+              {risk.text}
+            </FlagCard>
+          ))}
           {fileDecisions.map((decision, index) => (
             <DecisionCard key={`d${index}`} decision={decision} />
           ))}
