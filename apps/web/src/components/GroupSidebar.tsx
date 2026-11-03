@@ -28,6 +28,7 @@ import {
   STACK_NODE,
 } from '../lib/sidebar-tree.ts';
 import type { Msg } from '../lib/tour-model.ts';
+import { DECISION_STOP } from '../mock/decision-walk.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
@@ -289,7 +290,7 @@ export function GroupSidebar({
               onClick={() => onSelect(WALKTHROUGH)}
             >
               <span className="nav-index" />
-              <span className="nav-label">Walkthrough</span>
+              <span className="nav-label">{DECISION_STOP ? 'Decisions' : 'Walkthrough'}</span>
               <span className="nav-count" />
             </TreeRow>
           )}

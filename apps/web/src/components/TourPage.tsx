@@ -23,6 +23,8 @@ import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { Walkthrough } from './Walkthrough.tsx';
+import { DecisionsStop } from '../mock/DecisionWalk.tsx';
+import { DECISION_STOP, MOCK, useDecisionWalk } from '../mock/decision-walk.ts';
 
 /**
  * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,
@@ -77,6 +79,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     }),
     [expanded, viewed, dispatch, review, reviewer],
   );
+  const decisionWalk = useDecisionWalk();
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
@@ -152,7 +155,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           groups={groups}
           files={files}
           selection={selected}
-          walkthrough={!!state.walkthrough}
+          walkthrough={!!state.walkthrough && MOCK !== 'e'}
           activeFileId={model.activeFileId}
           viewed={viewed}
           loading={running}
@@ -248,14 +251,20 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   running={running}
                   onJumpToFile={jumpToFile}
                   onSelectGroup={select}
+                  diff={diff}
+                  decisionWalk={decisionWalk}
                 />
               ) : (
                 <Skeleton height={160} />
               )}
             </section>
-            {state.walkthrough && (
+            {state.walkthrough && MOCK !== 'e' && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
-                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+                {DECISION_STOP ? (
+                  decisionWalk && <DecisionsStop walk={decisionWalk} diff={diff} onJumpToFile={jumpToFile} />
+                ) : (
+                  <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+                )}
               </section>
             )}
             {groups.map((group) => (

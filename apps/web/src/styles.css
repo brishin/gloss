@@ -2294,4 +2294,505 @@
       border-top: 1px solid var(--color-border);
     }
   }
+
+  /* Mock only (?mock=a-e): decision walkthrough layouts (mock/DecisionWalk.tsx). */
+  .dw-flag {
+    display: inline-flex;
+    align-self: center;
+  }
+
+  .dw-flag .flag-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .dw-mark {
+    flex: none;
+    box-sizing: border-box;
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  .dw-mark[data-role='made'] {
+    background: var(--gloss-ink);
+  }
+
+  .dw-mark[data-role='reaches'] {
+    border: 1.5px solid var(--gloss-ink);
+  }
+
+  .dw-mark[data-role='tested'] {
+    border: 1.5px dashed var(--color-text-secondary);
+  }
+
+  .dw-site-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--color-text-primary);
+  }
+
+  .dw-site-path {
+    flex: none;
+    color: var(--color-text-secondary) !important;
+  }
+
+  .dw-alt {
+    margin: 0;
+    max-width: 72ch;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+
+  .dw-alt span {
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-right: 4px;
+  }
+
+  .dw-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+
+  .dw-links li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .dw-links li > :first-child {
+    align-self: center;
+    flex: none;
+  }
+
+  .dw-link {
+    all: unset;
+    flex: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .dw-link:hover {
+    text-decoration: underline;
+  }
+
+  /* B: the map. Decision links arc in the left gutter; edges cross the middle one. */
+  .dw-map {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(64px, 120px) minmax(0, 1.15fr);
+    align-items: start;
+    padding: var(--spacing-3) var(--spacing-3) var(--spacing-3) 40px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+  }
+
+  .dw-map-edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .dw-map-edges path {
+    fill: none;
+    stroke: var(--color-border-emphasized);
+    stroke-width: 1.25;
+    opacity: 0.55;
+  }
+
+  .dw-map-edges path[data-role='reaches'] {
+    stroke-dasharray: none;
+  }
+
+  .dw-map-edges path[data-on] {
+    stroke: var(--gloss-ink);
+    stroke-width: 1.75;
+    opacity: 1;
+  }
+
+  .dw-map-decisions {
+    grid-column: 1;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .dw-map-decision {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.35;
+    cursor: pointer;
+    background: var(--color-background-body);
+    color: var(--color-text-secondary);
+  }
+
+  .dw-map-decision[data-linked] {
+    color: var(--color-text-primary);
+  }
+
+  .dw-map-decision[data-on] {
+    border-color: var(--gloss-ink);
+    color: var(--color-text-primary);
+    font-weight: 600;
+  }
+
+  .dw-map-code {
+    grid-column: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .dw-map-layer {
+    margin-top: var(--spacing-2);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  .dw-map-layer:first-child {
+    margin-top: 0;
+  }
+
+  .dw-map-node {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 24px;
+    font-size: 12.5px;
+    color: var(--color-text-secondary);
+  }
+
+  .dw-map-node[data-on] {
+    color: var(--color-text-primary);
+  }
+
+  .dw-map-node:not([data-on]) .dw-mark {
+    opacity: 0.45;
+  }
+
+  .dw-map-node-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dw-map-node code {
+    flex: none;
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    background: none;
+    padding: 0;
+  }
+
+  .dw-detail {
+    padding-top: var(--spacing-2);
+  }
+
+  /* C: the call tree pinned to the left of the decisions. */
+  .dw-rail {
+    display: grid;
+    grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
+    gap: var(--spacing-6);
+    align-items: start;
+  }
+
+  .dw-rail-tree {
+    position: sticky;
+    top: calc(var(--sticky-h) + var(--spacing-3));
+    max-height: calc(100vh - var(--sticky-h) - var(--spacing-6));
+    overflow: auto;
+    padding: var(--spacing-2) var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+  }
+
+  .dw-tree .walk-row {
+    gap: 6px;
+  }
+
+  .dw-tree-pins {
+    align-self: center;
+    display: inline-flex;
+    gap: 3px;
+    flex: none;
+  }
+
+  .dw-pin {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-grid;
+    place-items: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border-emphasized);
+    font-size: 10.5px;
+    line-height: 1;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  .dw-pin[data-made] {
+    border-color: var(--gloss-ink);
+    color: var(--gloss-ink);
+  }
+
+  .dw-pin[data-on] {
+    background: var(--gloss-ink);
+    border-color: var(--gloss-ink);
+    color: var(--color-background-body);
+  }
+
+  .walk-row[data-dim] .dw-pin:not([data-on]) {
+    opacity: 1;
+  }
+
+  .dw-tree-at {
+    padding-left: var(--spacing-2) !important;
+  }
+
+  .dw-tree-off {
+    margin: var(--spacing-2) 0 0;
+    padding-top: var(--spacing-2);
+    border-top: 1px solid var(--color-border);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  /* D: decisions down, layers across; cells name what the decision does there. */
+  .dw-grid {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    font-size: 12.5px;
+  }
+
+  .dw-grid thead th {
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    text-align: left;
+  }
+
+  .dw-grid thead th:first-child {
+    width: 30%;
+  }
+
+  .dw-grid-row {
+    cursor: pointer;
+  }
+
+  .dw-grid-row th,
+  .dw-grid-row td {
+    padding: 8px;
+    border-top: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .dw-grid-row td {
+    border-left: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+  }
+
+  .dw-grid-row:hover {
+    background: var(--color-background-surface);
+  }
+
+  .dw-grid-row[data-open] {
+    background: var(--color-background-surface);
+  }
+
+  .dw-grid-row[data-open] td {
+    color: var(--color-text-primary);
+  }
+
+  .dw-grid-row th {
+    text-align: left;
+    font-weight: 400;
+    font-size: 13px;
+  }
+
+  .dw-grid-row[data-open] th {
+    font-weight: 600;
+  }
+
+  .dw-grid-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .dw-grid-site {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    line-height: 1.35;
+  }
+
+  .dw-grid-site + .dw-grid-site {
+    margin-top: 4px;
+  }
+
+  .dw-grid-site .dw-mark {
+    transform: translateY(1px);
+  }
+
+  .dw-grid tbody tr:last-child th,
+  .dw-grid tbody tr:last-child td {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  /* E: the overview's decisions, each opening in place as a thread through the code. */
+  .dw-trace {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-width: 960px;
+    font-size: 13px;
+  }
+
+  .dw-trace > li {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .dw-trace > li:first-child {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .dw-trace-row {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+
+  .dw-trace-row:hover {
+    background: var(--color-background-surface);
+  }
+
+  .dw-trace-title {
+    flex: 1 1 auto;
+  }
+
+  li[data-open] > .dw-trace-row .dw-trace-title {
+    font-weight: 600;
+  }
+
+  .dw-chevron {
+    align-self: center;
+    display: inline-flex;
+    color: var(--color-text-secondary);
+    transition: transform 120ms;
+  }
+
+  li[data-open] > .dw-trace-row .dw-chevron {
+    transform: rotate(90deg);
+  }
+
+  .dw-trace-body {
+    padding: 0 8px var(--spacing-4) 30px;
+  }
+
+  .dw-thread {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .dw-hop {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 20px;
+  }
+
+  /* The thread: a line down the left, a node per hop (filled where the choice is made). */
+  .dw-hop::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0;
+    bottom: calc(-1 * var(--spacing-2));
+    border-left: 1.5px solid var(--color-border-emphasized);
+  }
+
+  .dw-hop:last-child::before {
+    bottom: auto;
+    height: 14px;
+  }
+
+  .dw-hop::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--gloss-ink);
+    background: var(--color-background-body);
+  }
+
+  .dw-hop[data-role='made']::after {
+    background: var(--gloss-ink);
+  }
+
+  .dw-hop[data-role='tested']::after {
+    border-style: dashed;
+    border-color: var(--color-text-secondary);
+  }
+
+  .dw-site[data-shut] .walk-excerpt-head {
+    border-bottom: none;
+  }
+
+  .dw-hop .walk-excerpt-head[onclick],
+  .dw-hop .walk-excerpt-head {
+    cursor: pointer;
+  }
+
+  .dw-hop::after {
+    top: 9px;
+  }
+
 }

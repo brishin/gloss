@@ -8,11 +8,11 @@ import { callLocations, callParents, excerptFile, excerptLabel, stepFrames } fro
 import { unifiedText } from './FileView.tsx';
 
 /** Row height and indent per level, in px. */
-const ROW = 28;
-const INDENT = 22;
-const MARK = 9;
+export const ROW = 28;
+export const INDENT = 22;
+export const MARK = 9;
 
-const EXCERPT_OPTIONS = {
+export const EXCERPT_OPTIONS = {
   diffStyle: 'unified' as const,
   disableFileHeader: true,
   overflow: 'wrap' as const,
@@ -162,7 +162,7 @@ function WalkTree({
 }
 
 /** `code` spans in a step's sentence. */
-function inlineCode(text: string): ReactNode[] {
+export function inlineCode(text: string): ReactNode[] {
   return text
     .split(/(`[^`]+`)/)
     .map((part, index) =>
