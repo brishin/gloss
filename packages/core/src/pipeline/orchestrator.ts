@@ -35,7 +35,7 @@ import {
   groupQuestions,
   judgmentFromFileAnswers,
   judgmentFromGroupAnswers,
-  pickVisual,
+  pickVisuals,
   QUESTIONS_VERSION,
   visualQuestions,
   visualState,
@@ -295,7 +295,7 @@ const tourProgram = Effect.fnUntraced(function* (
       type: 'tour.summary',
       overallSummary: definition.overallSummary,
       decisions,
-      visual: judge ? undefined : visuals[0],
+      visuals: judge ? undefined : visuals.slice(0, 1),
     });
     send({ type: 'groups.defined', keys: definition.groups.map((group) => group.key) });
     stage('define', 'done', `${definition.groups.length} groups`);
@@ -375,7 +375,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 type: 'tour.summary',
                 overallSummary: definition.overallSummary,
                 decisions: definition.decisions,
-                visual: sketch,
+                visuals: [sketch],
               }),
             )
           : Effect.void;
@@ -401,7 +401,7 @@ const tourProgram = Effect.fnUntraced(function* (
         : undefined;
       const judgeState = visualState(meta.title, overallSummary, decisions, visuals, !!images);
       const questions = visualQuestions(visuals.length, !!images);
-      const show = (visual: Visual | undefined) => send({ type: 'tour.summary', overallSummary, decisions, visual });
+      const show = (shown: Visual[]) => send({ type: 'tour.summary', overallSummary, decisions, visuals: shown });
       const visualPrompt = [
         judgePrompt(
           questions,
@@ -424,22 +424,22 @@ const tourProgram = Effect.fnUntraced(function* (
         client.model,
       ).pipe(
         Effect.map(({ value, hit }) => {
-          const pick = pickVisual(
+          const shown = pickVisuals(
             visuals.map((visual) => visual.kind),
             value,
-          );
+          ).map((i) => visuals[i]!);
           trace.end('judge-visual', {
             cached: hit,
             output: value,
-            summary: pick === undefined ? 'none shown' : `${visuals[pick]!.kind} shown`,
+            summary: shown.length ? `${shown.map((visual) => visual.kind).join(' + ')} shown` : 'none shown',
           });
-          show(pick === undefined ? undefined : visuals[pick]);
+          show(shown);
         }),
         Effect.catchTag('JudgeError', (error) =>
           Effect.sync(() => {
             warn('judge', `Jev could not pick a visual: ${error.message}`);
             trace.end('judge-visual', { warnings: [error.message] }, 'failed');
-            show(visuals[0]);
+            show(visuals.slice(0, 1));
           }),
         ),
       );

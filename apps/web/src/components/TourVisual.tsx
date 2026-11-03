@@ -7,7 +7,7 @@ const BeforeAfterVisual = lazy(() => import('./BeforeAfterVisual.tsx'));
 type Timeline = Extract<Visual, { kind: 'timeline' }>;
 
 /**
- * The tour's one picture of its main decision. Model output, so it is drawn from data
+ * A picture of the tour's main decision. Model output, so it is drawn from data
  * the normalizer already checked, never from model-written markup.
  */
 export function TourVisual({ visual }: { visual: Visual }) {

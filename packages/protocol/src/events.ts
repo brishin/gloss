@@ -55,7 +55,7 @@ export const TourEventBodySchema = v.variant('type', [
   event('tour.summary', {
     overallSummary: v.string(),
     decisions: v.optional(v.array(DecisionSchema)),
-    visual: v.optional(VisualSchema),
+    visuals: v.optional(v.array(VisualSchema)),
   }),
   event('tour.walkthrough', { walkthrough: WalkthroughSchema }),
   event('file.judged', {

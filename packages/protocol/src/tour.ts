@@ -301,7 +301,12 @@ export const TourSchema = v.object({
   overallSummary: v.optional(v.string()),
   /** Decisions about the change as a whole, not tied to a file. */
   decisions: v.optional(v.array(DecisionSchema)),
-  /** A picture of the change's main decision, when one helps. */
+  /**
+   * Pictures of the change's main decision, when they help: usually one, two only when Jev
+   * rates both highly and they differ in kind.
+   */
+  visuals: v.optional(v.array(VisualSchema)),
+  /** The single picture of tours written before `visuals`; read as `visuals: [visual]`. */
   visual: v.optional(VisualSchema),
   /** The call path in reading order, when the change is one. */
   walkthrough: v.optional(WalkthroughSchema),

@@ -41,7 +41,8 @@ export interface TourState {
   overallSummary?: string;
   /** Decisions about the change as a whole; per-group ones live in `notes`. */
   decisions?: Decision[];
-  visual?: Visual;
+  /** At most two pictures of the main decision; empty or absent shows none. */
+  visuals?: Visual[];
   walkthrough?: Walkthrough;
   judgments: Record<string, FileJudgment>;
   placements: Record<string, Placement>;
@@ -116,7 +117,7 @@ export function reduceTourEvent(state: TourState, event: TourEvent | TourEventBo
       return { ...next, definitions, definitionsDone: true };
     }
     case 'tour.summary':
-      return { ...next, overallSummary: event.overallSummary, decisions: event.decisions, visual: event.visual };
+      return { ...next, overallSummary: event.overallSummary, decisions: event.decisions, visuals: event.visuals };
     case 'tour.walkthrough':
       return { ...next, walkthrough: event.walkthrough };
     case 'file.judged':
@@ -155,7 +156,7 @@ function hydrateFromTour(state: TourState, tour: Tour, cached: boolean): TourSta
     files: tour.files,
     overallSummary: tour.overallSummary,
     decisions: tour.decisions,
-    visual: tour.visual,
+    visuals: tour.visuals ?? (tour.visual ? [tour.visual] : undefined),
     walkthrough: tour.walkthrough,
     definitions: tour.groups.map(({ key, label, summary, category }) => ({ key, label, summary, category })),
     definitionsDone: true,
@@ -181,7 +182,7 @@ export function tourFromState(state: TourState): Tour | undefined {
     files: state.files,
     overallSummary: state.overallSummary,
     decisions: state.decisions,
-    visual: state.visual,
+    visuals: state.visuals,
     walkthrough: state.walkthrough,
     groups: state.resolved,
     placements: state.placements,

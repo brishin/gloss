@@ -115,7 +115,9 @@ export const Overview = memo(function Overview({
         </div>
       </header>
 
-      {state.visual && <TourVisual visual={state.visual} />}
+      {state.visuals?.map((visual, index) => (
+        <TourVisual key={index} visual={visual} />
+      ))}
 
       {decisions.length > 0 && (
         <section className="section">
