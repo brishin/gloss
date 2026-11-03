@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { isGithubAssetUrl } from './asset.ts';
 import type { GlossClient } from './client.ts';
 import { DiffPayloadSchema, FileContentsSchema } from './diff.ts';
 import { isTerminal, type TourEvent, TourEventSchema } from './events.ts';
@@ -48,6 +49,14 @@ export interface CaptureOptions {
 }
 
 const ATTACHMENT_URL = /https:\/\/github\.com\/[^\s"'<>()[\]]+/g;
+/** Images a description shows from anywhere else: Markdown `![](url)` and HTML `src="url"`. */
+const IMAGE_URL = /!\[[^\]]*\]\((https:\/\/[^\s)]+)|\ssrc=["'](https:\/\/[^"']+)["']/g;
+
+/** Every URL a description loads: GitHub attachments (resolved by the backend) and other images. */
+export function descriptionMedia(body: string): string[] {
+  const images = [...body.matchAll(IMAGE_URL)].map((match) => (match[1] ?? match[2])!);
+  return [...new Set([...(body.match(ATTACHMENT_URL) ?? []), ...images])];
+}
 
 /** Runs (or replays) the tour for `ref` on a backend and reads everything its page needs. */
 export async function captureTourSnapshot(
@@ -98,9 +107,10 @@ export async function captureTourSnapshot(
   const assets: TourSnapshot['assets'] = {};
   const load = options.fetch ?? fetch;
   const bodies = Object.values(diffs).map((diff) => diff.meta.description ?? '');
-  for (const url of new Set(bodies.flatMap((body) => body.match(ATTACHMENT_URL) ?? []))) {
-    const data = await client
-      .asset(url)
+  for (const url of new Set(bodies.flatMap(descriptionMedia))) {
+    // The page shows other hosts' images directly; an export embeds those too, so it fetches nothing.
+    const resolved = isGithubAssetUrl(url) ? client.asset(url) : Promise.resolve({ url, contentType: undefined });
+    const data = await resolved
       .then(async (asset) => {
         const response = await load(asset.url);
         if (!response.ok) return undefined;

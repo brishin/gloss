@@ -3,7 +3,13 @@ import type { GlossClient } from './client.ts';
 import type { DiffPayload, FileContents } from './diff.ts';
 import type { TourEvent, TourEventBody } from './events.ts';
 import { initialTourState, reduceTourEvent } from './reducer.ts';
-import { captureTourSnapshot, createSnapshotGlossClient, fileKey, parseTourSnapshot } from './snapshot.ts';
+import {
+  captureTourSnapshot,
+  createSnapshotGlossClient,
+  descriptionMedia,
+  fileKey,
+  parseTourSnapshot,
+} from './snapshot.ts';
 import type { Tour } from './tour.ts';
 
 const ref = { kind: 'github-pr' as const, owner: 'o', repo: 'r', number: 1 };
@@ -97,6 +103,18 @@ describe('tour snapshots', () => {
     expect(Object.keys(snapshot.diffs)).toEqual(['d']);
     expect(Object.keys(snapshot.files)).toHaveLength(2);
     expect(Object.keys(snapshot.assets)).toHaveLength(1);
+  });
+
+  test('find every image a description loads', () => {
+    expect(
+      descriptionMedia(
+        'a https://github.com/user-attachments/assets/x-1 ![s](https://user-images.githubusercontent.com/1/a.png) <img width="5" src="https://example.com/b.gif">',
+      ),
+    ).toEqual([
+      'https://github.com/user-attachments/assets/x-1',
+      'https://user-images.githubusercontent.com/1/a.png',
+      'https://example.com/b.gif',
+    ]);
   });
 
   test('keep whole files only up to the limit', async () => {

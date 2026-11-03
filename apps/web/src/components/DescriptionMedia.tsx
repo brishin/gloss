@@ -3,7 +3,7 @@ import { useAtomRefresh, useAtomValue } from '@effect/atom-react';
 import { isGithubAssetUrl } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
 import { type MouseEvent, useRef, useState } from 'react';
-import { assetAtom } from '../lib/client.ts';
+import { assetAtom, isExport } from '../lib/client.ts';
 
 /**
  * An image in a PR description. GitHub attachments need the viewer's login on private
@@ -11,7 +11,8 @@ import { assetAtom } from '../lib/client.ts';
  * (GitHub embeds uploaded videos as a bare URL) plays inline.
  */
 export function DescriptionMedia({ src, alt }: { src: string; alt: string }) {
-  if (!isGithubAssetUrl(src)) {
+  // An export serves every description image itself (embedded), so it asks for them all.
+  if (!isGithubAssetUrl(src) && !isExport()) {
     return <ZoomableImage src={src} alt={alt} />;
   }
   return <GithubAsset src={src} alt={alt} />;
