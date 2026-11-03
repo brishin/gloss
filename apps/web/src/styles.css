@@ -2252,7 +2252,8 @@
     padding: 0 var(--spacing-5);
   }
 
-  .step-warnings {
+  .step-warnings,
+  .step-reads {
     margin: 0 var(--spacing-5) var(--spacing-3);
     padding: var(--spacing-2) var(--spacing-3);
     border-radius: 6px;
@@ -2260,7 +2261,8 @@
     color: var(--color-text-secondary);
   }
 
-  .step-warnings strong {
+  .step-warnings strong,
+  .step-reads strong {
     color: var(--color-text-primary);
   }
 
@@ -2292,6 +2294,106 @@
     .inspector-pane + .inspector-pane {
       border-left: none;
       border-top: 1px solid var(--color-border);
+    }
+  }
+
+  /* Ask: a card floating at the right edge, under the top bar, so the tour does not move. */
+  /* Inset by the top bar's own padding, so its right edge lines up with the toolbar's last button. */
+  .ask-panel {
+    position: fixed;
+    z-index: 30;
+    top: calc(var(--topbar-h) + var(--spacing-3));
+    right: var(--spacing-3);
+    bottom: var(--spacing-3);
+    display: flex;
+    flex-direction: column;
+    width: 400px;
+    background: var(--color-background-surface);
+    border: 1px solid var(--color-border);
+    /* The radius of the app's cards and inputs; Astryx's chat pill radius follows it inside. */
+    border-radius: var(--radius-element);
+    --radius-chat: var(--radius-element);
+    box-shadow: var(--shadow-high);
+    overflow: hidden;
+  }
+
+  .ask-panel > :last-child {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /*
+   * One inset (spacing-3) on every side of the content. Astryx's chat rules are unlayered
+   * stylex, so the two it sets itself (the list's padding, the bubble) need !important.
+   */
+  .ask-thread > :first-child {
+    padding-bottom: 0 !important;
+  }
+
+  .ask-thread [role='log'] > div {
+    padding: var(--spacing-3) !important;
+  }
+
+  .ask-thread .astryx-chat-message-bubble {
+    padding: var(--spacing-2) var(--spacing-3) !important;
+    border-radius: var(--radius-element) !important;
+  }
+
+  .ask-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--topbar-h);
+    padding: 0 var(--spacing-2) 0 var(--spacing-3);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .ask-empty {
+    padding: var(--spacing-3);
+  }
+
+  .ask-answer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+  }
+
+  /* The lines a question was about, set on the bubble's text inset. */
+  .ask-quote {
+    align-self: flex-end;
+    padding: 0 var(--spacing-3) var(--spacing-0-5);
+  }
+
+  .ask-error {
+    color: var(--color-error);
+  }
+
+  /* The layout's dock insets the composer by spacing-2; this brings it out to the gutter. */
+  .ask-composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-1) var(--spacing-1);
+  }
+
+  .ask-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: var(--spacing-2);
+  }
+
+  @media (max-width: 767px) {
+    .ask-panel {
+      top: auto;
+      right: 0;
+      left: 0;
+      bottom: 0;
+      width: auto;
+      height: 75vh;
+      border-width: 1px 0 0;
+      border-radius: var(--radius-container) var(--radius-container) 0 0;
     }
   }
 }

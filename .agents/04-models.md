@@ -7,6 +7,11 @@
   stage's valibot schema. `submit` writes the `result` data part and terminates the
   turn. `useAgentFinish` reminds a model that answered in prose, at most twice.
   Schemas are passed by id through `stageSchemas` because `initialData` must be JSON.
+- **Ask**: `ModelClient.chat` runs the `GlossAsk` agent (`ask-agent.ts`), a fresh prose
+  conversation on the tour's recorded `define` model (thinking from the `define` tier). Its tools
+  come from the request by id (`askTools`), like stage schemas; today only `read_file`
+  (`runAsk` in `packages/core/src/pipeline/ask.ts`, through `Repos.contents`). Text and tool
+  calls stream to `onEvent` from Flue's `message-delta` / `tool-input` / `tool-output` chunks.
 - **Auth**: gloss owns a pi-ai `Models` registry (`registry.ts`) with a
   `FileCredentialStore` at `~/.gloss/auth.json`. `gloss login claude|chatgpt` runs
   `models.login(provider, 'oauth', …)`. Flue gets `bridgedProviders()`: each provider

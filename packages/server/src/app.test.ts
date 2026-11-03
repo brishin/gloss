@@ -7,7 +7,7 @@ import {
   StaleFileError,
   TourCache,
 } from '@gloss/core';
-import type { Tour, TourEvent, TourEventBody } from '@gloss/protocol';
+import type { AskEvent, DiffPayload, Tour, TourEvent, TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
 import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -568,5 +568,36 @@ describe('update API', () => {
       body: '{}',
     });
     expect([form.status, other.status, applied]).toEqual([403, 403, 0]);
+  });
+});
+
+describe('ask API', () => {
+  const diff: DiffPayload = { id: 'd', ref, sourceKey: 'k', fingerprint: 'x', meta: tour.meta, files: [] };
+
+  it('streams the answer of the model that wrote the tour', async () => {
+    const model = createFakeModelClient({ answers: {}, chat: (request) => `Asked ${request.model}.` });
+    const { client, runtime } = setup(scripted().run, { model });
+    await runtime.runPromise(TourCache.use((cache) => Effect.sync(() => cache.put('d', 'diff', diff))));
+    const events: AskEvent[] = [];
+    for await (const event of client.ask({ tour, question: 'Why?' })) {
+      events.push(event);
+    }
+    expect(events.map((event) => (event.type === 'ask.delta' ? event.text : event.type)).join('')).toBe(
+      'Asked a.ask.done',
+    );
+  });
+
+  it('refuses a tour whose diff is not cached, and a blank question', async () => {
+    const { client } = setup(scripted().run);
+    await expect(async () => {
+      for await (const _ of client.ask({ tour, question: 'Why?' })) {
+        // Nothing streams.
+      }
+    }).rejects.toThrow(/Unknown diff/);
+    await expect(async () => {
+      for await (const _ of client.ask({ tour, question: '  ' })) {
+        // Nothing streams.
+      }
+    }).rejects.toThrow(/Invalid request/);
   });
 });

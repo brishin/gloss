@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { type AskEvent, type AskRequest, parseAskEvent } from './ask.ts';
 import { type ResolvedAsset, ResolvedAssetSchema } from './asset.ts';
 import { parseSseStream } from './codec.ts';
 import type { DiffPayload, FileContents } from './diff.ts';
@@ -80,6 +81,8 @@ export interface GlossClient {
   /** Replays the job's log after `after`, then follows it live until a terminal event. */
   events(jobId: string, options?: { after?: number; signal?: AbortSignal }): AsyncIterable<TourEvent>;
   abort(jobId: string): Promise<void>;
+  /** Asks the model that wrote a finished tour about it; the answer streams until done or failed. Abort to stop it. */
+  ask(request: AskRequest, options?: { signal?: AbortSignal }): AsyncIterable<AskEvent>;
   diff(diffId: string): Promise<DiffPayload>;
   /** What each pipeline step of the job read and returned, for the pipeline debug view. */
   trace(jobId: string): Promise<Trace>;
@@ -193,6 +196,26 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         }
         await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 250 * 2 ** attempt)));
       }
+    },
+
+    async *ask(body, options = {}) {
+      const response = await request('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+        signal: options.signal,
+      });
+      if (!response.body) {
+        throw new Error('Answer stream has no body');
+      }
+      for await (const event of parseSseStream(response.body, parseAskEvent)) {
+        yield event;
+        if (event.type === 'ask.done' || event.type === 'ask.failed') {
+          return;
+        }
+      }
+      // A dropped connection ends the body without an error; the answer must not hang as streaming.
+      throw new Error('The answer stream ended early');
     },
 
     async abort(jobId) {

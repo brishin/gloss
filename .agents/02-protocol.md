@@ -47,6 +47,14 @@ call tree as flat frames with a depth plus steps of `{title, text, frames, excer
 `{fileId, hunkId, from, to}` on new-side lines. The web app shows it as a read-only section
 between the overview and the groups.
 
+**Ask** (`ask.ts`): `POST /api/ask` takes `{ tour, question, context?, history }` and answers as
+SSE `AskEvent`s (`ask.delta`, `ask.tool`, then `ask.done { model, refs }` or `ask.failed`);
+`reduceAskEvent` is the only interpretation. The backend keeps no thread: the client sends the
+finished tour and the answered turns, and the backend reads the diff from its cache by
+`tour.diffId`. Closing the request stops the model. Answers cite lines as `[label](fileId:line)`
+(`fileId:-line` for removed lines); `refs` lists only the citations `citedRefs` found in the diff,
+and the web app links only those. Threads are saved per diff in the browser (`gloss.ask.<diffId>`).
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

@@ -1,3 +1,5 @@
+import { lstat, readlink, realpath } from 'node:fs/promises';
+import { join, sep } from 'node:path';
 import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/protocol';
 import { Data } from 'effect';
 import { git } from './exec.ts';
@@ -93,15 +95,63 @@ async function readHead(diff: DiffPayload, path: string, signal?: AbortSignal): 
 }
 
 /**
+ * A repository path as a model may name it: relative, with no `.` or `..` segments, so a read
+ * stays inside the repository. Undefined for anything else.
+ */
+export function repoPath(path: string): string | undefined {
+  const trimmed = path.trim().replace(/^\.\//, '');
+  const segments = trimmed.split('/');
+  if (
+    !trimmed ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('-') ||
+    /[\0\\:]/.test(trimmed) ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * Any file of the repository as it reads at the diff's head, changed or not, for a model that
+ * needs code the diff does not show. `path` must already be a `repoPath`. Only a changed file is
+ * read from a working tree; any other file reads as HEAD, which a working-tree diff starts from,
+ * so a read never leaves git's tree.
+ */
+export async function readRepoFile(diff: DiffPayload, path: string, signal?: AbortSignal): Promise<string> {
+  const { ref, meta } = diff;
+  const changed = diff.files.some((file) => file.path === path && file.status !== 'removed');
+  if (ref.kind === 'local' && !meta.headSha) {
+    if (!changed) {
+      return git(ref.repo, ['cat-file', '--textconv', `HEAD:${path}`], { signal });
+    }
+    // The working tree follows symlinks; a changed link reads as its target path, as git stores it,
+    // and nothing outside the repository is read.
+    const full = join(ref.repo, path);
+    if ((await lstat(full)).isSymbolicLink()) {
+      return readlink(full);
+    }
+    const [root, real] = await Promise.all([realpath(ref.repo), realpath(full)]);
+    if (!real.startsWith(root + sep)) {
+      throw new Error(`${path} is outside the repository`);
+    }
+  }
+  return readHead(diff, path, signal);
+}
+
+/**
  * Both sides of a changed file in full, so the page can show the unchanged lines between
- * hunks. Undefined for files without a partial diff to fill in: added, removed, binary, truncated.
+ * hunks, and Ask can read the whole file. A file with no hunks (renamed or mode change only) reads
+ * the same on both sides. Undefined for files whose sides the diff cannot rebuild: added, removed,
+ * binary, truncated.
  */
 export async function readFileContents(
   diff: DiffPayload,
   file: FileChange,
   signal?: AbortSignal,
 ): Promise<FileContents | undefined> {
-  if (file.status === 'added' || file.status === 'removed' || file.isBinary || file.truncated || !file.hunks.length) {
+  if (file.status === 'added' || file.status === 'removed' || file.isBinary || file.truncated) {
     return undefined;
   }
   const newContents = await readHead(diff, file.path, signal);

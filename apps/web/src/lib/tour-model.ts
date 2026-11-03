@@ -17,7 +17,9 @@ import {
   reduceTourEvent,
   reviewProblem,
   serializeRef,
+  tourFromState,
 } from '@gloss/protocol';
+import { type AskCmd, type AskModel, type AskMsg, askForDiff, emptyAsk, updateAsk } from './ask-model.ts';
 import {
   type CommentAnchor,
   emptyReview,
@@ -96,6 +98,8 @@ export interface Model {
   chord?: 'r';
   /** The PR's stack, once the backend has walked it (PRs only). */
   stack?: Stack;
+  /** Questions about the finished tour, answered by the model that wrote it. */
+  ask: AskModel;
 }
 
 export type Step = 1 | -1;
@@ -164,7 +168,10 @@ export type Msg =
   | { type: 'CommentBodyChanged'; body: string }
   | { type: 'CommentCancelled' }
   | { type: 'CommentSaved' }
-  | { type: 'CommentRemoved'; id: string };
+  | { type: 'CommentRemoved'; id: string }
+  /** The comment box's Ask: its lines become the question's context, and its text the question. */
+  | { type: 'CommentAsked' }
+  | AskMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
@@ -212,7 +219,8 @@ export type Cmd =
   | { type: 'RevealRailRow' }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
-  | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string };
+  | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
+  | AskCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -230,6 +238,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack):
     helpOpen: false,
     sidebar: initialSidebar,
     review: emptyReview,
+    ask: emptyAsk,
   };
 }
 
@@ -318,7 +327,10 @@ export function isFileExpanded(
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** Keys that may be shortcuts, so the browser's own use of them is held back. */
-export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycd');
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycdq');
+
+/** Questions can be asked once the tour is finished: the model answers from the whole tour. */
+export const canAsk = (model: Model): boolean => model.tour.status === 'complete';
 
 /** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
@@ -375,8 +387,10 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'HelpToggled' };
     case 'd':
       return { type: 'PipelineOpened' };
+    case 'q':
+      return canAsk(model) || model.ask.open ? { type: 'AskToggled' } : undefined;
     case 'Escape':
-      return model.navOpen ? { type: 'NavClosed' } : undefined;
+      return model.ask.open ? { type: 'AskClosed' } : model.navOpen ? { type: 'NavClosed' } : undefined;
     default:
       return undefined;
   }
@@ -389,6 +403,45 @@ export function update(model: Model, msg: Msg): Next {
 
 function step(model: Model, msg: Msg): Next {
   switch (msg.type) {
+    case 'AskToggled':
+    case 'AskOpened':
+    case 'AskClosed':
+    case 'AskDraftChanged':
+    case 'AskContextCleared':
+    case 'AskSubmitted':
+    case 'AskEventReceived':
+    case 'AskStreamFailed':
+    case 'AskStopClicked':
+    case 'AskLoaded': {
+      const [ask, cmds] = updateAsk(model.ask, msg, canAsk(model) ? tourFromState(model.tour) : undefined);
+      return [ask === model.ask ? model : { ...model, ask }, cmds];
+    }
+    case 'CommentAsked': {
+      const composing = model.review.composing;
+      if (!composing) {
+        return [model, []];
+      }
+      const context = {
+        fileId: composing.fileId,
+        side: composing.side,
+        from: composing.startLine ?? composing.line,
+        to: composing.line,
+      };
+      const opened: Model = {
+        ...model,
+        review: { ...model.review, composing: undefined },
+        ask: { ...model.ask, open: true, context, draft: composing.body.trim() || model.ask.draft },
+      };
+      if (!composing.body.trim()) {
+        return [opened, [{ type: 'FocusAsk' }]];
+      }
+      const [ask, cmds] = updateAsk(
+        opened.ask,
+        { type: 'AskSubmitted' },
+        canAsk(model) ? tourFromState(model.tour) : undefined,
+      );
+      return [{ ...opened, ask }, [...cmds, { type: 'FocusAsk' }]];
+    }
     case 'TourStarted':
       return [{ ...model, jobId: msg.jobId, connection: 'streaming' }, []];
     case 'EventReceived':
@@ -730,6 +783,9 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[], fro
   }
   if (diffId && prev?.tour.diffId !== diffId) {
     out.push({ type: 'LoadViewed', diffId }, { type: 'LoadReview', diffId });
+    const [ask, askCmds] = askForDiff(next.ask, diffId);
+    next = { ...next, ask };
+    out.push(...askCmds);
     const oids = lfsImageOids(next.tour.files);
     if (oids.length) {
       out.push({ type: 'PrefetchLfs', diffId, oids });

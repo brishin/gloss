@@ -82,6 +82,15 @@ accurate candidate that is more than a list, with the highest `whole` x `easy`, 
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
+Notes and the walkthrough get one read-only tool, `read_file` (`read-file.ts`): any file at
+the diff's head, numbered, 400 lines or 24k characters a read, 8 reads a call. It is for code
+the prompt cuts off (a truncated or omitted diff, a file too large to show) and for code a
+changed line calls into that the diff does not show; without it, notes said they "could not see"
+a function. `repoPath` keeps a path relative and inside the repository, and a file the diff does
+not change reads from git's tree (the head commit, or HEAD for a working tree), never the disk.
+Notes still pin only to hunk lines. The per-group cache key is still the prompt, so a cached
+answer does not see later edits to files outside the group. The trace lists each call's reads.
+
 Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
 fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, place, followup, and
 `notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a

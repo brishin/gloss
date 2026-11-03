@@ -20,14 +20,39 @@ export interface ModelRequest<S extends v.GenericSchema> {
   result: S;
   /** Short name of the result, e.g. "groups"; adapters use it to name the submit tool. */
   resultName: string;
+  /** Read-only tools the model may call before it submits, e.g. `read_file`. */
+  tools?: readonly ChatTool[];
   /** Streamed model text/reasoning, for progress only. */
   onDelta?: (delta: { kind: 'text' | 'reasoning'; text: string }) => void;
+}
+
+/** A read-only tool a model may call; `run` answers with text for the model. */
+export interface ChatTool {
+  name: string;
+  description: string;
+  /** Valibot object schema of the tool's input; field descriptions instruct the model. */
+  input: v.GenericSchema;
+  run(input: unknown): Promise<string>;
 }
 
 export interface ModelResponse<T> {
   data: T;
   model: string;
   usage?: ModelUsage;
+}
+
+/** What a chat call streams while it runs. */
+export type ChatEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; id: string; name: string; input: unknown; state: 'running' | 'done' | 'failed' };
+
+export interface ChatRequest {
+  /** `provider/model`: a chat asks the model that wrote the tour, which may not be today's tier. */
+  model: string;
+  system: string;
+  prompt: string;
+  tools: readonly ChatTool[];
+  onEvent?: (event: ChatEvent) => void;
 }
 
 /** A model call that failed or returned no valid result. Interruption is not an error. */
@@ -45,6 +70,8 @@ export class ModelClient extends Context.Service<
     prompt<S extends v.GenericSchema>(
       request: ModelRequest<S>,
     ): Effect.Effect<ModelResponse<v.InferOutput<S>>, ModelError>;
+    /** A prose answer, streamed as `onEvent` text; the model may call `tools` first. Interrupting stops it. */
+    chat(request: ChatRequest): Effect.Effect<{ text: string; model: string }, ModelError>;
   }
 >()('@gloss/core/ModelClient') {}
 

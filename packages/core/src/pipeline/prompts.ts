@@ -445,6 +445,8 @@ The tree: start at an entry point a reviewer knows (a route or RPC handler, a jo
 
 The steps: 2-5 steps that follow the tree top down. Each step names the frames it covers and shows 1-3 short slices of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them. Keep each slice under 25 lines; never a whole file. A step can show slices from different files when a call crosses them. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
 
+When a diff is truncated or omitted, or the path runs through code the diff does not show, call read_file to follow it rather than guess. Frames and slices still point only at lines the diff prints; a frame you found by reading takes line 0.
+
 Return no frames and no steps when the change has no call path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
 
 Call the submit tool once with the frames and the steps.`;
@@ -457,7 +459,7 @@ Write a few precise notes where they save the reviewer real effort: non-obvious 
 
 On tests, note only what a test misses or could pass while the code is broken. Never describe what a test does.
 
-Only reference file ids listed under "## Files". You see only this group's hunks; never describe how other code behaves. Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions".
+Only reference file ids listed under "## Files". You see this group's hunks. When a hunk is cut off ("truncated"), a file is omitted or too large to show, or a changed line depends on code the diff does not show (a function it calls, a caller, a check it relies on), call read_file and read that code before you judge it. Never write that you could not see code: read it, or leave the point out. Describe other code only from what you read. Line notes reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions". Point notes and decisions only at lines a hunk prints; a finding in code you read goes on the hunk line that relies on it.
 
 For documentation and agent guidance, note the rules or intent each change establishes or alters, so the reviewer can hold the code to them; flag instructions that are ambiguous or contradict each other.
 
@@ -713,10 +715,89 @@ export function buildNotesPrompt(
     let body = file.hunks.map(renderNumberedHunk).join('\n');
     const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
     if (body.length > budget) {
-      body = budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget)';
+      body = budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget; read_file it)';
     }
     remaining -= body.length;
     parts.push(`### ${manifestLine(file)}`, body);
   }
+  return parts.join('\n');
+}
+
+export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the whole files (call read_file).
+
+Answer the question first, in a few short paragraphs or a short list. Say what the code does, not what it might do; if the diff does not show something, say so instead of guessing. Do not repeat the tour back.
+
+Cite the lines you rely on as Markdown links whose target is the file id and line number from the numbered diff: [repos.ts:121](f1a2b3:121) for a line on the new side, [repos.ts:40](f1a2b3:-40) for a removed line. Cite only lines shown in the diff below or returned by read_file.`;
+
+/** The context of one question: the tour, the numbered diff, the thread so far, then the question. */
+export function buildAskPrompt(input: {
+  meta: DiffMeta;
+  files: readonly FileChange[];
+  tour: {
+    overallSummary?: string;
+    decisions?: readonly Decision[];
+    groups: readonly ResolvedGroup[];
+    notes: Record<
+      string,
+      {
+        fileNotes: readonly { fileId: string; text: string }[];
+        lineNotes: readonly { fileId: string; side: string; line: number; text: string }[];
+      }
+    >;
+  };
+  history: readonly { question: string; context?: string; answer: string }[];
+  question: string;
+  context?: string;
+}): string {
+  // The tour and the diff come first and never change for a tour, so provider prompt caches hit on follow-ups.
+  const parts = [header(input.meta)];
+  if (input.tour.overallSummary) {
+    parts.push('', '## Overall', input.tour.overallSummary);
+  }
+  if (input.tour.decisions?.length) {
+    parts.push('', '## Decisions', ...input.tour.decisions.map((decision) => `- ${decision.text}`));
+  }
+  parts.push('', '## Tour groups');
+  for (const group of input.tour.groups) {
+    parts.push('', `### ${group.key}: ${group.label}`, group.summary, `Files: ${group.fileIds.join(', ')}`);
+    const notes = input.tour.notes[group.key];
+    for (const note of notes?.fileNotes ?? []) {
+      parts.push(`- ${note.fileId}: ${note.text}`);
+    }
+    for (const note of notes?.lineNotes ?? []) {
+      parts.push(`- ${note.fileId}:${note.side === 'deletions' ? '-' : ''}${note.line}: ${note.text}`);
+    }
+  }
+  let remaining = TOTAL_BUDGET;
+  parts.push('', '## Files');
+  for (const file of input.files) {
+    const reason = collapsedReason(file);
+    if (reason) {
+      parts.push(`### ${manifestLine(file)}`);
+      continue;
+    }
+    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    if (body.length > budget) {
+      body =
+        budget > 500
+          ? `${body.slice(0, budget)}\n... (truncated; call read_file for the rest)`
+          : '(omitted for budget; call read_file)';
+    }
+    remaining -= body.length;
+    parts.push(`### ${manifestLine(file)}`, body);
+  }
+  if (input.history.length) {
+    parts.push('', '## Conversation so far');
+    for (const turn of input.history) {
+      parts.push(
+        '',
+        `Reviewer${turn.context ? ` (about ${turn.context})` : ''}: ${turn.question}`,
+        '',
+        `You: ${turn.answer}`,
+      );
+    }
+  }
+  parts.push('', `## Question${input.context ? ` about ${input.context}` : ''}`, input.question);
   return parts.join('\n');
 }

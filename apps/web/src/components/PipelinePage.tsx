@@ -255,6 +255,14 @@ function Inspector({ step, steps }: { step: TraceStep; steps: readonly TraceStep
                 ))}
               </div>
             ) : null}
+            {step.reads?.length ? (
+              <div className="step-reads">
+                <strong>Read</strong>
+                {step.reads.map((read) => (
+                  <div key={read}>{read}</div>
+                ))}
+              </div>
+            ) : null}
             {step.output !== undefined ? (
               <pre className="step-output">{JSON.stringify(step.output, null, 2)}</pre>
             ) : (
