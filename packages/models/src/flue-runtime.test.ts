@@ -86,3 +86,38 @@ describe('FlueModelClient', () => {
     expect(result.data).toEqual({ answer: 'read it' });
   });
 });
+
+describe('FlueModelClient.chat', () => {
+  it('runs a tool, then streams the prose answer', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('read_file', { fileId: 'f1' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxText('It is cleaned up on restart.')),
+    ]);
+    const read: unknown[] = [];
+    const events: string[] = [];
+    const result = await Effect.runPromise(
+      client.chat({
+        model: 'faux/model',
+        system: 'sys',
+        prompt: 'q',
+        tools: [
+          {
+            name: 'read_file',
+            description: 'Read a file.',
+            input: v.object({ fileId: v.string() }),
+            run: async (input) => {
+              read.push(input);
+              return '1 one';
+            },
+          },
+        ],
+        onEvent: (event) => events.push(event.type === 'text' ? 'text' : `tool:${event.name}:${event.state}`),
+      }),
+    );
+    expect(result).toEqual({ text: 'It is cleaned up on restart.', model: 'faux/model' });
+    expect(read).toEqual([{ fileId: 'f1' }]);
+    expect(events).toContain('tool:read_file:running');
+    expect(events).toContain('tool:read_file:done');
+    expect(events.at(-1)).toBe('text');
+  });
+});

@@ -1,4 +1,4 @@
-import { type ModelClient, nameStack, type PullSummary, Repos, TourCache } from '@gloss/core';
+import { type ModelClient, nameStack, type PullSummary, Repos, runAsk, TourCache } from '@gloss/core';
 import type {
   DiffPayload,
   GithubLogin,
@@ -13,6 +13,7 @@ import type {
   UpdateStatus,
 } from '@gloss/protocol';
 import {
+  AskRequestSchema,
   encodeNdjson,
   lfsPointer,
   JudgeKeyRequestSchema,
@@ -229,6 +230,29 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     }
     const trace: Trace = { steps: [...job.trace.values()], done: job.state !== 'running' };
     return c.json(trace);
+  });
+
+  app.post('/api/ask', async (c) => {
+    const parsed = v.safeParse(AskRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', issues: v.flatten(parsed.issues) }, 400);
+    }
+    const { tour, question, context, history } = parsed.output;
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(tour.diffId))));
+    if (!diff) {
+      return c.json({ error: 'Unknown diff: re-run the tour' }, 404);
+    }
+    // Closing the request interrupts the answer, which stops the model.
+    return streamSSE(c, (out) => {
+      const controller = new AbortController();
+      out.onAbort(() => controller.abort());
+      return run(
+        Stream.runForEach(runAsk({ tour, diff, question, context, history }), (event) =>
+          Effect.promise(() => out.writeSSE({ event: event.type, data: JSON.stringify(event) })),
+        ),
+        controller.signal,
+      ).catch(() => {});
+    });
   });
 
   app.get('/api/diffs/:id', async (c) => {

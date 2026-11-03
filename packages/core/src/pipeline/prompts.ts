@@ -722,3 +722,82 @@ export function buildNotesPrompt(
   }
   return parts.join('\n');
 }
+
+export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the whole files (call read_file).
+
+Answer the question first, in a few short paragraphs or a short list. Say what the code does, not what it might do; if the diff does not show something, say so instead of guessing. Do not repeat the tour back.
+
+Cite the lines you rely on as Markdown links whose target is the file id and line number from the numbered diff: [repos.ts:121](f1a2b3:121) for a line on the new side, [repos.ts:40](f1a2b3:-40) for a removed line. Cite only lines shown in the diff below or returned by read_file.`;
+
+/** The context of one question: the tour, the numbered diff, the thread so far, then the question. */
+export function buildAskPrompt(input: {
+  meta: DiffMeta;
+  files: readonly FileChange[];
+  tour: {
+    overallSummary?: string;
+    decisions?: readonly Decision[];
+    groups: readonly ResolvedGroup[];
+    notes: Record<
+      string,
+      {
+        fileNotes: readonly { fileId: string; text: string }[];
+        lineNotes: readonly { fileId: string; side: string; line: number; text: string }[];
+      }
+    >;
+  };
+  history: readonly { question: string; context?: string; answer: string }[];
+  question: string;
+  context?: string;
+}): string {
+  // The tour and the diff come first and never change for a tour, so provider prompt caches hit on follow-ups.
+  const parts = [header(input.meta)];
+  if (input.tour.overallSummary) {
+    parts.push('', '## Overall', input.tour.overallSummary);
+  }
+  if (input.tour.decisions?.length) {
+    parts.push('', '## Decisions', ...input.tour.decisions.map((decision) => `- ${decision.text}`));
+  }
+  parts.push('', '## Tour groups');
+  for (const group of input.tour.groups) {
+    parts.push('', `### ${group.key}: ${group.label}`, group.summary, `Files: ${group.fileIds.join(', ')}`);
+    const notes = input.tour.notes[group.key];
+    for (const note of notes?.fileNotes ?? []) {
+      parts.push(`- ${note.fileId}: ${note.text}`);
+    }
+    for (const note of notes?.lineNotes ?? []) {
+      parts.push(`- ${note.fileId}:${note.side === 'deletions' ? '-' : ''}${note.line}: ${note.text}`);
+    }
+  }
+  let remaining = TOTAL_BUDGET;
+  parts.push('', '## Files');
+  for (const file of input.files) {
+    const reason = collapsedReason(file);
+    if (reason) {
+      parts.push(`### ${manifestLine(file)}`);
+      continue;
+    }
+    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    if (body.length > budget) {
+      body =
+        budget > 500
+          ? `${body.slice(0, budget)}\n... (truncated; call read_file for the rest)`
+          : '(omitted for budget; call read_file)';
+    }
+    remaining -= body.length;
+    parts.push(`### ${manifestLine(file)}`, body);
+  }
+  if (input.history.length) {
+    parts.push('', '## Conversation so far');
+    for (const turn of input.history) {
+      parts.push(
+        '',
+        `Reviewer${turn.context ? ` (about ${turn.context})` : ''}: ${turn.question}`,
+        '',
+        `You: ${turn.answer}`,
+      );
+    }
+  }
+  parts.push('', `## Question${input.context ? ` about ${input.context}` : ''}`, input.question);
+  return parts.join('\n');
+}

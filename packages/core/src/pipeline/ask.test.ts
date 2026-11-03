@@ -1,0 +1,174 @@
+import type { AskEvent, DiffPayload, Tour } from '@gloss/protocol';
+import { Effect, Layer, Stream } from 'effect';
+import { describe, expect, it } from 'vitest';
+import { createFakeModelClient } from '../adapters/fake.ts';
+import { ModelClient } from '../adapters/types.ts';
+import { RepoError, Repos } from '../sources/repos.ts';
+import { citedRefs, describeContext, runAsk } from './ask.ts';
+
+const meta = { title: 'Keep LFS objects on disk', baseRef: 'main', headRef: 'lfs', commits: [] };
+const ref = { kind: 'local' as const, repo: '/r', target: 'HEAD' };
+const diff: DiffPayload = {
+  id: 'd',
+  ref,
+  sourceKey: 'k',
+  fingerprint: 'x',
+  meta,
+  files: [
+    {
+      id: 'f1',
+      path: 'src/repos.ts',
+      status: 'modified',
+      additions: 2,
+      deletions: 1,
+      isBinary: false,
+      truncated: false,
+      // New lines 10-12, old lines 10-11.
+      hunks: [
+        {
+          id: 'h1',
+          header: '@@ -10,2 +10,3 @@',
+          oldStart: 10,
+          oldLines: 2,
+          newStart: 10,
+          newLines: 3,
+          patch: ' a\n-b\n+c\n+d',
+        },
+      ],
+    },
+  ],
+};
+const tour: Tour = {
+  diffId: 'd',
+  ref,
+  meta,
+  files: [],
+  overallSummary: 'Moves LFS objects to disk.',
+  groups: [
+    {
+      key: 'core',
+      label: 'LFS on disk',
+      summary: 'Writes objects to a folder.',
+      category: 'core',
+      critical: false,
+      fileIds: ['f1'],
+    },
+  ],
+  placements: {},
+  judgments: {},
+  notes: {
+    core: {
+      fileNotes: [],
+      lineNotes: [{ fileId: 'f1', hunkId: 'h1', side: 'additions', line: 11, text: 'Renamed into place.' }],
+      riskNotes: [],
+    },
+  },
+  models: { define: 'p/define', followup: 'p/followup', notes: 'p/notes' },
+};
+
+const repos = (contents: Repos['Service']['contents']) =>
+  Layer.succeed(Repos, {
+    pulls: () => Effect.succeed(new Map()),
+    viewer: Effect.succeed(undefined),
+    inbox: Effect.succeed(undefined),
+    asset: () => Effect.succeed(undefined),
+    stack: () => Effect.fail(new RepoError({ message: 'no' })),
+    review: () => Effect.fail(new RepoError({ message: 'no' })),
+    contents,
+    lfs: () => Effect.fail(new RepoError({ message: 'no' })),
+  });
+
+const collect = (model: ModelClient['Service'], options: Partial<Parameters<typeof runAsk>[0]> = {}) =>
+  Effect.runPromise(
+    Stream.runCollect(runAsk({ tour, diff, question: 'Is it cleaned up?', ...options })).pipe(
+      Effect.provide(
+        Layer.merge(
+          Layer.succeed(ModelClient, model),
+          repos(() => Effect.succeed(undefined)),
+        ),
+      ),
+    ),
+  ) as Promise<AskEvent[]>;
+
+describe('citedRefs', () => {
+  it('keeps only links to lines the diff shows, or to files the model read', () => {
+    const text = '[a](f1:11) [b](f1:-11) [c](f1:40) [d](f9:11) [e](https://x.dev) [f](f1:0) [a again](f1:11)';
+    expect(citedRefs(text, diff)).toEqual([
+      { fileId: 'f1', side: 'additions', line: 11 },
+      { fileId: 'f1', side: 'deletions', line: 11 },
+    ]);
+    expect(citedRefs('[c](f1:40)', diff, new Set(['f1']))).toEqual([{ fileId: 'f1', side: 'additions', line: 40 }]);
+  });
+});
+
+describe('describeContext', () => {
+  it('names lines, a file or a group', () => {
+    expect(describeContext({ fileId: 'f1', side: 'additions', from: 10, to: 12 }, tour, diff)).toBe(
+      'f1 src/repos.ts lines 10-12',
+    );
+    expect(describeContext({ fileId: 'f1', side: 'deletions', from: 11, to: 11 }, tour, diff)).toBe(
+      'f1 src/repos.ts line 11 (removed lines)',
+    );
+    expect(describeContext({ groupKey: 'core' }, tour, diff)).toBe('the group "LFS on disk"');
+    expect(describeContext({ fileId: 'nope' }, tour, diff)).toBeUndefined();
+  });
+});
+
+describe('runAsk', () => {
+  it('asks the define model with the tour, the numbered diff and the thread, and streams the answer', async () => {
+    const model = createFakeModelClient({ answers: {}, chat: () => 'No: see [repos.ts:12](f1:12) and [x](f1:99).' });
+    const events = await collect(model, {
+      context: { fileId: 'f1', side: 'additions', from: 11, to: 12 },
+      history: [{ question: 'Who reads it?', answer: 'The tour.' }],
+    });
+    const request = model.chats[0]!;
+    expect(request.model).toBe('p/define');
+    expect(request.tools.map((tool) => tool.name)).toEqual(['read_file']);
+    expect(request.prompt).toContain('+ 12 d');
+    expect(request.prompt).toContain('- f1:11: Renamed into place.');
+    expect(request.prompt).toContain('Reviewer: Who reads it?');
+    expect(request.prompt.trimEnd().endsWith('## Question about f1 src/repos.ts lines 11-12\nIs it cleaned up?')).toBe(
+      true,
+    );
+    expect(
+      events
+        .filter((event) => event.type === 'ask.delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('No: see [repos.ts:12](f1:12) and [x](f1:99).');
+    expect(events.at(-1)).toEqual({
+      type: 'ask.done',
+      model: 'p/define',
+      refs: [{ fileId: 'f1', side: 'additions', line: 12 }],
+    });
+  });
+
+  it('ends with ask.failed when the model fails', async () => {
+    const events = await collect(createFakeModelClient({ answers: {} }));
+    expect(events).toEqual([{ type: 'ask.failed', message: 'No fake chat answer' }]);
+  });
+
+  it('reads a whole file, numbered, through Repos', async () => {
+    let output = '';
+    const base = createFakeModelClient({ answers: {}, chat: () => 'ok' });
+    const model: ModelClient['Service'] = {
+      ...base,
+      chat: (request) =>
+        Effect.promise(() => request.tools[0]!.run({ fileId: 'f1' })).pipe(
+          Effect.tap((text) => Effect.sync(() => (output = text))),
+          Effect.andThen(base.chat(request)),
+        ),
+    };
+    await Effect.runPromise(
+      Stream.runCollect(runAsk({ tour, diff, question: 'q' })).pipe(
+        Effect.provide(
+          Layer.merge(
+            Layer.succeed(ModelClient, model),
+            repos(() => Effect.succeed({ oldContents: 'old', newContents: 'one\ntwo' })),
+          ),
+        ),
+      ),
+    );
+    expect(output).toBe('1 one\n2 two');
+  });
+});

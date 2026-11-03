@@ -6,6 +6,7 @@ import {
   type JudgeQuestion,
   ModelClient,
   ModelError,
+  type ChatRequest,
   type ModelRequest,
   type ModelTier,
 } from './types.ts';
@@ -14,15 +15,34 @@ export interface FakeModelOptions {
   /** Answers per tier; a function sees the request so it can echo ids from the prompt. */
   answers: Partial<Record<ModelTier, ((request: ModelRequest<v.GenericSchema>) => unknown) | object>>;
   delayMs?: number;
+  /** The chat answer; each word streams as its own text event. */
+  chat?: (request: ChatRequest) => string;
 }
 
 /** A scripted `ModelClient` for tests and offline runs. Records every request. */
 export function createFakeModelClient(
   options: FakeModelOptions,
-): ModelClient['Service'] & { calls: ModelRequest<v.GenericSchema>[] } {
+): ModelClient['Service'] & { calls: ModelRequest<v.GenericSchema>[]; chats: ChatRequest[] } {
   const calls: ModelRequest<v.GenericSchema>[] = [];
+  const chats: ChatRequest[] = [];
   return {
     calls,
+    chats,
+    chat: (request) =>
+      Effect.gen(function* () {
+        chats.push(request);
+        if (!options.chat) {
+          return yield* new ModelError({ message: 'No fake chat answer' });
+        }
+        const text = options.chat(request);
+        for (const word of text.match(/\S+\s*/g) ?? []) {
+          if (options.delayMs) {
+            yield* Effect.sleep(options.delayMs / 10);
+          }
+          request.onEvent?.({ type: 'text', text: word });
+        }
+        return { text, model: request.model };
+      }),
     config: () => ({ define: 'fake/define', followup: 'fake/followup', notes: 'fake/notes', small: 'fake/small' }),
     prompt: (request) =>
       Effect.gen(function* () {
