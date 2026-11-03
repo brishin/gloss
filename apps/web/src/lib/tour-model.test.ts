@@ -379,6 +379,12 @@ describe('stack', () => {
     expect(cmds).toEqual([{ type: 'RevealRailRow' }]);
   });
 
+  test('an export stays on its PR: no stepping, no opening another from the rail', () => {
+    const exported = { ...model(), ref: pr(1), stack, exported: true };
+    expect(run(exported, { type: 'StackStepped', by: 1 })[1]).toEqual([]);
+    expect(run(exported, { type: 'RailOpened', ref: pr(2), offset: 0 })[1]).toEqual([]);
+  });
+
   test('does nothing before the stack loads', () => {
     expect(run(model(), { type: 'StackStepped', by: 1 })[1]).toEqual([]);
   });
