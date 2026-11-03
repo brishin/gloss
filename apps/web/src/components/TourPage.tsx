@@ -296,15 +296,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </div>
         </main>
       </div>
-      {model.ask.open && (
-        <AskPanel
-          ask={model.ask}
-          files={state.files}
-          model={state.models?.define}
-          enabled={askable}
-          dispatch={dispatch}
-        />
-      )}
+      {model.ask.open && <AskPanel ask={model.ask} files={state.files} enabled={askable} dispatch={dispatch} />}
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
   );

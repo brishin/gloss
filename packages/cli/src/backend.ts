@@ -7,6 +7,7 @@ import {
   glossPath,
   loadConfig,
   loadProviderPackages,
+  modelName,
   providerStatus,
   validateModelIds,
 } from '@gloss/models';
@@ -40,7 +41,7 @@ export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
     loadGlossEnv();
     const config = loadConfig();
     await loadProviderPackages(config.providerPackages);
-    validateModelIds(Object.values(config.tiers));
+    validateModelIds([...Object.values(config.tiers), ...config.ask.models]);
     const judge = await createJevClient(config.judge);
     return Layer.mergeAll(
       TourCache.sqlite(glossPath('cache.sqlite')),
@@ -54,6 +55,7 @@ export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
           pipelineVersion: PIPELINE_VERSION,
           judge: { available: !!judge, model: judge?.model },
           models: config.tiers,
+          ask: { models: config.ask.models.map((id) => ({ id, name: modelName(id) })), default: config.ask.default },
           providers: await providerStatus(),
         }),
       }),

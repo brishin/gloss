@@ -42,7 +42,7 @@ export function ensureFlueRuntime(providers: readonly Provider[] = bridgedProvid
 }
 
 export interface FlueModelClientOptions {
-  config: Pick<GlossConfig, 'tiers' | 'thinking'>;
+  config: Pick<GlossConfig, 'tiers' | 'thinking' | 'ask'>;
   providers?: readonly Provider[];
 }
 
@@ -60,7 +60,7 @@ export class StageResultError extends Error {
  */
 export function createFlueModelClient({ config, providers }: FlueModelClientOptions): ModelClient['Service'] {
   return {
-    config: () => ({ ...config.tiers }),
+    config: () => ({ ...config.tiers, ask: config.ask }),
     prompt: <S extends v.GenericSchema>(request: ModelRequest<S>) =>
       Effect.tryPromise({
         try: (signal) => promptStage(config, providers, request, signal),

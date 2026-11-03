@@ -416,6 +416,7 @@ function step(model: Model, msg: Msg): Next {
     case 'AskEventReceived':
     case 'AskStreamFailed':
     case 'AskStopClicked':
+    case 'AskModelPicked':
     case 'AskLoaded': {
       const [ask, cmds] = updateAsk(model.ask, msg, canAsk(model) ? tourFromState(model.tour) : undefined);
       return [ask === model.ask ? model : { ...model, ask }, cmds];
