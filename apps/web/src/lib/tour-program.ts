@@ -4,7 +4,7 @@ import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { type AskTurnView, savedTurns } from './ask-model.ts';
-import { Gloss, glossRuntime, request } from './client.ts';
+import { Gloss, glossRuntime, isExport, request } from './client.ts';
 import type { SavedReview } from './review-draft.ts';
 import { stackRefs } from './sidebar-tree.ts';
 import { navigateToPipeline, navigateToRef } from './source-routes.tsx';
@@ -57,7 +57,7 @@ const knownStacks = new Map<string, Stack>();
 /** The tour page's program for one ref. The page creates one per mount, so two tours never share state. */
 export function tourProgram(ref: SourceRef, router: AnyRouter) {
   return makeProgram(glossRuntime, {
-    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref))),
+    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref)), isExport()),
     update,
     run: (cmd) => run(cmd, router),
     key: (cmd) =>
@@ -113,7 +113,8 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
         Effect.sync((): Msg => {
           const stored = storage(() => localStorage.getItem(askKey(cmd.diffId)));
           const turns = (stored ? storage(() => JSON.parse(stored) as AskTurnView[]) : undefined) ?? [];
-          return { type: 'AskLoaded', diffId: cmd.diffId, turns: savedTurns(turns) };
+          const model = storage(() => localStorage.getItem(ASK_MODEL_KEY)) ?? undefined;
+          return { type: 'AskLoaded', diffId: cmd.diffId, turns: savedTurns(turns), model };
         }),
       );
     case 'SaveAsk':
@@ -126,6 +127,8 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           ),
         ),
       );
+    case 'SaveAskModel':
+      return once(Effect.sync(() => storage(() => localStorage.setItem(ASK_MODEL_KEY, cmd.model))));
     case 'LoadViewed':
       return once(
         Effect.sync((): Msg => {
@@ -299,6 +302,7 @@ function answer(turnId: string, body: Parameters<GlossClient['ask']>[0]): Stream
 const ASK_INPUT = '.ask-panel textarea, .ask-panel [contenteditable="true"]';
 
 const askKey = (diffId: string) => `gloss.ask.${diffId}`;
+const ASK_MODEL_KEY = 'gloss.ask.model';
 
 /** A one-shot command: its message if it has one. A failure sends nothing. */
 function once<E, R>(effect: Effect.Effect<Msg | void, E, R>): Stream.Stream<Msg, never, R> {

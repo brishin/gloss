@@ -8,6 +8,7 @@ export * from './login.ts';
 export * from './reducer.ts';
 export * from './review.ts';
 export * from './setup.ts';
+export * from './snapshot.ts';
 export * from './source-ref.ts';
 export * from './stack.ts';
 export * from './svg-sanitize.ts';

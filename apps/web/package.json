@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "vp build",
+    "build": "vp build && vp build --config vite.export.config.ts",
     "dev": "vp dev --host 127.0.0.1 --port 4778"
   },
   "dependencies": {

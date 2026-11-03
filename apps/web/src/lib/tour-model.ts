@@ -100,6 +100,8 @@ export interface Model {
   stack?: Stack;
   /** Questions about the finished tour, answered by the model that wrote it. */
   ask: AskModel;
+  /** The page is a static export (`gloss export`): no backend, so nothing can run, ask or review. */
+  exported: boolean;
 }
 
 export type Step = 1 | -1;
@@ -224,7 +226,7 @@ export type Cmd =
 
 export type Next = readonly [Model, readonly Cmd[]];
 
-export function initialModel(ref: SourceRef, position: Position, stack?: Stack): Model {
+export function initialModel(ref: SourceRef, position: Position, stack?: Stack, exported = false): Model {
   return {
     ref,
     stack,
@@ -239,6 +241,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack):
     sidebar: initialSidebar,
     review: emptyReview,
     ask: emptyAsk,
+    exported,
   };
 }
 
@@ -246,8 +249,8 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack):
  * `stack` is this PR's stack as an earlier page in this tab loaded it, so the rail opens with
  * it in place while the fresh one loads.
  */
-export function init(ref: SourceRef, position: Position, stack?: Stack): Next {
-  const model = initialModel(ref, position, stack);
+export function init(ref: SourceRef, position: Position, stack?: Stack, exported = false): Next {
+  const model = initialModel(ref, position, stack, exported);
   const fetchStack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
   return settle(undefined, model, [
     { type: 'StartTour', ref, force: false },
@@ -301,7 +304,8 @@ export function stackNeighbour(model: Model, by: Step): SourceRef | undefined {
 }
 
 /** Reviews go to GitHub, so only a PR with its diff loaded can be reviewed. */
-export const canReview = (model: Model): boolean => model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
+export const canReview = (model: Model): boolean =>
+  !model.exported && model.ref.kind === 'github-pr' && model.tour.meta !== undefined;
 
 /** Includes the moment between the job starting and its first event, so loading rows do not blink. */
 export const isRunning = (model: Model): boolean =>
@@ -330,7 +334,7 @@ export const EDITABLE = 'input, textarea, select, [contenteditable]:not([content
 export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycdq');
 
 /** Questions can be asked once the tour is finished: the model answers from the whole tour. */
-export const canAsk = (model: Model): boolean => model.tour.status === 'complete';
+export const canAsk = (model: Model): boolean => !model.exported && model.tour.status === 'complete';
 
 /** The shortcut for a key (listed in ShortcutHelp), or undefined to leave the key alone. */
 export function keyToMsg(model: Model, key: string): Msg | undefined {
@@ -412,6 +416,7 @@ function step(model: Model, msg: Msg): Next {
     case 'AskEventReceived':
     case 'AskStreamFailed':
     case 'AskStopClicked':
+    case 'AskModelPicked':
     case 'AskLoaded': {
       const [ask, cmds] = updateAsk(model.ask, msg, canAsk(model) ? tourFromState(model.tour) : undefined);
       return [ask === model.ask ? model : { ...model, ask }, cmds];
@@ -479,18 +484,21 @@ function step(model: Model, msg: Msg): Next {
     case 'StackLoaded':
       return [{ ...model, stack: msg.stack }, [{ type: 'RevealRailRow' }]];
     case 'RailOpened':
-      return [
-        model,
-        [
-          {
-            type: 'SaveRailAnchor',
-            anchor: { key: serializeRef(msg.ref), offset: msg.offset },
-          },
-          { type: 'OpenRef', ref: msg.ref },
-        ],
-      ];
+      // An export holds one PR of the stack, so the others stay where they are.
+      return model.exported
+        ? [model, []]
+        : [
+            model,
+            [
+              {
+                type: 'SaveRailAnchor',
+                anchor: { key: serializeRef(msg.ref), offset: msg.offset },
+              },
+              { type: 'OpenRef', ref: msg.ref },
+            ],
+          ];
     case 'StackStepped': {
-      const target = stackNeighbour(model, msg.by);
+      const target = model.exported ? undefined : stackNeighbour(model, msg.by);
       return target ? [model, [{ type: 'OpenRef', ref: target }]] : [model, []];
     }
     case 'FileJumped':

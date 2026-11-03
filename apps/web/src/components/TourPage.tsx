@@ -93,9 +93,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   return (
     <div className="app" data-ask-open={model.ask.open}>
       <header className="topbar">
-        <Link to="/" className="brand">
-          <Logo />
-        </Link>
+        {model.exported ? (
+          <span className="brand">
+            <Logo />
+          </span>
+        ) : (
+          <Link to="/" className="brand">
+            <Logo />
+          </Link>
+        )}
         {state.cached && (
           <span className="topbar-cached">
             <Text color="secondary" size="sm">
@@ -113,34 +119,38 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               />
             </ReviewPanel>
           )}
-          {running ? (
-            <IconButton
-              size="sm"
-              variant="ghost"
-              label="Stop tour"
-              tooltip="Stop"
-              icon={<Icon icon={SquareIcon} />}
-              onClick={() => dispatch({ type: 'StopClicked' })}
-            />
-          ) : (
-            <IconButton
-              size="sm"
-              variant="ghost"
-              label="Re-run tour"
-              tooltip="Re-run"
-              icon={<Icon icon={RotateCwIcon} />}
-              onClick={() => dispatch({ type: 'RerunClicked' })}
-            />
+          {!model.exported && (
+            <>
+              {running ? (
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  label="Stop tour"
+                  tooltip="Stop"
+                  icon={<Icon icon={SquareIcon} />}
+                  onClick={() => dispatch({ type: 'StopClicked' })}
+                />
+              ) : (
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  label="Re-run tour"
+                  tooltip="Re-run"
+                  icon={<Icon icon={RotateCwIcon} />}
+                  onClick={() => dispatch({ type: 'RerunClicked' })}
+                />
+              )}
+              <IconButton
+                size="sm"
+                variant={model.ask.open ? 'secondary' : 'ghost'}
+                label="Ask"
+                tooltip="Ask (q)"
+                icon={<Icon icon={MessageCircleQuestionIcon} />}
+                isDisabled={!askable && !model.ask.open}
+                onClick={() => dispatch({ type: 'AskToggled' })}
+              />
+            </>
           )}
-          <IconButton
-            size="sm"
-            variant={model.ask.open ? 'secondary' : 'ghost'}
-            label="Ask"
-            tooltip="Ask (q)"
-            icon={<Icon icon={MessageCircleQuestionIcon} />}
-            isDisabled={!askable && !model.ask.open}
-            onClick={() => dispatch({ type: 'AskToggled' })}
-          />
           <IconButton
             size="sm"
             variant="ghost"
@@ -291,15 +301,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </div>
         </main>
       </div>
-      {model.ask.open && (
-        <AskPanel
-          ask={model.ask}
-          files={state.files}
-          model={state.models?.define}
-          enabled={askable}
-          dispatch={dispatch}
-        />
-      )}
+      {model.ask.open && <AskPanel ask={model.ask} files={state.files} enabled={askable} dispatch={dispatch} />}
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
   );

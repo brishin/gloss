@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
@@ -10,6 +12,7 @@ import { createHttpGlossClient, describeRef, RISK_LABELS, RISK_KEYS } from '@glo
 import { Effect, Fiber, ManagedRuntime, Stream } from 'effect';
 import { BackendInfo, BackendLayer, VERSION } from './backend.ts';
 import { startDetached, stopServer } from './daemon.ts';
+import { exportBackend, exportName, exportTour } from './export.ts';
 import { EXTENSION_DIR, installExtension, uninstallExtension } from './extension.ts';
 import { DEFAULT_PORT, startServer } from './serve.ts';
 import { resolveTarget, webPath } from './target.ts';
@@ -23,6 +26,7 @@ Usage
   gloss update                Pull, install, build, and restart the server in the background
   gloss restart               Restart the server in the background on this checkout's code
   gloss tour <target>         Print a tour in the terminal (--json for the full tour)
+  gloss export <target>       Run a tour and save it as one self-contained HTML file
   gloss login claude|chatgpt  Sign in with a Claude or ChatGPT subscription
   gloss logout claude|chatgpt
   gloss status                Show providers, models and judge
@@ -44,6 +48,8 @@ Options
   --no-open       Do not open the browser
   --no-update     Skip the pull, install and build that gloss [target] runs first
   --json          (tour) Print the finished tour as JSON
+  -o, --out <f>   (export) Where to write the HTML (default gloss-<target>.html)
+  --backend <url> (export) Use a running gloss server instead of an in-process one
 
 Config: ${configPath()}   Keys: environment or ${glossPath('.env')}`;
 
@@ -111,6 +117,8 @@ async function main() {
       'no-open': { type: 'boolean', default: false },
       'no-update': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
+      out: { type: 'string', short: 'o' },
+      backend: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
       version: { type: 'boolean', short: 'v', default: false },
     },
@@ -312,6 +320,30 @@ async function main() {
       } finally {
         await runtime.dispose();
         // Flue's runtime keeps handles open; a one-shot command exits explicitly.
+        setTimeout(() => process.exit(process.exitCode ?? 0), 50).unref();
+      }
+      return;
+    }
+
+    case 'export': {
+      const ref = await resolveTarget(rest[0], process.cwd());
+      const out = resolve(values.out ?? `gloss-${exportName(ref)}.html`);
+      const backend = await exportBackend(values.backend, token);
+      const start = performance.now();
+      console.error(`Exporting ${describeRef(ref)}`);
+      try {
+        const html = await exportTour(backend.client, ref, {
+          force: values.force,
+          onEvent: (event) => {
+            if (event.type === 'job.started' && event.cached) console.error(`${elapsed(start).padStart(6)}  cached`);
+            if (event.type === 'stage.status' && event.state !== 'running')
+              console.error(`${elapsed(start).padStart(6)}  ${event.stage} ${event.state}`);
+          },
+        });
+        writeFileSync(out, html);
+        console.error(`${elapsed(start).padStart(6)}  wrote ${out} (${(html.length / 1e6).toFixed(1)} MB)`);
+      } finally {
+        await backend.close();
         setTimeout(() => process.exit(process.exitCode ?? 0), 50).unref();
       }
       return;

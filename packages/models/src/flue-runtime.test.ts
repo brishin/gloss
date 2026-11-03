@@ -9,6 +9,7 @@ const client = createFlueModelClient({
   config: {
     tiers: { define: 'faux/model', followup: 'faux/model', notes: 'faux/model', small: 'faux/model' },
     thinking: { define: 'low', followup: 'low', notes: 'low', small: 'low' },
+    ask: { models: ['faux/model'], default: 'faux/model' },
   },
   providers: [faux.provider],
 });

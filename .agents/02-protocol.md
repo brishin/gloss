@@ -51,13 +51,23 @@ an optional `tree` of rows (`call`, a `CallFrame`, or `concept`, a label; `snipp
 tours from before a part read it as empty. The web app shows it as a read-only section between the
 overview and the groups, and the overview's decision rows it covers link there.
 
-**Ask** (`ask.ts`): `POST /api/ask` takes `{ tour, question, context?, history }` and answers as
+**Ask** (`ask.ts`): `POST /api/ask` takes `{ tour, question, context?, history, model? }` and answers as
 SSE `AskEvent`s (`ask.delta`, `ask.tool`, then `ask.done { model, refs }` or `ask.failed`);
 `reduceAskEvent` is the only interpretation. The backend keeps no thread: the client sends the
 finished tour and the answered turns, and the backend reads the diff from its cache by
-`tour.diffId`. Closing the request stops the model. Answers cite lines as `[label](fileId:line)`
+`tour.diffId`. `model` is one of `Health.ask.models` (the panel's model picker); any other, or none,
+gets `Health.ask.default`. Closing the request stops the model. Answers cite lines as `[label](fileId:line)`
 (`fileId:-line` for removed lines); `refs` lists only the citations `citedRefs` found in the diff,
 and the web app links only those. Threads are saved per diff in the browser (`gloss.ask.<diffId>`).
+
+**Snapshot** (`snapshot.ts`): `gloss export` reads a finished tour through any `GlossClient`
+(`captureTourSnapshot`): the job's event log, its diffs, whole files up to a size cap, the
+trace, the stack and PR body attachments as `data:` URLs. `createSnapshotGlossClient` serves it
+back read-only, so the page replays the log through `reduceTourEvent` as it does live. The CLI
+embeds it, gzipped, in one HTML file with the web app's export build (`vite.export.config.ts`:
+one minified module; shiki grammars and themes, the two highlighter wasm modules and elkjs
+load from jsDelivr at their installed versions, which artifact hosts allow for scripts). The tour model's `exported` flag hides
+what needs a backend (Re-run, Ask, Review, stack stepping).
 
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump

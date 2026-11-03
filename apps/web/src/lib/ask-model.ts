@@ -22,6 +22,8 @@ export interface AskModel {
   turns: readonly AskTurnView[];
   /** The diff the turns were asked on: they are saved and loaded per diff. */
   diffId?: string;
+  /** The model the reader picked (`provider/model`); the backend's default until they pick one. */
+  model?: string;
 }
 
 export const emptyAsk: AskModel = { open: false, draft: '', turns: [] };
@@ -36,7 +38,8 @@ export type AskMsg =
   | { type: 'AskEventReceived'; turnId: string; event: AskEvent }
   | { type: 'AskStreamFailed'; turnId: string; error: string }
   | { type: 'AskStopClicked' }
-  | { type: 'AskLoaded'; diffId: string; turns: readonly AskTurnView[] };
+  | { type: 'AskModelPicked'; model: string }
+  | { type: 'AskLoaded'; diffId: string; turns: readonly AskTurnView[]; model?: string };
 
 export type AskCmd =
   /** Streams one answer. Keyed: a later `StartAsk` or `StopAsk` interrupts it. */
@@ -44,7 +47,9 @@ export type AskCmd =
   | { type: 'StopAsk' }
   | { type: 'FocusAsk' }
   | { type: 'LoadAsk'; diffId: string }
-  | { type: 'SaveAsk'; diffId: string; turns: readonly AskTurnView[] };
+  | { type: 'SaveAsk'; diffId: string; turns: readonly AskTurnView[] }
+  /** The picked model is kept for every tour, not per diff. */
+  | { type: 'SaveAskModel'; model: string };
 
 const streaming = (ask: AskModel) => ask.turns.some((turn) => turn.answer.state === 'streaming');
 
@@ -104,7 +109,13 @@ export function updateAsk(ask: AskModel, msg: AskMsg, tour: Tour | undefined): [
         context: ask.context,
         answer: emptyAnswer,
       };
-      const request: AskRequest = { tour, question, context: ask.context, history: history(ask.turns) };
+      const request: AskRequest = {
+        tour,
+        question,
+        context: ask.context,
+        history: history(ask.turns),
+        ...(ask.model ? { model: ask.model } : {}),
+      };
       return [
         { ...ask, draft: '', context: undefined, turns: [...ask.turns, turn] },
         [{ type: 'StartAsk', turnId: turn.id, request }],
@@ -134,9 +145,18 @@ export function updateAsk(ask: AskModel, msg: AskMsg, tour: Tour | undefined): [
       const next = stopStreaming(ask);
       return [next, [{ type: 'StopAsk' }, ...save(next)]];
     }
-    case 'AskLoaded':
-      // A thread already started on this diff (the load raced a question) wins.
-      return msg.diffId !== ask.diffId || ask.turns.length ? [ask, []] : [{ ...ask, turns: msg.turns }, []];
+    case 'AskModelPicked':
+      return msg.model === ask.model
+        ? [ask, []]
+        : [{ ...ask, model: msg.model }, [{ type: 'SaveAskModel', model: msg.model }, { type: 'FocusAsk' }]];
+    case 'AskLoaded': {
+      // A model picked while loading wins, and so does a thread already started on this diff.
+      const model = ask.model ?? msg.model;
+      if (msg.diffId !== ask.diffId || ask.turns.length) {
+        return [model === ask.model ? ask : { ...ask, model }, []];
+      }
+      return [{ ...ask, model, turns: msg.turns }, []];
+    }
   }
 }
 

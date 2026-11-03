@@ -1,4 +1,4 @@
-import { type ModelClient, nameStack, type PullSummary, Repos, runAsk, TourCache } from '@gloss/core';
+import { ModelClient, nameStack, type PullSummary, Repos, runAsk, TourCache } from '@gloss/core';
 import type {
   DiffPayload,
   GithubLogin,
@@ -237,7 +237,10 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     if (!parsed.success) {
       return c.json({ error: 'Invalid request', issues: v.flatten(parsed.issues) }, 400);
     }
-    const { tour, question, context, history } = parsed.output;
+    const { tour, question, context, history, model: picked } = parsed.output;
+    // Only a model the backend offers; any other (a stale pick, a remote client) gets the default.
+    const offered = await run(ModelClient.use((client) => Effect.sync(() => client.config().ask.models)));
+    const model = picked && offered.includes(picked) ? picked : undefined;
     const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(tour.diffId))));
     if (!diff) {
       return c.json({ error: 'Unknown diff: re-run the tour' }, 404);
@@ -247,7 +250,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       const controller = new AbortController();
       out.onAbort(() => controller.abort());
       return run(
-        Stream.runForEach(runAsk({ tour, diff, question, context, history }), (event) =>
+        Stream.runForEach(runAsk({ tour, diff, question, context, history, model }), (event) =>
           Effect.promise(() => out.writeSSE({ event: event.type, data: JSON.stringify(event) })),
         ),
         controller.signal,
