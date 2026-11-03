@@ -6,7 +6,7 @@ export const STEP_KINDS: Record<StepKind, { label: string; tag: string; actor: '
   define: { label: 'Define', tag: 'Define', actor: 'llm' },
   sketch: { label: 'Sketch', tag: 'Sketch', actor: 'llm' },
   walkthrough: { label: 'Walkthrough', tag: 'Walk', actor: 'llm' },
-  callpath: { label: 'Call path', tag: 'Path', actor: 'llm' },
+  callpath: { label: 'Key code paths', tag: 'Paths', actor: 'llm' },
   'judge-files': { label: 'Judge files', tag: 'Jev', actor: 'jev' },
   'judge-groups': { label: 'Judge groups', tag: 'Jev', actor: 'jev' },
   'judge-visual': { label: 'Pick visual', tag: 'Jev', actor: 'jev' },

@@ -36,7 +36,7 @@ const EXCERPT_OPTIONS = {
  * The change-wide decisions read in code, between the overview and the groups. Each says why,
  * what it chose against and what to check, then shows the few lines that build it: under the
  * rows of its tree when it has one (calls, or a hierarchy of concepts), else in reading order.
- * Then the call path the decisions do not walk, step by step down its call tree. A file's name
+ * Then the key code paths the decisions do not walk, step by step down their call tree. A file's name
  * jumps to it in its group, where its notes and comments are.
  */
 export const Walkthrough = memo(function Walkthrough({
@@ -117,7 +117,7 @@ export const Walkthrough = memo(function Walkthrough({
   );
 });
 
-/** The call path read in order: each step is a sentence, the slice of the call tree it covers, and short excerpts. */
+/** The key code paths read in order: each step is a sentence, the slice of the call tree it covers, and short excerpts. */
 function CallPath({
   frames,
   steps,
@@ -134,7 +134,7 @@ function CallPath({
   const parents = useMemo(() => callParents(frames), [frames]);
   return (
     <section className="walk-path">
-      <Heading level={2}>Call path</Heading>
+      <Heading level={2}>Key Code Paths</Heading>
       <ol className="walk-steps">
         {steps.map((step, number) => (
           <li key={number} className="walk-step">

@@ -1252,7 +1252,7 @@
     font-weight: 500;
   }
 
-  /* The call path after the decisions: its steps read down a dimmed slice of one call tree. */
+  /* The key code paths after the decisions: its steps read down a dimmed slice of one call tree. */
   .walk-path {
     display: flex;
     flex-direction: column;

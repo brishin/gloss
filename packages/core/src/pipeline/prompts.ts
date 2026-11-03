@@ -474,7 +474,7 @@ export const WalkthroughResultSchema = v.pipe(
 );
 
 /**
- * The call path, read beside the decisions: a call tree from an entry point a reviewer knows,
+ * The key code paths, read beside the decisions: a call tree from an entry point a reviewer knows,
  * read in 2-5 steps with short excerpts. Its own call, because asked in the decisions call the
  * model left it empty. `normalizeWalkthrough` checks it against the diff.
  */
@@ -508,7 +508,7 @@ export const CallPathResultSchema = v.pipe(
         }),
       ),
       v.description(
-        'The call tree, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no call path.',
+        'The call tree of the key code paths, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no key code path.',
       ),
     ),
     steps: v.pipe(
@@ -542,7 +542,7 @@ export const CallPathResultSchema = v.pipe(
       v.description('2-5 steps that follow the call tree top down. Empty when the tree is not worth walking.'),
     ),
   }),
-  v.description('The call path read in order, step by step, with the code each step reaches.'),
+  v.description('The key code paths read in order, step by step, with the code each step reaches.'),
 );
 
 export const SKETCH_SYSTEM = `You are a senior engineer drawing the one figure a reviewer sees first in a guided review tour of a code change: an explainer of its main decision, like a figure in a design doc. Read the change and the tour's summary and decisions, find the mechanism the decision changes, then draw it.
@@ -567,15 +567,15 @@ Skip a decision that no code in the diff shows, such as a change to a process or
 
 Call the submit tool once with the result.`;
 
-export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the call path a code change adds or alters, before they read the change file by file. First draw the path as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
+export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the key code paths a code change adds or alters, before they read the change file by file: the paths a reviewer must follow to trust the change, not every path it touches. First draw them as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
 
-The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters. Use two or three entry points only when the change adds separate paths; each starts again at depth 0. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
+The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters. Use two or three entry points only when the change has separate key paths; each starts again at depth 0. Leave out a path that only repeats another or that a reviewer would not need to follow. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
 
 The steps: 2-5 steps that follow the tree top down. Each step names the frames it covers and shows 1-3 short slices of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them. Keep each slice under 25 lines; never a whole file. A step can show slices from different files when a call crosses them. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
 
 When a diff is truncated or omitted, or the path runs through code the diff does not show, call read_file to follow it rather than guess. Frames and slices still point only at lines the diff prints; a frame you found by reading takes line 0.
 
-Return no frames and no steps only when the change has no call path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
+Return no frames and no steps only when the change has no key code path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
 
 Call the submit tool once with the frames and the steps.`;
 
