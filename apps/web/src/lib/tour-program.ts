@@ -1,8 +1,9 @@
 import type { SourceRef, Stack } from '@gloss/protocol';
-import { GlossHttpError, serializeRef } from '@gloss/protocol';
+import { type GlossClient, GlossHttpError, serializeRef } from '@gloss/protocol';
 import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
+import { type AskTurnView, savedTurns } from './ask-model.ts';
 import { Gloss, glossRuntime, request } from './client.ts';
 import type { SavedReview } from './review-draft.ts';
 import { stackRefs } from './sidebar-tree.ts';
@@ -68,7 +69,9 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
             ? 'pin'
             : cmd.type === 'SetTitle'
               ? 'title'
-              : undefined,
+              : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
+                ? 'ask'
+                : undefined,
     subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
@@ -97,6 +100,31 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           concurrency: 4,
           discard: true,
         }),
+      );
+    case 'StartAsk':
+      return answer(cmd.turnId, cmd.request);
+    case 'StopAsk':
+      // Keyed with `StartAsk`: running it interrupts the answer, which aborts its request.
+      return Stream.empty;
+    case 'FocusAsk':
+      return once(nextFrame.pipe(Effect.map(() => document.querySelector<HTMLElement>(ASK_INPUT)?.focus())));
+    case 'LoadAsk':
+      return once(
+        Effect.sync((): Msg => {
+          const stored = storage(() => localStorage.getItem(askKey(cmd.diffId)));
+          const turns = (stored ? storage(() => JSON.parse(stored) as AskTurnView[]) : undefined) ?? [];
+          return { type: 'AskLoaded', diffId: cmd.diffId, turns: savedTurns(turns) };
+        }),
+      );
+    case 'SaveAsk':
+      return once(
+        Effect.sync(() =>
+          storage(() =>
+            cmd.turns.length
+              ? localStorage.setItem(askKey(cmd.diffId), JSON.stringify(cmd.turns))
+              : localStorage.removeItem(askKey(cmd.diffId)),
+          ),
+        ),
       );
     case 'LoadViewed':
       return once(
@@ -246,6 +274,31 @@ function session(ref: SourceRef, force: boolean): Stream.Stream<Msg, never, Glos
     }),
   ).pipe(Stream.catch((error) => Stream.succeed<Msg>({ type: 'StreamFailed', error: describeError(error) })));
 }
+
+/** Streams one answer into its turn; interrupting the stream aborts the request, which stops the model. */
+function answer(turnId: string, body: Parameters<GlossClient['ask']>[0]): Stream.Stream<Msg, never, Gloss> {
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const client = yield* Gloss;
+      const controller = yield* Effect.acquireRelease(
+        Effect.sync(() => new AbortController()),
+        (controller) => Effect.sync(() => controller.abort()),
+      );
+      return Stream.fromAsyncIterable(client.ask(body, { signal: controller.signal }), (error) => error).pipe(
+        Stream.map((event): Msg => ({ type: 'AskEventReceived', turnId, event })),
+      );
+    }),
+  ).pipe(
+    Stream.catch((error) =>
+      Stream.succeed<Msg>({ type: 'AskStreamFailed', turnId, error: describeError(error).message }),
+    ),
+  );
+}
+
+/** The Ask panel's text box (`AskPanel.tsx`). */
+const ASK_INPUT = '.ask-panel textarea, .ask-panel [contenteditable="true"]';
+
+const askKey = (diffId: string) => `gloss.ask.${diffId}`;
 
 /** A one-shot command: its message if it has one. A failure sends nothing. */
 function once<E, R>(effect: Effect.Effect<Msg | void, E, R>): Stream.Stream<Msg, never, R> {

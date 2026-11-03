@@ -45,12 +45,15 @@ async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string
  * Parses an SSE body into events. `fetch` streams are used instead of `EventSource`
  * because `EventSource` cannot send an `Authorization` header (needed for a remote backend).
  */
-export async function* parseSseStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<TourEvent> {
+export async function* parseSseStream<E = TourEvent>(
+  stream: ReadableStream<Uint8Array>,
+  parse: (json: unknown) => E = parseEvent as (json: unknown) => E,
+): AsyncGenerator<E> {
   let data: string[] = [];
   for await (const line of lines(stream)) {
     if (line === '') {
       if (data.length) {
-        yield parseEvent(JSON.parse(data.join('\n')));
+        yield parse(JSON.parse(data.join('\n')));
         data = [];
       }
       continue;
@@ -63,7 +66,7 @@ export async function* parseSseStream(stream: ReadableStream<Uint8Array>): Async
     }
   }
   if (data.length) {
-    yield parseEvent(JSON.parse(data.join('\n')));
+    yield parse(JSON.parse(data.join('\n')));
   }
 }
 

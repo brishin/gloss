@@ -142,14 +142,16 @@ export async function readRepoFile(diff: DiffPayload, path: string, signal?: Abo
 
 /**
  * Both sides of a changed file in full, so the page can show the unchanged lines between
- * hunks. Undefined for files without a partial diff to fill in: added, removed, binary, truncated.
+ * hunks, and Ask can read the whole file. A file with no hunks (renamed or mode change only) reads
+ * the same on both sides. Undefined for files whose sides the diff cannot rebuild: added, removed,
+ * binary, truncated.
  */
 export async function readFileContents(
   diff: DiffPayload,
   file: FileChange,
   signal?: AbortSignal,
 ): Promise<FileContents | undefined> {
-  if (file.status === 'added' || file.status === 'removed' || file.isBinary || file.truncated || !file.hunks.length) {
+  if (file.status === 'added' || file.status === 'removed' || file.isBinary || file.truncated) {
     return undefined;
   }
   const newContents = await readHead(diff, file.path, signal);

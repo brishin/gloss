@@ -9,12 +9,21 @@ import { useAtomMount, useAtomSet, useAtomValue } from '@effect/atom-react';
 import type { SourceRef } from '@gloss/protocol';
 import { groupsInOrder } from '@gloss/protocol';
 import { Link, useRouter } from '@tanstack/react-router';
-import { ChevronLeftIcon, ChevronRightIcon, KeyboardIcon, RotateCwIcon, SquareIcon, WorkflowIcon } from 'lucide-react';
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  KeyboardIcon,
+  MessageCircleQuestionIcon,
+  RotateCwIcon,
+  SquareIcon,
+  WorkflowIcon,
+} from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
-import { canReview, currentGroup, currentPull, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
+import { canAsk, canReview, currentGroup, currentPull, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
+import { AskPanel } from './AskPanel.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
@@ -51,6 +60,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const select = (key: string) => dispatch({ type: 'GroupSelected', key });
   const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
   const reviewable = canReview(model);
+  const askable = canAsk(model);
   const { review } = model;
   const reviewer = useMemo<Reviewer | undefined>(
     () =>
@@ -62,9 +72,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             cancel: () => dispatch({ type: 'CommentCancelled' }),
             save: () => dispatch({ type: 'CommentSaved' }),
             remove: (id) => dispatch({ type: 'CommentRemoved', id }),
+            ask: askable ? () => dispatch({ type: 'CommentAsked' }) : undefined,
           }
         : undefined,
-    [reviewable, dispatch],
+    [reviewable, askable, dispatch],
   );
   const controls: FileControls = useMemo(
     () => ({
@@ -80,7 +91,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
-    <div className="app">
+    <div className="app" data-ask-open={model.ask.open}>
       <header className="topbar">
         <Link to="/" className="brand">
           <Logo />
@@ -121,6 +132,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
               onClick={() => dispatch({ type: 'RerunClicked' })}
             />
           )}
+          <IconButton
+            size="sm"
+            variant={model.ask.open ? 'secondary' : 'ghost'}
+            label="Ask"
+            tooltip="Ask (q)"
+            icon={<Icon icon={MessageCircleQuestionIcon} />}
+            isDisabled={!askable && !model.ask.open}
+            onClick={() => dispatch({ type: 'AskToggled' })}
+          />
           <IconButton
             size="sm"
             variant="ghost"
@@ -266,6 +286,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </div>
         </main>
       </div>
+      {model.ask.open && (
+        <AskPanel
+          ask={model.ask}
+          files={state.files}
+          model={state.models?.define}
+          enabled={askable}
+          dispatch={dispatch}
+        />
+      )}
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
   );
