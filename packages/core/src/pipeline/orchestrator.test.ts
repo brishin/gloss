@@ -2,12 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
+import type { DecisionRuleSet, SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import { DecisionRules, type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import { DiffSources } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
@@ -50,6 +50,7 @@ async function tour(options: {
   model: ModelClient['Service'];
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
+  rules?: DecisionRuleSet[];
 }): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
@@ -57,6 +58,9 @@ async function tour(options: {
     Layer.succeed(TourCache, options.cache ?? createMemoryCacheStore()),
     DiffSources.layer,
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
+    options.rules
+      ? Layer.succeed(DecisionRules, { get: Effect.succeed(options.rules), save: () => Effect.void })
+      : Layer.empty,
   );
   const trace = new Map<string, TraceStep>();
   const onStep = (step: TraceStep) => trace.set(step.id, step);
@@ -214,6 +218,38 @@ describe('runTour', () => {
     const second = await tour({ model, judge: fakeJudge(), cache });
     expect(second.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
     expect(model.calls.length).toBe(calls);
+  });
+
+  it("puts the user's decision rules in the define and notes prompts by files, and keys the tour on them", async () => {
+    const cache = createMemoryCacheStore();
+    const model = fakeModel();
+    await tour({ model, judge: fakeJudge(), cache });
+    const plain = model.calls.length;
+    expect(model.calls.some((call) => call.prompt.includes("## Reviewer's decision rules"))).toBe(false);
+
+    const sets = [
+      { rules: ['Flag every new environment variable'] },
+      { files: '^src/auth\\.ts$', rules: ['Flag a weaker auth check as urgent'] },
+      { files: '\\.py$', rules: ['Flag a service passed by global'] },
+    ];
+    const second = await tour({ model, judge: fakeJudge(), cache, rules: sets });
+    // A tour cached without rules is not reused once there are rules.
+    expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
+    const calls = model.calls.slice(plain);
+    const define = calls.find((call) => call.resultName === 'groups')!.prompt;
+    expect(define).toContain(
+      '- Flag every new environment variable\n- Flag a weaker auth check as urgent (only in src/auth.ts)',
+    );
+    expect(define).not.toContain('Flag a service passed by global');
+    const notes = (key: string) =>
+      calls.find((call) => call.tier === 'notes' && call.prompt.includes(`## This group: ${key}`))?.prompt ?? '';
+    expect(notes('Auth check')).toContain('- Flag a weaker auth check as urgent');
+    expect(notes('Docs')).toContain('- Flag every new environment variable');
+    expect(notes('Docs')).not.toContain('Flag a weaker auth check');
+
+    // Same rules again: the finished tour replays.
+    const third = await tour({ model, judge: fakeJudge(), cache, rules: sets });
+    expect(third.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
   });
 
   it('writes a walkthrough on every tour, right after the groups are defined', async () => {

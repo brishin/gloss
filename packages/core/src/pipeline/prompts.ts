@@ -536,9 +536,41 @@ function budgetRank(file: FileChange): number {
   return file.status === 'removed' ? 2 : 1;
 }
 
+/**
+ * The user's own decision rules (`decisionRules` in the config), as a prompt section. It lives
+ * in the prompt, not the system text, so tours without rules keep their prompts and caches,
+ * and each rule set has its own cache keys.
+ */
+export function decisionRulesSection(rules: readonly string[], scope: 'change' | 'group'): string[] {
+  if (rules.length === 0) {
+    return [];
+  }
+  const where =
+    scope === 'change'
+      ? 'Flag each choice a rule describes that spans files or is about the change as a whole; a later pass pins the ones a single file makes.'
+      : 'Pin a decision on each choice a rule describes that this group makes, unless the change-wide list already covers it.';
+  return [
+    '',
+    "## Reviewer's decision rules",
+    `The reviewer also wants these decisions flagged. ${where} When a rule and your instructions disagree, follow the rule, and use the priority a rule names.`,
+    ...rules.map((rule) => `- ${rule}`),
+  ];
+}
+
 /** The prompt for defining groups: a manifest of every file, then as many diffs as fit the budget. */
-export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
-  const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
+export function buildDefinePrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  withFiles: boolean,
+  rules: readonly string[] = [],
+): string {
+  const parts = [
+    header(meta),
+    ...decisionRulesSection(rules, 'change'),
+    '',
+    `## Files (${files.length})`,
+    ...files.map(manifestLine),
+  ];
   let remaining = TOTAL_BUDGET;
   const diffs: string[] = [];
   const omitted: string[] = [];
@@ -687,6 +719,7 @@ export function buildNotesPrompt(
   files: readonly FileChange[],
   judgments: Record<string, FileJudgment>,
   decisions: readonly Decision[] = [],
+  rules: readonly string[] = [],
 ): string {
   const parts = [header(meta)];
   if (overallSummary) {
@@ -699,6 +732,7 @@ export function buildNotesPrompt(
       ...decisions.map((decision) => `- ${decision.text}`),
     );
   }
+  parts.push(...decisionRulesSection(rules, 'group'));
   parts.push('', `## This group: ${group.label}`, group.summary);
   const risks = files.flatMap((file) =>
     flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),

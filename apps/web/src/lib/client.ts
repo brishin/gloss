@@ -1,6 +1,8 @@
 import {
   createHttpGlossClient,
   createSnapshotGlossClient,
+  type DecisionRuleSet,
+  type DecisionRulesState,
   DEFAULT_BACKEND_URL,
   type FileContents,
   type GlossClient,
@@ -162,6 +164,15 @@ export const saveJudgeKeyAtom = glossRuntime.fn((key: string) =>
       Effect.retry({ schedule: Schedule.spaced(Duration.seconds(1)), times: 30 }),
     );
   }),
+);
+
+/** The user's decision rule sets, with what Jev found when it checked them. */
+export const decisionRulesAtom: Atom.Atom<AsyncResult.AsyncResult<DecisionRulesState, GlossRequestError>> =
+  glossRuntime.atom(request((client) => client.decisionRules()));
+
+/** Saves the decision rule sets on the backend; resolves with Jev's findings on the saved sets. */
+export const saveDecisionRulesAtom = glossRuntime.fn((sets: readonly DecisionRuleSet[]) =>
+  request((client) => client.saveDecisionRules(sets)),
 );
 
 /**

@@ -8,7 +8,16 @@ export {
   type ProviderStatus,
   validateModelIds,
 } from './auth.ts';
-export { configPath, type GlossConfig, loadConfig, PROFILES, type Profile, splitSpecifier } from './config.ts';
+export {
+  configPath,
+  type GlossConfig,
+  loadConfig,
+  PROFILES,
+  type Profile,
+  readDecisionRules,
+  saveDecisionRules,
+  splitSpecifier,
+} from './config.ts';
 export { bridgedProviders, createFlueModelClient, ensureFlueRuntime, StageResultError } from './flue-runtime.ts';
 export { createJevClient } from './jev-client.ts';
 export { glossHome, glossPath } from './paths.ts';

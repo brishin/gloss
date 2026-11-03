@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import process from 'node:process';
+import { type DecisionRuleSet, DecisionRuleSetSchema } from '@gloss/protocol';
+import * as v from 'valibot';
 import { glossPath } from './paths.ts';
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -14,6 +17,8 @@ export interface GlossConfig {
   judge: string | null;
   /** Third-party pi provider packages to load (each default-exports a `Provider` or a factory). */
   providerPackages: string[];
+  /** The user's own rules for which decisions to flag, each set scoped by a files pattern (settings page). */
+  decisionRules: DecisionRuleSet[];
 }
 
 /**
@@ -57,6 +62,7 @@ const DEFAULTS: GlossConfig = {
   ask: { models: [...PROFILES.anthropic.ask.models], default: PROFILES.anthropic.ask.default },
   judge: 'typesafe/jev-latest',
   providerPackages: [],
+  decisionRules: [],
 };
 
 type ConfigFile = Partial<Omit<GlossConfig, 'tiers' | 'thinking' | 'ask'>> & {
@@ -70,14 +76,18 @@ export function configPath(): string {
   return glossPath('config.json');
 }
 
-/** Defaults, then `~/.gloss/config.json` (optionally naming a `profile`), then `GLOSS_*` env vars. */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
-  let file: ConfigFile = {};
+function readConfigFile(): ConfigFile {
   try {
-    file = JSON.parse(readFileSync(configPath(), 'utf8')) as ConfigFile;
+    return JSON.parse(readFileSync(configPath(), 'utf8')) as ConfigFile;
   } catch {
     // No config file: defaults.
+    return {};
   }
+}
+
+/** Defaults, then `~/.gloss/config.json` (optionally naming a `profile`), then `GLOSS_*` env vars. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
+  const file = readConfigFile();
   const profile = (env.GLOSS_PROFILE as Profile | undefined) ?? file.profile;
   const tiers = { ...DEFAULTS.tiers, ...(profile ? PROFILES[profile]?.tiers : undefined), ...file.tiers };
   if (env.GLOSS_MODEL) {
@@ -99,7 +109,53 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
         .map((name) => name.trim())
         .filter(Boolean) ?? []),
     ],
+    decisionRules: readDecisionRules(file),
   };
+}
+
+/**
+ * The saved rule sets, read from the file each time so a tour sees the latest save. A set
+ * that does not parse (a hand edit) is left out; a plain list of strings is one set for all files.
+ */
+export function readDecisionRules(file: ConfigFile = readConfigFile()): DecisionRuleSet[] {
+  const saved: unknown = file.decisionRules;
+  if (!Array.isArray(saved)) {
+    return [];
+  }
+  if (saved.every((rule) => typeof rule === 'string')) {
+    const rules = saved.map((rule: string) => rule.trim()).filter(Boolean);
+    return rules.length ? [{ rules }] : [];
+  }
+  return saved.flatMap((set) => {
+    const parsed = v.safeParse(DecisionRuleSetSchema, set);
+    return parsed.success ? [parsed.output] : [];
+  });
+}
+
+/**
+ * Saves the rule sets into `~/.gloss/config.json`, keeping every other key as written.
+ * No sets removes the key. Writes a temporary file and renames it, so a reader never sees half.
+ */
+export function saveDecisionRules(sets: readonly DecisionRuleSet[]): void {
+  const path = configPath();
+  let file: Record<string, unknown> = {};
+  try {
+    file = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // Never overwrite a config the user can no longer parse.
+      throw new Error(`Could not read ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (sets.length) {
+    file.decisionRules = sets.map((set) => (set.files ? { files: set.files, rules: set.rules } : { rules: set.rules }));
+  } else {
+    delete file.decisionRules;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(file, null, 2)}\n`);
+  renameSync(temp, path);
 }
 
 /**

@@ -35,6 +35,17 @@ each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-`
 
 Decisions name a choice and what it costs or risks, so a reviewer can accept or reject it: asked for a choice and its reason, the model restated the author's case. Define judges costs from the diff, not the description, and lists only choices no single file makes. Notes count an omission as a decision (a missing check or limit) and write a risk in a choice as a decision, not a note. Priority is by consequence if the choice is wrong, and the lower of two when unsure. In the 2026-11-02 eval, stricter note wording and wider Jev risk criteria both made notes worse: stricter wording cut insights, and more flags produced reassuring risk notes.
 
+The user's own decision rules (`decisionRules` in `~/.gloss/config.json`, edited on the settings
+page) are sets of rules, each with an optional `files` regex tested against changed paths
+(`rulesFor`; a set that matches only some of a prompt's files names them after each rule). They go into the define prompt (sets matching any changed file) and each group's
+notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
+system text, so tours without rules keep their prompts and caches. A rule wins over the built-in
+guidance, and its priority is used. All sets join the tour cache key only when there are some. On
+save, Jev checks each rule, read with its files pattern (`decision-rules.ts`, one call per rule,
+cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RULES`, a short
+summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
+rule. The findings only advise; the save always goes through.
+
 Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
 notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define
 lists only its rollout across files. Define sees only that rollout rule; given the full rule it

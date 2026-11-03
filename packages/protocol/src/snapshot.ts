@@ -226,6 +226,8 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     githubLogin: missing('Setup'),
     installNativeHost: missing('Setup'),
     saveJudgeKey: missing('Setup'),
+    decisionRules: missing('Decision rules'),
+    saveDecisionRules: missing('Decision rules'),
     updateStatus: () => Promise.resolve({ behind: 0 }),
     update: missing('Update'),
   };

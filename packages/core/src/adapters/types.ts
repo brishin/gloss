@@ -1,4 +1,4 @@
-import type { ModelConfig } from '@gloss/protocol';
+import type { DecisionRuleSet, ModelConfig } from '@gloss/protocol';
 import { Context, Data, type Effect } from 'effect';
 import type * as v from 'valibot';
 
@@ -113,3 +113,17 @@ export class JudgeClient extends Context.Service<
     }): Effect.Effect<Record<string, JudgeAnswer>, JudgeError>;
   }
 >()('@gloss/core/JudgeClient') {}
+
+/**
+ * The user's own rule sets for which decisions to flag (`decisionRules` in `~/.gloss/config.json`),
+ * each scoped to the files its `files` pattern matches.
+ * Read at the start of every tour, so a saved change applies to the next tour without a
+ * restart. Optional: without it tours use only the built-in rules.
+ */
+export class DecisionRules extends Context.Service<
+  DecisionRules,
+  {
+    get: Effect.Effect<readonly DecisionRuleSet[]>;
+    save(sets: readonly DecisionRuleSet[]): Effect.Effect<void>;
+  }
+>()('@gloss/core/DecisionRules') {}
