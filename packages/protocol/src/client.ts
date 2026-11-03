@@ -208,7 +208,14 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       if (!response.body) {
         throw new Error('Answer stream has no body');
       }
-      yield* parseSseStream(response.body, parseAskEvent);
+      for await (const event of parseSseStream(response.body, parseAskEvent)) {
+        yield event;
+        if (event.type === 'ask.done' || event.type === 'ask.failed') {
+          return;
+        }
+      }
+      // A dropped connection ends the body without an error; the answer must not hang as streaming.
+      throw new Error('The answer stream ended early');
     },
 
     async abort(jobId) {

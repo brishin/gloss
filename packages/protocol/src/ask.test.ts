@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type AskEvent, emptyAnswer, parseAskRef, reduceAskEvent } from './ask.ts';
+import { createHttpGlossClient } from './client.ts';
 
 describe('reduceAskEvent', () => {
   const log: AskEvent[] = [
@@ -39,5 +40,30 @@ describe('parseAskRef', () => {
     ['src/a.ts:12', undefined],
   ])('%s', (href, ref) => {
     expect(parseAskRef(href)).toEqual(ref);
+  });
+});
+
+describe('GlossClient.ask', () => {
+  const clientWith = (body: string) =>
+    createHttpGlossClient({
+      baseUrl: 'http://gloss.test',
+      fetch: async () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }),
+    });
+  const collect = async (body: string) => {
+    const events: AskEvent[] = [];
+    for await (const event of clientWith(body).ask({ tour: {} as never, question: 'q' })) {
+      events.push(event);
+    }
+    return events;
+  };
+  const sse = (...events: AskEvent[]) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+
+  it('ends at the terminal event', async () => {
+    const events = await collect(sse({ type: 'ask.delta', text: 'a' }, { type: 'ask.done', model: 'm', refs: [] }));
+    expect(events.map((event) => event.type)).toEqual(['ask.delta', 'ask.done']);
+  });
+
+  it('fails when the stream ends before the answer does', async () => {
+    await expect(collect(sse({ type: 'ask.delta', text: 'a' }))).rejects.toThrow('ended early');
   });
 });

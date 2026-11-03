@@ -46,13 +46,16 @@ function inHunks(file: FileChange, side: AskRef['side'], line: number): boolean 
 }
 
 /**
- * A new file's whole text, from its diff: `Repos.contents` only reads files that existed before
- * (it fills in unchanged lines), and every line of an added file is in its diff.
+ * The whole text of an added file's new side or a removed file's old side, from its diff:
+ * `Repos.contents` only reads files that exist on both sides (it fills in unchanged lines), and
+ * every line of an added or removed file is in its diff.
  */
-function addedText(file: FileChange): string | undefined {
-  return file.status === 'added' && !file.truncated && !file.isBinary
+export function wholeSideText(file: FileChange, side: 'new' | 'old'): string | undefined {
+  const status = side === 'new' ? 'added' : 'removed';
+  const mark = side === 'new' ? '+' : '-';
+  return file.status === status && !file.truncated && !file.isBinary
     ? file.hunks
-        .flatMap((hunk) => hunk.patch.split('\n').filter((line) => line.startsWith('+')))
+        .flatMap((hunk) => hunk.patch.split('\n').filter((line) => line.startsWith(mark)))
         .map((line) => line.slice(1))
         .join('\n')
     : undefined;
@@ -116,14 +119,13 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
             return `No changed file has the id ${fileId}.`;
           }
           const text =
-            side === 'new' && addedText(file) !== undefined
-              ? addedText(file)
-              : await runPromise(
-                  repos.contents(diff, file).pipe(
-                    Effect.map((contents) => (side === 'old' ? contents?.oldContents : contents?.newContents)),
-                    Effect.orElseSucceed(() => undefined),
-                  ),
-                );
+            wholeSideText(file, side) ??
+            (await runPromise(
+              repos.contents(diff, file).pipe(
+                Effect.map((contents) => (side === 'old' ? contents?.oldContents : contents?.newContents)),
+                Effect.orElseSucceed(() => undefined),
+              ),
+            ));
           if (text === undefined) {
             return `${file.path} cannot be read; use the diff.`;
           }

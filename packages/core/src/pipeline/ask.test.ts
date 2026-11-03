@@ -177,14 +177,19 @@ describe('runAsk', () => {
 });
 
 describe('read_file', () => {
-  const readWith = async (contents: Repos['Service']['contents'], fileId = 'f1', files = diff.files) => {
+  const readWith = async (
+    contents: Repos['Service']['contents'],
+    fileId = 'f1',
+    files = diff.files,
+    side: 'new' | 'old' = 'new',
+  ) => {
     let output = '';
     let refs: unknown;
-    const base = createFakeModelClient({ answers: {}, chat: () => '[x](f1:2) [y](f2:2)' });
+    const base = createFakeModelClient({ answers: {}, chat: () => '[x](f1:2) [y](f2:2) [z](f2:-2)' });
     const model: ModelClient['Service'] = {
       ...base,
       chat: (request) =>
-        Effect.promise(() => request.tools[0]!.run({ fileId })).pipe(
+        Effect.promise(() => request.tools[0]!.run({ fileId, side })).pipe(
           Effect.tap((text) => Effect.sync(() => (output = text))),
           Effect.andThen(base.chat(request)),
         ),
@@ -208,6 +213,18 @@ describe('read_file', () => {
     const { output, refs } = await readWith(() => Effect.succeed(undefined), 'f2', [diff.files[0]!, added]);
     expect(output).toBe('1 one\n2 two');
     expect(refs).toEqual([{ fileId: 'f2', side: 'additions', line: 2 }]);
+  });
+
+  it('reads a removed file from its diff, and its old lines become citable', async () => {
+    const removed = {
+      ...diff.files[0]!,
+      id: 'f2',
+      status: 'removed' as const,
+      hunks: [{ ...diff.files[0]!.hunks[0]!, oldStart: 1, oldLines: 2, newStart: 0, newLines: 0, patch: '-one\n-two' }],
+    };
+    const { output, refs } = await readWith(() => Effect.succeed(undefined), 'f2', [diff.files[0]!, removed], 'old');
+    expect(output).toBe('1 one\n2 two');
+    expect(refs).toEqual([{ fileId: 'f2', side: 'deletions', line: 2 }]);
   });
 
   it('stops the read when the answer is interrupted', async () => {
