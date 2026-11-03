@@ -14,7 +14,7 @@ run() {
 one() {
   local pr=$1
   run "$pr" base
-  for arm in base2 specific general; do run "$pr" "$arm" & done
+  for arm in ${ARMS:-base2 specific general}; do run "$pr" "$arm" & done
   wait
   echo "done $pr"
 }

@@ -706,7 +706,7 @@ export function buildNotesPrompt(
   );
   parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
   const evalArm = evalChecks();
-  parts.push(...checksSection(evalArm.checks, files));
+  parts.push(...checksSection(evalArm.checks, files, evalArm.strong));
   let remaining = TOTAL_BUDGET;
   parts.push('', '## Files');
   for (const file of files) {
@@ -791,21 +791,32 @@ export const GENERAL_DECISION_CHECKS: readonly DecisionCheck[] = [
   },
 ];
 
-function evalChecks(): { checks: readonly DecisionCheck[]; pad: string } {
+function evalChecks(): { checks: readonly DecisionCheck[]; pad: string; strong: boolean } {
   const arm = process.env.GLOSS_EVAL_CHECKS ?? 'base';
-  if (arm === 'specific') return { checks: PYTHON_DECISION_CHECKS, pad: '' };
-  if (arm === 'general') return { checks: GENERAL_DECISION_CHECKS, pad: '' };
-  return { checks: [], pad: arm === 'base' ? '' : `\n<!-- ${arm} -->` };
+  const strong = arm.endsWith('2');
+  if (arm.startsWith('specific')) return { checks: PYTHON_DECISION_CHECKS, pad: '', strong };
+  if (arm.startsWith('general')) return { checks: GENERAL_DECISION_CHECKS, pad: '', strong };
+  return { checks: [], pad: arm === 'base' ? '' : `\n<!-- ${arm} -->`, strong };
 }
 
+const CHECKS_INTRO =
+  "Check this group's code for each of these. Where the code falls short, write a decision on the line that makes the choice and say what to do instead; write nothing for a check it passes or that does not apply.";
+
+const CHECKS_INTRO_STRONG =
+  'The reviewer asks these of every change like this one, and they outrank the guidance to skip refactors and code structure. Go through every function this group adds or changes, not only the main one, and answer each check against it. For each place the code falls short, write a decision on the line, naming the function and what to do instead; rate it medium unless it is worse. A check the code passes, or one that does not apply, gets nothing.';
+
 /** The checks section of a notes prompt, or nothing when no check applies to the group. */
-export function checksSection(checks: readonly DecisionCheck[], files: readonly FileChange[]): string[] {
+export function checksSection(
+  checks: readonly DecisionCheck[],
+  files: readonly FileChange[],
+  strong = false,
+): string[] {
   const applicable = checks.filter((check) => files.some((file) => check.applies(file.path)));
   if (applicable.length === 0) return [];
   return [
     '',
-    '## Checks',
-    "Check this group's code for each of these. Where the code falls short, write a decision on the line that makes the choice and say what to do instead; write nothing for a check it passes or that does not apply.",
+    strong ? '## Reviewer checks' : '## Checks',
+    strong ? CHECKS_INTRO_STRONG : CHECKS_INTRO,
     ...applicable.map((check) => `- ${check.text}`),
   ];
 }
