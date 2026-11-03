@@ -1,6 +1,6 @@
-import type { DiffHunk } from '@gloss/protocol';
+import type { CallFrame, DiffHunk } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { callParents, sliceHunk, snippetHosts } from './excerpt.ts';
+import { callParents, sliceHunk, snippetHosts, stepFrames } from './excerpt.ts';
 
 describe('sliceHunk', () => {
   const hunk: DiffHunk = {
@@ -41,5 +41,14 @@ describe('snippetHosts', () => {
       [2, 1],
       [4, 0],
     ]);
+  });
+});
+
+describe('stepFrames', () => {
+  it('keeps the picked frames and their callers, in tree order', () => {
+    const frame = (depth: number, name: string): CallFrame => ({ depth, name, status: 'new' });
+    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(1, 'd'), frame(0, 'e')];
+    expect(stepFrames(frames, callParents(frames), [3, 2])).toEqual([0, 1, 2, 3]);
+    expect(stepFrames(frames, callParents(frames), [])).toEqual([]);
   });
 });

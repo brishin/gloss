@@ -228,6 +228,16 @@ export const ExcerptSchema = v.object({
 });
 export type Excerpt = v.InferOutput<typeof ExcerptSchema>;
 
+/** One stop on a call path: a sentence, the call-tree frames it covers, and short excerpts from any files. */
+export const WalkStepSchema = v.object({
+  title: v.string(),
+  text: v.string(),
+  /** Indexes into the walkthrough's `frames`. */
+  frames: v.array(v.number()),
+  excerpts: v.array(ExcerptSchema),
+});
+export type WalkStep = v.InferOutput<typeof WalkStepSchema>;
+
 /**
  * A few lines of one hunk that show how a decision is built: new-side lines `from`..`to`, the
  * line `focus` among them where the choice is made, a one-sentence `caption` on what the lines
@@ -289,11 +299,15 @@ export const DecisionWalkSchema = v.object({
 export type DecisionWalk = v.InferOutput<typeof DecisionWalkSchema>;
 
 /**
- * The change's key decisions read in code, in the order of the tour's `decisions`. Read-only;
- * notes and comments stay in the groups.
+ * The change's key decisions read in code, in the order of the tour's `decisions`, then a call
+ * tree (`frames`) read in `steps` for the important paths the decisions do not walk. Each part
+ * may be empty, and tours from before either part read it as empty. Read-only; notes and
+ * comments stay in the groups.
  */
 export const WalkthroughSchema = v.object({
-  decisions: v.array(DecisionWalkSchema),
+  decisions: v.optional(v.array(DecisionWalkSchema), []),
+  frames: v.optional(v.array(CallFrameSchema), []),
+  steps: v.optional(v.array(WalkStepSchema), []),
 });
 export type Walkthrough = v.InferOutput<typeof WalkthroughSchema>;
 
@@ -357,7 +371,7 @@ export const TourSchema = v.object({
   visuals: v.optional(v.array(VisualSchema)),
   /** The single picture of tours written before `visuals`; read as `visuals: [visual]`. */
   visual: v.optional(VisualSchema),
-  /** The change-wide decisions read in code, when any can be shown in it. */
+  /** The change-wide decisions read in code, and the call paths they do not walk, when there are any. */
   walkthrough: v.optional(WalkthroughSchema),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),

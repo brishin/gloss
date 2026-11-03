@@ -259,6 +259,15 @@ describe('runTour', () => {
                   links: [{ to: 1, text: 'The docs say so.' }],
                 },
               ],
+              // A path the decision does not walk: the call tree and its steps.
+              frames: [
+                { depth: 0, receiver: '', name: 'login', args: '', fileId: '', line: 0, status: 'same' },
+                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
+              ],
+              steps: [
+                { title: 'Login checks', text: 'Calls the check.', frames: [0], excerpts: [at] },
+                { title: 'The check', text: 'Compares the name.', frames: [1], excerpts: [at] },
+              ],
             };
           }
           return request.resultName === 'sketch' ? sketchAnswer : groupsAnswer;
@@ -288,6 +297,8 @@ describe('runTour', () => {
       },
     ]);
     expect(walk!.snippets).toEqual([expect.objectContaining({ from: 1, to: 3, focus: 2, caption: 'The check.' })]);
+    expect(finished.walkthrough!.frames.map((frame) => frame.name)).toEqual(['login', 'check']);
+    expect(finished.walkthrough!.steps.map((step) => step.title)).toEqual(['Login checks', 'The check']);
     // The prompt numbers the decisions it reads, from 0.
     const call = model.calls.find((call) => call.resultName === 'walkthrough');
     expect(call?.prompt).toContain(`0. (urgent) ${groupsAnswer.decisions[0]!.text}`);

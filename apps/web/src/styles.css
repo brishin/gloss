@@ -1239,7 +1239,8 @@
     min-width: 0;
   }
 
-  .walk-step h2 {
+  .walk-step h2,
+  .walk-step h3 {
     display: flex;
     align-items: baseline;
     gap: var(--spacing-2);
@@ -1249,6 +1250,37 @@
     color: var(--color-text-secondary);
     font-variant-numeric: tabular-nums;
     font-weight: 500;
+  }
+
+  /* The call path after the decisions: its steps read down a dimmed slice of one call tree. */
+  .walk-path {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+    margin-top: var(--spacing-8);
+  }
+
+  .walk-steps:empty {
+    display: none;
+  }
+
+  .walk-steps:empty + .walk-path {
+    margin-top: 0;
+  }
+
+  .walk-step-text {
+    margin: 0;
+    max-width: 72ch;
+    color: var(--color-text-secondary);
+  }
+
+  .walk-step-text code {
+    font-size: 12px;
+  }
+
+  .walk-row[data-dim],
+  .walk-lines path[data-dim] {
+    opacity: 0.38;
   }
 
   .walk-flag {

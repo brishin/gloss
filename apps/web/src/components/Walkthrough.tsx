@@ -1,10 +1,12 @@
 import { Heading } from '@astryxdesign/core/Heading';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import type {
+  CallFrame,
   Decision,
   DecisionNode,
   DecisionWalk,
   DiffPayload,
+  Excerpt,
   FileChange,
   Snippet,
   Walkthrough as WalkthroughData,
@@ -12,7 +14,7 @@ import type {
 import { type DiffLineAnnotation, processFile, type SelectedLineRange } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { Fragment, memo, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { callParents, excerptFile, excerptLabel, snippetHosts } from '../lib/excerpt.ts';
+import { callLocations, callParents, excerptFile, excerptLabel, snippetHosts, stepFrames } from '../lib/excerpt.ts';
 import { decisionFlag, splitPath } from '../lib/tour-view.ts';
 import { unifiedText } from './FileView.tsx';
 import { FlagIcon } from './icons.tsx';
@@ -34,7 +36,8 @@ const EXCERPT_OPTIONS = {
  * The change-wide decisions read in code, between the overview and the groups. Each says why,
  * what it chose against and what to check, then shows the few lines that build it: under the
  * rows of its tree when it has one (calls, or a hierarchy of concepts), else in reading order.
- * A file's name jumps to it in its group, where its notes and comments are.
+ * Then the call path the decisions do not walk, step by step down its call tree. A file's name
+ * jumps to it in its group, where its notes and comments are.
  */
 export const Walkthrough = memo(function Walkthrough({
   walkthrough,
@@ -101,9 +104,155 @@ export const Walkthrough = memo(function Walkthrough({
           </li>
         ))}
       </ol>
+      {walkthrough.steps.length > 0 && (
+        <CallPath
+          frames={walkthrough.frames}
+          steps={walkthrough.steps}
+          diff={diff}
+          files={files}
+          onOpen={onJumpToFile}
+        />
+      )}
     </div>
   );
 });
+
+/** The call path read in order: each step is a sentence, the slice of the call tree it covers, and short excerpts. */
+function CallPath({
+  frames,
+  steps,
+  diff,
+  files,
+  onOpen,
+}: {
+  frames: readonly CallFrame[];
+  steps: WalkthroughData['steps'];
+  diff: DiffPayload | undefined;
+  files: ReadonlyMap<string, FileChange>;
+  onOpen: (fileId: string) => void;
+}) {
+  const parents = useMemo(() => callParents(frames), [frames]);
+  return (
+    <section className="walk-path">
+      <Heading level={2}>Call path</Heading>
+      <ol className="walk-steps">
+        {steps.map((step, number) => (
+          <li key={number} className="walk-step">
+            <Heading level={3}>
+              <span className="walk-step-n">{number + 1}</span>
+              {step.title}
+            </Heading>
+            {step.text && <p className="walk-step-text">{inlineCode(step.text)}</p>}
+            {step.frames.length > 0 && (
+              <PathTree frames={frames} only={stepFrames(frames, parents, step.frames)} active={new Set(step.frames)} />
+            )}
+            {step.excerpts.map((excerpt, index) =>
+              diff ? (
+                <ExcerptView key={index} files={files} excerpt={excerpt} onOpen={onOpen} />
+              ) : (
+                <Skeleton key={index} height={120} />
+              ),
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** One hunk slice under a slim `dir/base:lines` label, with no file chrome, so several read as one. */
+function ExcerptView({
+  files,
+  excerpt,
+  onOpen,
+}: {
+  files: ReadonlyMap<string, FileChange>;
+  excerpt: Excerpt;
+  onOpen: (fileId: string) => void;
+}) {
+  const file = useMemo(() => excerptFile(files, excerpt), [files, excerpt]);
+  const parsed = useMemo(() => (file ? processFile(unifiedText(file)) : undefined), [file]);
+  if (!file || !parsed) {
+    return null;
+  }
+  const { dir, base, lines } = excerptLabel(file);
+  return (
+    <figure className="walk-excerpt">
+      <figcaption className="walk-excerpt-head">
+        <button type="button" className="walk-excerpt-path" title="Open in its group" onClick={() => onOpen(file.id)}>
+          <span>{dir}</span>
+          {base}
+          <span>:{lines}</span>
+        </button>
+      </figcaption>
+      <FileDiff fileDiff={parsed} disableWorkerPool options={EXCERPT_OPTIONS} />
+    </figure>
+  );
+}
+
+/**
+ * Part of the path's call tree with connectors: `only` keeps a subset (with its callers), and
+ * frames outside `active` dim, so a step shows where it sits on the path.
+ */
+function PathTree({
+  frames,
+  only,
+  active,
+}: {
+  frames: readonly CallFrame[];
+  only: readonly number[];
+  active: ReadonlySet<number>;
+}) {
+  const rows = only.map((index) => frames[index]!);
+  const parents = callParents(rows);
+  const locations = callLocations(rows);
+  const mid = (row: number) => row * ROW + ROW / 2;
+  return (
+    <div className="walk-tree">
+      <svg className="walk-lines" width="100%" height={rows.length * ROW} aria-hidden>
+        {rows.map((frame, row) => {
+          const parent = parents[row]!;
+          if (parent < 0) {
+            return null;
+          }
+          const x = rows[parent]!.depth * INDENT + MARK / 2;
+          const y = mid(row);
+          const dim = !active.has(only[row]!);
+          return (
+            <path
+              key={row}
+              data-dim={dim || undefined}
+              d={`M${x} ${mid(parent) + MARK / 2 + 2}V${y - 6}Q${x} ${y} ${x + 6} ${y}H${frame.depth * INDENT - 3}`}
+            />
+          );
+        })}
+      </svg>
+      {rows.map((frame, row) => {
+        const index = only[row]!;
+        const location = locations[row]!;
+        const file = location.startsWith(':') ? '' : location.replace(/:\d+$/, '');
+        return (
+          <div
+            key={index}
+            className="walk-row"
+            data-dim={!active.has(index) || undefined}
+            style={{ paddingLeft: frame.depth * INDENT }}
+          >
+            <span className={`walk-mark ${frame.status}`} />
+            <code className="walk-call">
+              {frame.receiver && `${frame.receiver}.`}
+              <b>{frame.name}</b>({frame.args ?? ''})
+            </code>
+            <code className="walk-at">
+              {file}
+              <span>{location.slice(file.length)}</span>
+            </code>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** The decision in words: why, what it chose against, and what to hold the code to. */
 function Explain({ walk }: { walk: DecisionWalk }) {

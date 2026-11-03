@@ -1,13 +1,16 @@
 import type {
+  CallFrame,
   Decision,
   DecisionNode,
   DecisionWalk,
+  Excerpt,
   FileChange,
   GroupNotes,
   ResolvedGroup,
   Snippet,
   Visual,
   Walkthrough,
+  WalkStep,
 } from '@gloss/protocol';
 import { sanitizeSvg } from '@gloss/protocol';
 import type * as v from 'valibot';
@@ -602,23 +605,19 @@ function normalizeTree(
 }
 
 /**
- * The walkthrough as the client may show it: each entry names a real, unclaimed decision (of
+ * The decision entries as the client may show them: each names a real, unclaimed decision (of
  * `decisions` listed in the prompt), shows at least one snippet the diff holds, and keeps a
  * tree only where `normalizeTree` does. Refs and links that point nowhere are dropped. Entries
  * follow the decisions' order; a decision with no code to show is left to its overview line.
  */
-export function normalizeWalkthrough(
-  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
-  files: readonly FileChange[],
+function normalizeDecisionWalks(
+  raw: readonly Partial<RawWalk>[],
+  byKey: ReadonlyMap<string, FileChange>,
   decisions: number,
-): { walkthrough?: Walkthrough; warnings: string[] } {
-  if (!Array.isArray(raw.decisions) || raw.decisions.length === 0) {
-    return { warnings: [] };
-  }
-  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
-  const warnings: string[] = [];
+  warnings: string[],
+): DecisionWalk[] {
   const walks = new Map<number, DecisionWalk>();
-  for (const entry of raw.decisions) {
+  for (const entry of raw) {
     const decision = whole(entry.decision);
     const title = clip(String(entry.title ?? ''), 80);
     if (decision < 0 || decision >= decisions || walks.has(decision) || !title) {
@@ -683,8 +682,218 @@ export function normalizeWalkthrough(
       links: links.slice(0, MAX_LINKS),
     });
   }
-  if (walks.size === 0) {
+  return [...walks.values()].toSorted((a, b) => a.decision - b.decision);
+}
+
+/** Most frames a path's call tree keeps before it stops reading at a glance. */
+const MAX_FRAMES = 16;
+
+type RawFrame = v.InferOutput<typeof WalkthroughResultSchema>['frames'][number];
+
+/**
+ * A path's call tree, the trust boundary as for a decision's tree. Depths are made a tree, files
+ * are known ids (or paths), and a line stays only where the diff shows it on the new side. Returns
+ * why the tree is not worth walking, if it is not: one with no call in it is a list, and one that
+ * touches nothing the change adds is plumbing.
+ */
+function normalizeFrames(
+  raw: readonly Partial<RawFrame>[],
+  byKey: ReadonlyMap<string, FileChange>,
+): { frames: CallFrame[]; kept: Map<number, number>; why?: string } {
+  const frames: CallFrame[] = [];
+  /** Each kept frame's position in `raw` to its position in `frames`, for steps to point by. */
+  const kept = new Map<number, number>();
+  for (const [index, frame] of raw.slice(0, MAX_FRAMES).entries()) {
+    const name = clip(String(frame.name ?? ''), 48).replace(/\(.*$/, '');
+    if (!name) {
+      continue;
+    }
+    kept.set(index, frames.length);
+    const depth = Math.min(Math.max(0, whole(frame.depth)), frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const file = byKey.get(String(frame.fileId ?? ''));
+    const line = whole(frame.line);
+    const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
+    const receiver = clip(String(frame.receiver ?? ''), 40).replace(/\.$/, '');
+    const args = clip(String(frame.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
+    const status = frame.status === 'new' || frame.status === 'changed' ? frame.status : 'same';
+    frames.push({
+      depth,
+      ...(receiver ? { receiver } : {}),
+      name,
+      ...(args ? { args } : {}),
+      ...(file ? { path: file.path } : {}),
+      ...(file && shown ? { line } : {}),
+      status,
+    });
+  }
+  if (!frames.some((frame) => frame.depth > 0)) {
+    return { frames, kept, why: 'its call tree has no calls, which a list says as well' };
+  }
+  if (!frames.some((frame) => frame.status !== 'same')) {
+    return { frames, kept, why: 'nothing on its call tree is new or changed' };
+  }
+  return { frames, kept };
+}
+
+const MAX_STEPS = 5;
+const MAX_EXCERPTS = 3;
+/** Context kept around an excerpt's changed lines, and the most lines one may show. */
+const EXCERPT_CONTEXT = 3;
+const MAX_EXCERPT_LINES = 30;
+
+/**
+ * The last line up to `to` at which the excerpt shows at most `MAX_EXCERPT_LINES` rows,
+ * removed ones too, so a large replacement cannot flood the step; `undefined` when even
+ * `from` alone shows more. One pass: a kept line `p` as the end shows every row before the
+ * next kept line (the rows removed right after `p` included).
+ */
+function cappedEnd(rows: readonly { at: number; kind: string }[], from: number, to: number): number | undefined {
+  let count = 0;
+  let best: number | undefined;
+  let pending: number | undefined;
+  for (const row of rows) {
+    if (row.at < from) {
+      continue;
+    }
+    if (row.kind !== '-') {
+      if (pending !== undefined && count <= MAX_EXCERPT_LINES) {
+        best = pending;
+      }
+      if (row.at > to || count > MAX_EXCERPT_LINES) {
+        return best;
+      }
+      pending = row.at;
+    }
+    count++;
+  }
+  return pending !== undefined && count <= MAX_EXCERPT_LINES ? pending : best;
+}
+
+/**
+ * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
+ * wrong), its range clamped to the hunk, then trimmed to the changes in it plus a little context.
+ */
+function normalizeExcerpt(
+  raw: { fileId?: string; hunkId?: string; from?: number; to?: number },
+  byKey: ReadonlyMap<string, FileChange>,
+): Excerpt | undefined {
+  const file = byKey.get(String(raw.fileId ?? ''));
+  if (!file) {
+    return undefined;
+  }
+  let from = whole(raw.from);
+  let to = whole(raw.to);
+  if (from > to) {
+    [from, to] = [to, from];
+  }
+  const hunk =
+    file.hunks.find((candidate) => candidate.id === raw.hunkId) ??
+    file.hunks.find((candidate) => hunkRows(candidate).some((row) => row.kind !== '-' && row.at === from));
+  if (!hunk) {
+    return undefined;
+  }
+  const rows = hunkRows(hunk);
+  const lines = rows.filter((row) => row.kind !== '-').map((row) => row.at);
+  if (lines.length === 0) {
+    return undefined;
+  }
+  const first = lines[0]!;
+  const last = lines.at(-1)!;
+  if (to < first || from > last) {
+    [from, to] = [first, last];
+  }
+  from = Math.max(from, first);
+  to = Math.min(to, last);
+  const changed = rows.filter((row) => row.kind !== ' ' && shows(row, from, to)).map((row) => row.at);
+  // Rows run in line order, so the first and last changed rows bound the change.
+  if (changed.length) {
+    from = Math.max(from, changed[0]! - EXCERPT_CONTEXT);
+    to = Math.min(to, changed.at(-1)! + EXCERPT_CONTEXT);
+  }
+  const capped = cappedEnd(rows, from, to);
+  if (capped === undefined) {
+    return undefined;
+  }
+  to = capped;
+  return { fileId: file.id, hunkId: hunk.id, from, to };
+}
+
+/**
+ * The call paths as the client may show them: a checked call tree, and steps that point at its
+ * frames and at lines the diff shows. A step with no code is dropped, and so are paths of fewer
+ * than two steps: one step is the overview again.
+ */
+function normalizePaths(
+  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
+  byKey: ReadonlyMap<string, FileChange>,
+  warnings: string[],
+): { frames: CallFrame[]; steps: WalkStep[] } {
+  const none = { frames: [], steps: [] };
+  if (!Array.isArray(raw.steps) || raw.steps.length === 0 || !Array.isArray(raw.frames) || raw.frames.length === 0) {
+    return none;
+  }
+  const { frames, kept, why } = normalizeFrames(raw.frames, byKey);
+  if (why) {
+    warnings.push(`Dropped the call paths: ${why}.`);
+    return none;
+  }
+  const steps: WalkStep[] = [];
+  for (const step of raw.steps.slice(0, MAX_STEPS)) {
+    const title = clip(String(step.title ?? ''), 80);
+    const excerpts: Excerpt[] = [];
+    for (const excerpt of Array.isArray(step.excerpts) ? step.excerpts : []) {
+      const normalized = normalizeExcerpt(excerpt, byKey);
+      if (!normalized) {
+        warnings.push(
+          `Dropped a call path excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff, or too long to show.`,
+        );
+        continue;
+      }
+      const seen = excerpts.some(
+        (other) => other.hunkId === normalized.hunkId && other.from <= normalized.to && normalized.from <= other.to,
+      );
+      if (!seen && excerpts.length < MAX_EXCERPTS) {
+        excerpts.push(normalized);
+      }
+    }
+    if (!title || excerpts.length === 0) {
+      continue;
+    }
+    // Step frames index the model's frames: follow them to the kept ones, and drop the rest.
+    const picked = (Array.isArray(step.frames) ? step.frames : []).flatMap((index) => {
+      const at = kept.get(index);
+      return at === undefined ? [] : [at];
+    });
+    steps.push({
+      title,
+      text: clip(String(step.text ?? ''), 400),
+      frames: [...new Set(picked)].toSorted((a, b) => a - b),
+      excerpts,
+    });
+  }
+  if (steps.length < 2) {
+    warnings.push('Dropped the call paths: they have fewer than two steps with code.');
+    return none;
+  }
+  return { frames, steps };
+}
+
+/**
+ * The walkthrough as the client may show it: the decision entries (`normalizeDecisionWalks`)
+ * and the call paths they do not walk (`normalizePaths`). Either part may be empty; with both
+ * empty there is no walkthrough.
+ */
+export function normalizeWalkthrough(
+  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
+  files: readonly FileChange[],
+  decisions: number,
+): { walkthrough?: Walkthrough; warnings: string[] } {
+  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
+  const warnings: string[] = [];
+  const walks = normalizeDecisionWalks(Array.isArray(raw.decisions) ? raw.decisions : [], byKey, decisions, warnings);
+  const { frames, steps } = normalizePaths(raw, byKey, warnings);
+  if (walks.length === 0 && steps.length === 0) {
     return { warnings };
   }
-  return { walkthrough: { decisions: [...walks.values()].toSorted((a, b) => a.decision - b.decision) }, warnings };
+  return { walkthrough: { decisions: walks, frames, steps }, warnings };
 }

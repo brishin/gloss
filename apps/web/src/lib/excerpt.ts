@@ -1,4 +1,4 @@
-import type { DiffHunk, Excerpt, FileChange } from '@gloss/protocol';
+import type { CallFrame, DiffHunk, Excerpt, FileChange } from '@gloss/protocol';
 
 /**
  * The lines of `hunk` whose new-side number is in `from`..`to`, with the removed lines that sit
@@ -104,4 +104,29 @@ export function snippetHosts(rows: readonly { snippet?: number }[]): Map<number,
     }
   });
   return hosts;
+}
+
+/** The frames a step covers plus their callers, in tree order. */
+export function stepFrames(
+  frames: readonly CallFrame[],
+  parents: readonly number[],
+  picked: readonly number[],
+): number[] {
+  const keep = new Set<number>();
+  for (const index of picked) {
+    for (let at = index; at >= 0; at = parents[at]!) {
+      keep.add(at);
+    }
+  }
+  return frames.map((_, index) => index).filter((index) => keep.has(index));
+}
+
+/** Where each frame's definition is: the file only when it differs from the frame above. */
+export function callLocations(frames: readonly CallFrame[]): string[] {
+  return frames.map((frame, index) => {
+    const file = frame.path?.split('/').at(-1) ?? '';
+    const sameFile = index > 0 && frame.path !== undefined && frames[index - 1]!.path === frame.path;
+    const line = frame.line === undefined ? '' : `:${frame.line}`;
+    return sameFile && line ? line : `${file}${file ? line : ''}`;
+  });
 }
