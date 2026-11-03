@@ -34,7 +34,6 @@ describe('small tier', () => {
   });
 });
 
-<<<<<<< HEAD
 describe('decision rules', () => {
   test('save keeps the rest of the config, and no rules drops the key', () => {
     const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
@@ -70,7 +69,9 @@ describe('decision rules', () => {
       process.env.GLOSS_HOME = before;
       rmSync(home, { recursive: true, force: true });
     }
-=======
+  });
+});
+
 describe('ask models', () => {
   test.each([
     ['offers Claude, starting on Sonnet', {}, 'anthropic/claude-sonnet-5-5', 3],
@@ -80,6 +81,5 @@ describe('ask models', () => {
     const { ask } = loadConfig(env);
     expect(ask.default).toBe(model);
     expect(ask.models).toHaveLength(count);
->>>>>>> origin/main
   });
 });
