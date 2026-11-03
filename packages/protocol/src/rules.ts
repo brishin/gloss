@@ -83,13 +83,19 @@ export function parseRules(text: string): string[] {
   return rules;
 }
 
+/** How many matching paths a scoped rule names before it counts the rest. */
+const SCOPE_PATHS = 6;
+
 /**
  * The rules that apply to a set of changed files: those of every set with no `files`, or whose
- * `files` matches at least one path. A pattern that does not compile (a hand-edited config)
- * matches nothing.
+ * `files` matches at least one path. A rule whose set matches only some of the paths names
+ * them, so a prompt that holds other files keeps the rule to its own. A pattern that does not
+ * compile (a hand-edited config) matches nothing.
  */
 export function rulesFor(sets: readonly DecisionRuleSet[], paths: readonly string[]): string[] {
   const rules: string[] = [];
+  // A rule that also applies everywhere needs no scoped copy.
+  const everywhere = new Set(sets.flatMap((set) => (set.files ? [] : set.rules)));
   for (const set of sets) {
     let pattern: RegExp | undefined;
     try {
@@ -97,8 +103,23 @@ export function rulesFor(sets: readonly DecisionRuleSet[], paths: readonly strin
     } catch {
       continue;
     }
-    if (!pattern || paths.some((path) => pattern.test(path))) {
-      rules.push(...set.rules.filter((rule) => !rules.includes(rule)));
+    const matched = pattern ? paths.filter((path) => pattern.test(path)) : paths;
+    if (pattern && matched.length === 0) {
+      continue;
+    }
+    const more = matched.length - SCOPE_PATHS;
+    const scope =
+      matched.length < paths.length
+        ? ` (only in ${matched.slice(0, SCOPE_PATHS).join(', ')}${more > 0 ? ` and ${more} more files matching /${set.files}/` : ''})`
+        : '';
+    for (const rule of set.rules) {
+      if (pattern && everywhere.has(rule)) {
+        continue;
+      }
+      const text = `${rule}${scope}`;
+      if (!rules.includes(text)) {
+        rules.push(text);
+      }
     }
   }
   return rules;

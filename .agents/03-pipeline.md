@@ -37,7 +37,7 @@ Decisions name a choice and what it costs or risks, so a reviewer can accept or 
 
 The user's own decision rules (`decisionRules` in `~/.gloss/config.json`, edited on the settings
 page) are sets of rules, each with an optional `files` regex tested against changed paths
-(`rulesFor`). They go into the define prompt (sets matching any changed file) and each group's
+(`rulesFor`; a set that matches only some of a prompt's files names them after each rule). They go into the define prompt (sets matching any changed file) and each group's
 notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
 system text, so tours without rules keep their prompts and caches. A rule wins over the built-in
 guidance, and its priority is used. All sets join the tour cache key only when there are some. On

@@ -27,11 +27,23 @@ describe('rulesFor', () => {
   ];
   it.each([
     ['no files: only unscoped rules', [], ['Everywhere']],
-    ['a match in any path applies the set', ['README.md', 'api/views.py'], ['Everywhere', 'Python only']],
+    [
+      'a set matching some paths names them',
+      ['README.md', 'api/views.py'],
+      ['Everywhere', 'Python only (only in api/views.py)'],
+    ],
+    ['a set matching every path needs no scope', ['api/views.py'], ['Everywhere', 'Python only']],
     ['matched against the whole path', ['apps/web/src/x.tsx'], ['Everywhere', 'Web only']],
     ['no match', ['apps/api/web.ts'], ['Everywhere']],
   ])('%s', (_, paths, rules) => {
     expect(rulesFor(sets, paths)).toEqual(rules);
+  });
+
+  it('counts the matching paths past six', () => {
+    const paths = ['README.md', ...Array.from({ length: 8 }, (_, i) => `m${i}.py`)];
+    expect(rulesFor([{ files: '\\.py$', rules: ['Python only'] }], paths)).toEqual([
+      'Python only (only in m0.py, m1.py, m2.py, m3.py, m4.py, m5.py and 2 more files matching /\\.py$/)',
+    ]);
   });
 });
 

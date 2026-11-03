@@ -237,7 +237,9 @@ describe('runTour', () => {
     expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
     const calls = model.calls.slice(plain);
     const define = calls.find((call) => call.resultName === 'groups')!.prompt;
-    expect(define).toContain('- Flag every new environment variable\n- Flag a weaker auth check as urgent');
+    expect(define).toContain(
+      '- Flag every new environment variable\n- Flag a weaker auth check as urgent (only in src/auth.ts)',
+    );
     expect(define).not.toContain('Flag a service passed by global');
     const notes = (key: string) =>
       calls.find((call) => call.tier === 'notes' && call.prompt.includes(`## This group: ${key}`))?.prompt ?? '';
