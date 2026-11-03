@@ -1,3 +1,4 @@
+import process from 'node:process';
 import type { Decision, DiffMeta, FileChange, FileJudgment, GroupDefinition, ResolvedGroup } from '@gloss/protocol';
 import { CATEGORIES, CATEGORY_GUIDE, DECISION_PRIORITIES, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
 import * as v from 'valibot';
@@ -704,6 +705,8 @@ export function buildNotesPrompt(
     flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),
   );
   parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
+  const evalArm = evalChecks();
+  parts.push(...checksSection(evalArm.checks, files));
   let remaining = TOTAL_BUDGET;
   parts.push('', '## Files');
   for (const file of files) {
@@ -720,7 +723,91 @@ export function buildNotesPrompt(
     remaining -= body.length;
     parts.push(`### ${manifestLine(file)}`, body);
   }
-  return parts.join('\n');
+  return parts.join('\n') + evalArm.pad;
+}
+
+/**
+ * Built-in decision checks: questions a senior reviewer of this codebase asks of code in a
+ * given language. The notes pass gets the checks that apply to a group's files, so groups
+ * without them see the same prompt as before.
+ */
+export interface DecisionCheck {
+  /** Whether the check applies to a file. */
+  readonly applies: (path: string) => boolean;
+  readonly text: string;
+}
+
+const isPython = (path: string) => /\.pyi?$/.test(path) && !looksLikeTest(path);
+const isCode = (path: string) =>
+  !isDocumentation(path) && !looksLikeTest(path) && !/\.(css|scss|json|ya?ml|lock|svg)$/i.test(path);
+
+export const PYTHON_DECISION_CHECKS: readonly DecisionCheck[] = [
+  {
+    applies: isPython,
+    text: 'A function that takes the services container, or a service, as a parameter so it can call into it, where it should be a method on the service that owns the data: `services.users_repository.lookup_user_by_foo(id)`, not `lookup_user_by_foo(services, id)`.',
+  },
+  {
+    applies: isPython,
+    text: 'An import under `if TYPE_CHECKING:` (or a function-level import) that works around a dependency cycle instead of removing it.',
+  },
+  {
+    applies: isPython,
+    text: 'A backfill that processes rows or does database lookups one at a time instead of in batches.',
+  },
+  {
+    applies: isPython,
+    text: "N+1 queries: loading entities, then querying each one's related entities separately instead of in one query.",
+  },
+  {
+    applies: isPython,
+    text: 'A queue job that enqueues a subtask per batch, which makes concurrency unbounded, instead of processing one batch and then enqueuing itself for the next.',
+  },
+  {
+    applies: isPython,
+    text: "A queue job's debounce key: which other enqueue sites of that job share it, so their jobs merge or drop, or do not, so duplicates run.",
+  },
+  {
+    applies: isPython,
+    text: 'A complex return type, such as a tuple of several values or a nested dict, that deserves its own dataclass.',
+  },
+];
+
+export const GENERAL_DECISION_CHECKS: readonly DecisionCheck[] = [
+  {
+    applies: isCode,
+    text: 'Where code lives: is each new function on the object or service that owns its data, and do module dependencies point one way?',
+  },
+  {
+    applies: isCode,
+    text: 'How it scales: how many queries, calls or jobs does it make as the input grows, and is the concurrency of background work bounded?',
+  },
+  {
+    applies: isCode,
+    text: 'What it shares: which other call sites share a key, queue or row it writes (a debounce, dedupe, lock or cache key), and what happens when they collide?',
+  },
+  {
+    applies: isCode,
+    text: 'What it returns: does a compound result deserve a named type?',
+  },
+];
+
+function evalChecks(): { checks: readonly DecisionCheck[]; pad: string } {
+  const arm = process.env.GLOSS_EVAL_CHECKS ?? 'base';
+  if (arm === 'specific') return { checks: PYTHON_DECISION_CHECKS, pad: '' };
+  if (arm === 'general') return { checks: GENERAL_DECISION_CHECKS, pad: '' };
+  return { checks: [], pad: arm === 'base' ? '' : `\n<!-- ${arm} -->` };
+}
+
+/** The checks section of a notes prompt, or nothing when no check applies to the group. */
+export function checksSection(checks: readonly DecisionCheck[], files: readonly FileChange[]): string[] {
+  const applicable = checks.filter((check) => files.some((file) => check.applies(file.path)));
+  if (applicable.length === 0) return [];
+  return [
+    '',
+    '## Checks',
+    "Check this group's code for each of these. Where the code falls short, write a decision on the line that makes the choice and say what to do instead; write nothing for a check it passes or that does not apply.",
+    ...applicable.map((check) => `- ${check.text}`),
+  ];
 }
 
 export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the whole files (call read_file).
