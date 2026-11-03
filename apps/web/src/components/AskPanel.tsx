@@ -157,7 +157,8 @@ export function AskPanel({
           onClick={() => dispatch({ type: 'AskClosed' })}
         />
       </div>
-      <ChatLayout density="compact" composer={composer}>
+      {/* No scroll-to-bottom button: hidden, it would still hold a row above the composer. */}
+      <ChatLayout density="compact" composer={composer} scrollButton={null} className="ask-thread">
         {ask.turns.length ? (
           // Top-aligned: a question stays put under the header while its answer grows below it.
           <ChatMessageList density="compact" align="top">

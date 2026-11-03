@@ -2310,7 +2310,9 @@
     width: 400px;
     background: var(--color-background-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-container);
+    /* The radius of the app's cards and inputs; Astryx's chat pill radius follows it inside. */
+    border-radius: var(--radius-element);
+    --radius-chat: var(--radius-element);
     box-shadow: var(--shadow-high);
     overflow: hidden;
   }
@@ -2320,7 +2322,23 @@
     min-height: 0;
   }
 
-  /* One gutter for everything in the card: the message list's compact inset (spacing-3). */
+  /*
+   * One inset (spacing-3) on every side of the content. Astryx's chat rules are unlayered
+   * stylex, so the two it sets itself (the list's padding, the bubble) need !important.
+   */
+  .ask-thread > :first-child {
+    padding-bottom: 0 !important;
+  }
+
+  .ask-thread [role='log'] > div {
+    padding: var(--spacing-3) !important;
+  }
+
+  .ask-thread .astryx-chat-message-bubble {
+    padding: var(--spacing-2) var(--spacing-3) !important;
+    border-radius: var(--radius-element) !important;
+  }
+
   .ask-header {
     display: flex;
     flex: none;
@@ -2332,7 +2350,7 @@
   }
 
   .ask-empty {
-    padding: var(--spacing-2) var(--spacing-3);
+    padding: var(--spacing-3);
   }
 
   .ask-answer {
@@ -2344,7 +2362,7 @@
   /* The lines a question was about, set on the bubble's text inset. */
   .ask-quote {
     align-self: flex-end;
-    padding: 0 var(--spacing-4) var(--spacing-0-5);
+    padding: 0 var(--spacing-3) var(--spacing-0-5);
   }
 
   .ask-error {
