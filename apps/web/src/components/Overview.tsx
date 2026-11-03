@@ -14,11 +14,11 @@ import {
   REVIEW_STATE_LABEL,
   splitPath,
 } from '../lib/tour-view.ts';
+import { DECISION_MOCK, type DecisionWalk, MOCK } from '../mock/decision-walk.ts';
+import { DecisionTraceList } from '../mock/DecisionWalk.tsx';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
-import { DecisionTraceList } from '../mock/DecisionWalk.tsx';
-import { DECISION_MOCK, type DecisionWalk, MOCK } from '../mock/decision-walk.ts';
 
 /**
  * The change's title and its numbers: PR state, reviewers, branches, size, groups, notes.

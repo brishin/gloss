@@ -1,11 +1,13 @@
 import type { CallFrame, DecisionPriority, DiffPayload, Excerpt, FileChange } from '@gloss/protocol';
 import { useEffect, useState } from 'react';
 
-/** Mock only: `?mock=a|b|c|d|e` picks a decision walkthrough layout. */
+/** Mock only: `?mock=a-h` picks a decision walkthrough layout (f-h are round 2). */
 export const MOCK = new URLSearchParams(globalThis.location?.search).get('mock') ?? '';
-export const DECISION_MOCK = ['a', 'b', 'c', 'd', 'e'].includes(MOCK);
+/** Round 2: each decision explained, then read in small snippets, with a tree when one helps. */
+export const READ_MOCK = ['f', 'g', 'h'].includes(MOCK);
+export const DECISION_MOCK = ['a', 'b', 'c', 'd', 'e'].includes(MOCK) || READ_MOCK;
 /** Layouts that replace the overview's decisions table with their own stop. */
-export const DECISION_STOP = ['a', 'b', 'c', 'd'].includes(MOCK);
+export const DECISION_STOP = ['a', 'b', 'c', 'd'].includes(MOCK) || READ_MOCK;
 
 /** Where a decision shows in the code: where it is made, code it reaches, or a test that holds it. */
 export type DecisionSite = {
@@ -59,7 +61,10 @@ export function useDecisionWalk(): DecisionWalk | undefined {
 }
 
 /** The site as an excerpt of the hunk that holds its first line. */
-export function siteExcerpt(diff: DiffPayload | undefined, site: DecisionSite): Excerpt | undefined {
+export function siteExcerpt(
+  diff: DiffPayload | undefined,
+  site: Pick<DecisionSite, 'path' | 'from' | 'to'>,
+): Excerpt | undefined {
   const file = diff?.files.find((candidate) => candidate.path === site.path);
   const hunk = file?.hunks.find(
     (candidate) => site.from >= candidate.newStart && site.from < candidate.newStart + Math.max(candidate.newLines, 1),
@@ -77,7 +82,15 @@ export const siteRef = (site: Pick<DecisionSite, 'path' | 'from' | 'to'>) =>
   `${site.path.split('/').slice(-2).join('/')}:${site.from === site.to ? site.from : `${site.from}–${site.to}`}`;
 
 /** Code places across decisions: sites in one file whose lines overlap are one place, so shared code shows. */
-export type CodePlace = { key: string; layer: string; path: string; from: number; to: number; label: string; uses: { decision: number; role: DecisionSite['role'] }[] };
+export type CodePlace = {
+  key: string;
+  layer: string;
+  path: string;
+  from: number;
+  to: number;
+  label: string;
+  uses: { decision: number; role: DecisionSite['role'] }[];
+};
 
 export function codePlaces(walk: DecisionWalk): CodePlace[] {
   const places: CodePlace[] = [];
@@ -136,4 +149,72 @@ export function madeAt(walk: DecisionWalk): Map<number, number[]> {
     }
   });
   return marks;
+}
+
+/** Round 2: a few lines that show how a decision is built, one of them the line that matters. */
+export type ReadSnippet = { path: string; from: number; to: number; focus: number; caption: string; note?: string };
+
+/** A row of a decision's tree: a call (the walkthrough's geometry) or a concept in a hierarchy. */
+export type ReadNode = {
+  depth: number;
+  kind: 'call' | 'concept';
+  label?: string;
+  receiver?: string;
+  name?: string;
+  args?: string;
+  status?: CallFrame['status'];
+  note?: string;
+  /** Index into the decision's snippets. */
+  snippet?: number;
+  path?: string;
+  line?: number;
+};
+
+export type ReadDecision = {
+  title: string;
+  priority: DecisionPriority;
+  why: string;
+  alt?: string;
+  check?: string;
+  tree?: { kind: 'calls' | 'concepts'; nodes: ReadNode[] };
+  snippets: ReadSnippet[];
+  refs: { label: string; path: string; line: number }[];
+  links: DecisionLink[];
+};
+
+export type DecisionRead = { number: number; decisions: ReadDecision[] };
+
+export function useDecisionRead(): DecisionRead | undefined {
+  const [read, setRead] = useState<DecisionRead>();
+  useEffect(() => {
+    const number = pullNumber();
+    if (!READ_MOCK || number === undefined) {
+      return;
+    }
+    void fetch(`/mock/decisions2/${number}.json`)
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((data) => setRead(data as DecisionRead | undefined));
+  }, []);
+  return read;
+}
+
+/** Each snippet hangs under the last node of the first run of nodes that point at it. */
+export function snippetHosts(nodes: readonly ReadNode[]): Map<number, number> {
+  const hosts = new Map<number, number>();
+  const done = new Set<number>();
+  nodes.forEach((node, index) => {
+    const snippet = node.snippet;
+    if (snippet === undefined || done.has(snippet)) {
+      return;
+    }
+    hosts.set(index, snippet);
+    const previous = [...hosts].find(([at, s]) => s === snippet && at !== index);
+    if (previous) {
+      hosts.delete(previous[0]);
+    }
+    if (nodes[index + 1]?.snippet !== snippet) {
+      done.add(snippet);
+    }
+  });
+  return hosts;
 }

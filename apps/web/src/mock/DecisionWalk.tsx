@@ -18,9 +18,11 @@ import {
   filesById,
   madeAt,
   MOCK,
+  READ_MOCK,
   siteExcerpt,
   siteRef,
 } from './decision-walk.ts';
+import { DecisionReadStop } from './DecisionRead.tsx';
 
 type Props = { walk: DecisionWalk; diff: DiffPayload | undefined; onJumpToFile: (fileId: string) => void };
 
@@ -30,7 +32,7 @@ const ROLE_LABEL: Record<DecisionSite['role'], string> = {
   tested: 'Tested here',
 };
 
-/** The decisions stop, in the layout `?mock=` picks: a chapters, b map, c pinned call tree, d reach grid. */
+/** The decisions stop, in the layout `?mock=` picks: a chapters, b map, c pinned call tree, d reach grid, f-h round 2. */
 export function DecisionsStop(props: Props) {
   return (
     <div className="page">
@@ -41,6 +43,7 @@ export function DecisionsStop(props: Props) {
       {MOCK === 'b' && <MapView {...props} />}
       {MOCK === 'c' && <PinnedTree {...props} />}
       {MOCK === 'd' && <ReachGrid {...props} />}
+      {READ_MOCK && <DecisionReadStop diff={props.diff} onJumpToFile={props.onJumpToFile} />}
     </div>
   );
 }
@@ -166,14 +169,7 @@ function DecisionBody({
     <ol className="dw-thread">
       {decision.sites.map((site, at) => (
         <li key={at} className="dw-hop" data-role={site.role} title={ROLE_LABEL[site.role]}>
-          <SiteView
-            site={site}
-            diff={diff}
-            files={files}
-            onOpen={onJumpToFile}
-            bare
-            closed={site.role !== 'made'}
-          />
+          <SiteView site={site} diff={diff} files={files} onOpen={onJumpToFile} bare closed={site.role !== 'made'} />
         </li>
       ))}
     </ol>
@@ -260,7 +256,11 @@ function DecisionMap({
       const frame = root.getBoundingClientRect();
       const at = (element: Element | null) => {
         const rect = element!.getBoundingClientRect();
-        return { left: rect.left - frame.left, right: rect.right - frame.left, mid: rect.top - frame.top + rect.height / 2 };
+        return {
+          left: rect.left - frame.left,
+          right: rect.right - frame.left,
+          mid: rect.top - frame.top + rect.height / 2,
+        };
       };
       const decisions = walk.decisions.map((_, index) => at(root.querySelector(`[data-dw-dec="${index}"]`)));
       const lines: Edge[] = [];
@@ -610,4 +610,3 @@ export function DecisionTraceList(props: Props) {
     </ol>
   );
 }
-

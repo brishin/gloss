@@ -2795,4 +2795,220 @@
     top: 9px;
   }
 
+  /* Mock only (?mock=f-h): round 2, decisions explained then read in snippets (mock/DecisionRead.tsx). */
+  .dr-decisions {
+    gap: var(--spacing-10, 48px);
+  }
+
+  .dr-decision {
+    gap: var(--spacing-3);
+  }
+
+  .dr-explain {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    max-width: 72ch;
+  }
+
+  .dr-why {
+    color: var(--color-text-primary);
+  }
+
+  .dr-line {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+
+  .dr-line > span:first-child {
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .dr-line code,
+  .dr-caption code,
+  .dr-node-note code,
+  .dr-note code {
+    font-size: 12px;
+  }
+
+  .dr-snippets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .dr-snippet-head {
+    align-items: baseline;
+  }
+
+  .dr-caption {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--color-text-primary);
+  }
+
+  .dr-note {
+    margin: 2px var(--spacing-2) 6px 56px;
+    padding: 4px 10px;
+    border-left: 2px solid var(--gloss-ink);
+    background: var(--color-background-surface);
+    font-family: var(--font-family-body);
+    font-size: 12.5px;
+    color: var(--color-text-primary);
+    white-space: normal;
+  }
+
+  .dr-badge {
+    all: unset;
+    flex: none;
+    box-sizing: border-box;
+    display: inline-grid;
+    place-items: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border-emphasized);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+    align-self: center;
+  }
+
+  button.dr-badge[tabindex='0'] {
+    cursor: pointer;
+  }
+
+  button.dr-badge[tabindex='0']:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-secondary);
+  }
+
+  .dr-tree {
+    margin: 0;
+  }
+
+  .dr-dot {
+    flex: none;
+    box-sizing: border-box;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-text-secondary);
+    background: var(--color-background-body);
+  }
+
+  .dr-concept {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    color: var(--color-text-primary);
+    font-weight: 500;
+  }
+
+  .dr-row[data-kind='concept'] {
+    font-size: 13px;
+  }
+
+  .dr-node-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+  }
+
+  .dr-row[data-pick] {
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  .dr-row[data-pick]:hover {
+    background: var(--color-background-muted);
+  }
+
+  .dr-row[data-on] {
+    background: color-mix(in oklab, var(--gloss-ink) 12%, transparent);
+  }
+
+  .dr-row[data-on]:hover {
+    background: color-mix(in oklab, var(--gloss-ink) 16%, transparent);
+  }
+
+  .dr-hung {
+    margin: 2px 0 var(--spacing-2);
+  }
+
+  .dr-split {
+    display: grid;
+    grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+    gap: var(--spacing-4);
+    align-items: start;
+  }
+
+  .dr-split-nav {
+    min-width: 0;
+  }
+
+  .dr-split-code {
+    position: sticky;
+    top: var(--spacing-4);
+    min-width: 0;
+  }
+
+  .dr-captions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .dr-captions button {
+    all: unset;
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    padding: 6px var(--spacing-2);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  .dr-captions button:hover {
+    background: var(--color-background-muted);
+  }
+
+  .dr-captions button[data-on] {
+    color: var(--color-text-primary);
+    background: color-mix(in oklab, var(--gloss-ink) 12%, transparent);
+  }
+
+  .dr-refs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12.5px;
+  }
+
+  .dr-refs li {
+    display: flex;
+    gap: var(--spacing-2);
+    align-items: baseline;
+  }
+
+  .dr-refs li > span {
+    color: var(--color-text-secondary);
+  }
 }

@@ -18,6 +18,7 @@ import {
   reviewProblem,
   serializeRef,
 } from '@gloss/protocol';
+import { DECISION_STOP, MOCK } from '../mock/decision-walk.ts';
 import {
   type CommentAnchor,
   emptyReview,
@@ -36,7 +37,6 @@ import {
   STACK_NODE,
   toggleNode,
 } from './sidebar-tree.ts';
-import { DECISION_STOP, MOCK } from '../mock/decision-walk.ts';
 import { defaultExpanded, isGeneratedFile, lfsImageOids, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
 
 /**
@@ -264,7 +264,9 @@ export const selectedKey = (model: Model, groups = groupsOf(model)): string =>
 export function tourStops(model: Model, groups = groupsOf(model)): { key: string; label: string }[] {
   return [
     { key: OVERVIEW, label: 'Overview' },
-    ...(model.tour.walkthrough && MOCK !== 'e' ? [{ key: WALKTHROUGH, label: DECISION_STOP ? 'Decisions' : 'Walkthrough' }] : []),
+    ...(model.tour.walkthrough && MOCK !== 'e'
+      ? [{ key: WALKTHROUGH, label: DECISION_STOP ? 'Decisions' : 'Walkthrough' }]
+      : []),
     ...groups,
   ];
 }

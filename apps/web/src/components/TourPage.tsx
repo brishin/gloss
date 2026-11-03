@@ -15,6 +15,8 @@ import { SENT_LABEL } from '../lib/review-draft.ts';
 import { canReview, currentGroup, currentPull, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
+import { DECISION_STOP, MOCK, useDecisionWalk } from '../mock/decision-walk.ts';
+import { DecisionsStop } from '../mock/DecisionWalk.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
@@ -23,8 +25,6 @@ import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { Walkthrough } from './Walkthrough.tsx';
-import { DecisionsStop } from '../mock/DecisionWalk.tsx';
-import { DECISION_STOP, MOCK, useDecisionWalk } from '../mock/decision-walk.ts';
 
 /**
  * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,

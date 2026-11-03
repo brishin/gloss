@@ -28,8 +28,8 @@ import {
   STACK_NODE,
 } from '../lib/sidebar-tree.ts';
 import type { Msg } from '../lib/tour-model.ts';
-import { DECISION_STOP } from '../mock/decision-walk.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
+import { DECISION_STOP } from '../mock/decision-walk.ts';
 import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
 
