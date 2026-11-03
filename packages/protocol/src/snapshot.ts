@@ -24,8 +24,10 @@ export const TourSnapshotSchema = v.object({
   trace: v.optional(TraceSchema),
   stack: v.optional(StackSchema),
   stackName: v.optional(v.string()),
-  /** PR body attachments as `data:` URLs, keyed by their GitHub URL. */
+  /** PR body images as `data:` URLs, keyed by the URL the description uses. */
   assets: v.record(v.string(), v.string()),
+  /** Git LFS images the diff shows, as `data:` URLs, keyed by oid. */
+  lfs: v.optional(v.record(v.string(), v.string())),
 });
 export type TourSnapshot = v.InferOutput<typeof TourSnapshotSchema>;
 
@@ -51,6 +53,9 @@ export interface CaptureOptions {
 const ATTACHMENT_URL = /https:\/\/github\.com\/[^\s"'<>()[\]]+/g;
 /** Images a description shows from anywhere else: Markdown `![](url)` and HTML `src="url"`. */
 const IMAGE_URL = /!\[[^\]]*\]\((https:\/\/[^\s)]+)|\ssrc=["'](https:\/\/[^"']+)["']/g;
+
+/** The LFS files the page shows as images (mirrors the web app's `isLfsImage`). */
+const LFS_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
 
 /** Every URL a description loads: GitHub attachments (resolved by the backend) and other images. */
 export function descriptionMedia(body: string): string[] {
@@ -123,6 +128,19 @@ export async function captureTourSnapshot(
     if (data) assets[url] = data;
   }
 
+  const lfs: Record<string, string> = {};
+  for (const file of last.tour.files) {
+    if (!file.lfs || !LFS_IMAGE_PATH.test(file.path)) continue;
+    for (const oid of [file.lfs.old?.oid, file.lfs.new?.oid]) {
+      if (!oid || lfs[oid]) continue;
+      const blob = await client.lfsObject(last.tour.diffId, oid).catch(() => undefined);
+      if (blob && blob.size <= limits.assetBytes) {
+        lfs[oid] =
+          `data:${blob.type || 'application/octet-stream'};base64,${toBase64(new Uint8Array(await blob.arrayBuffer()))}`;
+      }
+    }
+  }
+
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -135,6 +153,7 @@ export async function captureTourSnapshot(
     stack,
     stackName,
     assets,
+    lfs,
   };
 }
 
@@ -144,6 +163,12 @@ function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return btoa(binary);
+}
+
+function dataBlob(url: string): Blob {
+  const [head = '', body = ''] = url.split(',', 2);
+  const type = /^data:([^;,]+)/.exec(head)?.[1] ?? '';
+  return new Blob([Uint8Array.from(atob(body), (char) => char.charCodeAt(0))], { type });
 }
 
 export class NotInSnapshotError extends Error {
@@ -181,7 +206,7 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     diff: (diffId) => found(snapshot.diffs[diffId], 'That diff'),
     trace: (jobId) => found(jobId === snapshot.jobId ? snapshot.trace : undefined, 'The trace'),
     fileContents: (diffId, fileId) => found(snapshot.files[fileKey(diffId, fileId)], 'That file'),
-    lfsObject: missing('An LFS object'),
+    lfsObject: (_diffId, oid) => found(snapshot.lfs?.[oid], 'That LFS object').then(dataBlob),
     health: missing('Health'),
     recent: () => Promise.resolve({ tours: [] }),
     // The page picks <video> or <img> by the type, which the data: URL carries.

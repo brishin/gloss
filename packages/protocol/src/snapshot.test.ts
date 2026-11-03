@@ -117,6 +117,21 @@ describe('tour snapshots', () => {
     ]);
   });
 
+  test('carry the LFS images the diff shows', async () => {
+    const oid = 'a'.repeat(64);
+    const image = { ...file, id: 'f3', path: 'logo.png', lfs: { new: { oid, size: 3 } } };
+    const withImage = events.map((event) =>
+      event.type === 'tour.complete' ? { ...event, tour: { ...event.tour, files: [file, image] } } : event,
+    );
+    const lfsBackend = Object.assign(backend(withImage), {
+      lfsObject: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+    });
+    const client = createSnapshotGlossClient(await captureTourSnapshot(lfsBackend, ref, { fetch: png }));
+    const blob = await client.lfsObject('d', oid);
+    expect(blob.type).toBe('image/png');
+    expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([1, 2, 3]);
+  });
+
   test('keep whole files only up to the limit', async () => {
     const snapshot = await captureTourSnapshot(backend(events), ref, { fetch: png, limits: { fileChars: 8 } });
     expect(Object.keys(snapshot.files)).toEqual([fileKey('d', 'f1')]);
