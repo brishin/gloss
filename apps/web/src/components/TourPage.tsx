@@ -15,8 +15,6 @@ import { SENT_LABEL } from '../lib/review-draft.ts';
 import { canReview, currentGroup, currentPull, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
-import { DECISION_STOP, MOCK, useDecisionWalk } from '../mock/decision-walk.ts';
-import { DecisionsStop } from '../mock/DecisionWalk.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
@@ -79,7 +77,6 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     }),
     [expanded, viewed, dispatch, review, reviewer],
   );
-  const decisionWalk = useDecisionWalk();
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
@@ -155,7 +152,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           groups={groups}
           files={files}
           selection={selected}
-          walkthrough={!!state.walkthrough && MOCK !== 'e'}
+          walkthrough={!!state.walkthrough}
           activeFileId={model.activeFileId}
           viewed={viewed}
           loading={running}
@@ -251,20 +248,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   running={running}
                   onJumpToFile={jumpToFile}
                   onSelectGroup={select}
-                  diff={diff}
-                  decisionWalk={decisionWalk}
                 />
               ) : (
                 <Skeleton height={160} />
               )}
             </section>
-            {state.walkthrough && MOCK !== 'e' && (
+            {state.walkthrough && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
-                {DECISION_STOP ? (
-                  decisionWalk && <DecisionsStop walk={decisionWalk} diff={diff} onJumpToFile={jumpToFile} />
-                ) : (
-                  <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
-                )}
+                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
               </section>
             )}
             {groups.map((group) => (

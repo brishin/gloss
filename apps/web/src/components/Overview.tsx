@@ -2,7 +2,7 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { DiffPayload, GroupView, ReviewState, Reviewer, StackMember, TourState } from '@gloss/protocol';
+import type { GroupView, ReviewState, Reviewer, StackMember, TourState } from '@gloss/protocol';
 import { UsersIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
@@ -14,8 +14,6 @@ import {
   REVIEW_STATE_LABEL,
   splitPath,
 } from '../lib/tour-view.ts';
-import { DECISION_MOCK, type DecisionWalk, MOCK } from '../mock/decision-walk.ts';
-import { DecisionTraceList } from '../mock/DecisionWalk.tsx';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
 import { TourVisual } from './TourVisual.tsx';
@@ -90,14 +88,10 @@ export const Overview = memo(function Overview({
   running,
   onJumpToFile,
   onSelectGroup,
-  diff,
-  decisionWalk,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
-  diff?: DiffPayload;
-  decisionWalk?: DecisionWalk;
   onJumpToFile: (fileId: string) => void;
   onSelectGroup: (key: string) => void;
 }) {
@@ -125,14 +119,7 @@ export const Overview = memo(function Overview({
         <TourVisual key={index} visual={visual} />
       ))}
 
-      {MOCK === 'e' && decisionWalk && (
-        <section className="section">
-          <Heading level={2}>Decisions</Heading>
-          <DecisionTraceList walk={decisionWalk} diff={diff} onJumpToFile={onJumpToFile} />
-        </section>
-      )}
-
-      {decisions.length > 0 && !DECISION_MOCK && (
+      {decisions.length > 0 && (
         <section className="section">
           <Heading level={2}>Decisions</Heading>
           <table className="overview-table decisions">
