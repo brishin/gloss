@@ -1347,15 +1347,93 @@
     color: var(--color-text-secondary);
   }
 
-  /* viewBox-only SVGs have no intrinsic size: draw them at the width Jev judged (760px). */
-  .visual-svg {
+  /*
+   * A model-drawn sketch in the Mermaid diagrams' style. The sketch prompt draws with a
+   * fixed palette (prompts.ts SKETCH_GUIDE); each of its colors is a role, mapped here to
+   * the token MermaidVisual gives that role, so sketches follow the theme in both modes.
+   * CSS wins over the presentation attributes the model wrote. viewBox-only SVGs have no
+   * intrinsic size: draw them at the width Jev judged (760px).
+   */
+  .visual-sketch svg {
     display: block;
     width: 100%;
     max-width: 760px;
     height: auto;
     margin-inline: auto;
-    border-radius: var(--radius-2, 6px);
-    background: #fff;
+    overflow: visible;
+  }
+
+  .visual-sketch :is(text, tspan) {
+    font-family: var(--font-family-body);
+  }
+
+  .visual-sketch [font-family*='mono' i] {
+    font-family: var(--font-family-code);
+  }
+
+  /* Boxes: square, hairline border, surface fill, medium labels. */
+  .visual-sketch rect[rx='8'] {
+    rx: 0;
+    ry: 0;
+  }
+
+  .visual-sketch :is(rect, ellipse, circle, polygon)[stroke='#d1d9e0' i] {
+    stroke-width: 0.75;
+  }
+
+  .visual-sketch [fill='#f6f8fa' i],
+  .visual-sketch :is([fill='#ffffff' i], [fill='#fff' i], [fill='white' i]) {
+    fill: var(--color-background-surface);
+  }
+
+  /* A region (a tier or a place, no stroke) holds boxes: a faint wash of the text color. */
+  .visual-sketch rect[fill='#f6f8fa' i]:not([stroke]) {
+    fill: color-mix(in srgb, var(--color-text-primary) 4%, transparent);
+  }
+
+  .visual-sketch [stroke='#d1d9e0' i] {
+    stroke: var(--color-border-emphasized);
+  }
+
+  .visual-sketch [stroke='#8c959f' i] {
+    stroke: var(--color-border-emphasized);
+  }
+
+  .visual-sketch [fill='#8c959f' i] {
+    fill: var(--color-border-emphasized);
+  }
+
+  /* Arrowheads in the accent, as in the Mermaid diagrams. */
+  .visual-sketch marker [fill='#8c959f' i] {
+    fill: var(--gloss-ink);
+  }
+
+  .visual-sketch [fill='#1f2328' i] {
+    fill: var(--color-text-primary);
+  }
+
+  .visual-sketch text[font-size='13'] {
+    font-weight: 500;
+  }
+
+  .visual-sketch [fill='#59636e' i] {
+    fill: var(--color-text-secondary);
+  }
+
+  .visual-sketch [stroke='#5b4cc4' i] {
+    stroke: var(--gloss-ink);
+  }
+
+  .visual-sketch [fill='#5b4cc4' i] {
+    fill: var(--gloss-ink);
+  }
+
+  .visual-sketch [stroke='#cf222e' i] {
+    stroke: var(--flag-severe);
+  }
+
+  .visual-sketch [fill='#cf222e' i] {
+    fill: var(--flag-severe);
   }
 
   .visual-mermaid {

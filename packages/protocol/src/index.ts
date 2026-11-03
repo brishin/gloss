@@ -9,6 +9,7 @@ export * from './review.ts';
 export * from './setup.ts';
 export * from './source-ref.ts';
 export * from './stack.ts';
+export * from './svg-sanitize.ts';
 export * from './tour.ts';
 export * from './trace.ts';
 export * from './update.ts';
