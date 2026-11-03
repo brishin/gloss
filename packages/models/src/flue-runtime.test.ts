@@ -57,4 +57,32 @@ describe('FlueModelClient', () => {
     });
     expect(result.data).toEqual({ answer: 'fixed' });
   });
+
+  it('runs a stage tool, then takes the submit', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('read_file', { path: 'src/a.ts' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('submit', { answer: 'read it' })], { stopReason: 'toolUse' }),
+    ]);
+    const read: unknown[] = [];
+    const result = await run({
+      tier: 'notes',
+      system: 'sys',
+      prompt: 'q',
+      result: Schema,
+      resultName: 'answer',
+      tools: [
+        {
+          name: 'read_file',
+          description: 'Read a file.',
+          input: v.object({ path: v.string() }),
+          run: async (input) => {
+            read.push(input);
+            return '1 one';
+          },
+        },
+      ],
+    });
+    expect(read).toEqual([{ path: 'src/a.ts' }]);
+    expect(result.data).toEqual({ answer: 'read it' });
+  });
 });

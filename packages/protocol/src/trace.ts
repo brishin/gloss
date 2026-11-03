@@ -39,6 +39,8 @@ export const TraceStepSchema = v.object({
   sections: v.optional(v.array(v.object({ line: v.number(), from: v.string() }))),
   /** The step's result as the model or Jev returned it (before normalizing), or what code decided. */
   output: v.optional(v.unknown()),
+  /** The files the model read before it answered, as `path lines a-b`. */
+  reads: v.optional(v.array(v.string())),
   /** What normalizing changed, or why the step failed. */
   warnings: v.optional(v.array(v.string())),
 });

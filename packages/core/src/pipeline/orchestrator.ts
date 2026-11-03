@@ -22,12 +22,12 @@ import {
   SYNTHETIC_GROUPS,
   tourFromState,
 } from '@gloss/protocol';
-import { Data, Effect, Fiber, Option, Queue, type Scope, Stream } from 'effect';
+import { Data, Effect, Fiber, FiberSet, Option, Queue, type Scope, Stream } from 'effect';
 import type * as v from 'valibot';
 import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
-import { DiffSources } from '../sources/index.ts';
+import { DiffSources, readRepoFile } from '../sources/index.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -68,6 +68,7 @@ import {
   WALKTHROUGH_SYSTEM,
   WalkthroughResultSchema,
 } from './prompts.ts';
+import { fileReader } from './read-file.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
 
@@ -205,6 +206,13 @@ const tourProgram = Effect.fnUntraced(function* (
     summary: `${files.length} files`,
     output: files.map((file) => `${file.id} ${file.status} ${file.path} +${file.additions} -${file.deletions}`),
   });
+
+  // `read_file` reads run in the tour's scope, so stopping the tour stops their git/gh calls too.
+  const runRead = yield* FiberSet.makeRuntimePromise<never>();
+  const tourDiff = diff;
+  /** A fresh `read_file` tool for one model call: any file at the head, for code its prompt cuts off. */
+  const reader = () =>
+    fileReader(tourDiff, (path) => runRead(Effect.tryPromise((signal) => readRepoFile(tourDiff, path, signal))));
 
   /**
    * The walkthrough runs beside placement and notes, in the stream's scope so it outlives the
@@ -461,6 +469,7 @@ const tourProgram = Effect.fnUntraced(function* (
         prompt: walkPrompt,
         sections: promptSections(walkPrompt, { 'The tour so far': 'define' }),
       });
+      const reading = reader();
       return cached(
         'walkthrough',
         { PROMPTS_VERSION, model: models.define, prompt: walkPrompt },
@@ -470,6 +479,7 @@ const tourProgram = Effect.fnUntraced(function* (
           prompt: walkPrompt,
           result: WalkthroughResultSchema,
           resultName: 'walkthrough',
+          tools: [reading.tool],
         }),
         models.define,
       ).pipe(
@@ -481,6 +491,7 @@ const tourProgram = Effect.fnUntraced(function* (
           trace.end('walkthrough', {
             cached: hit,
             output: value,
+            ...readFields(reading.reads()),
             summary: walkthrough ? `${walkthrough.steps.length} steps` : 'none',
             ...(warnings.length ? { warnings } : {}),
           });
@@ -491,7 +502,7 @@ const tourProgram = Effect.fnUntraced(function* (
         Effect.catchTag('ModelError', (error) =>
           Effect.sync(() => {
             warn('define', `Writing the walkthrough failed: ${error.message}`);
-            trace.end('walkthrough', { warnings: [error.message] }, 'failed');
+            trace.end('walkthrough', { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
           }),
         ),
       );
@@ -664,6 +675,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 Files: placedBy,
               }),
             });
+            const reading = reader();
             return cached(
               'notes',
               { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
@@ -673,6 +685,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 prompt: notesPrompt,
                 result: NotesSchema,
                 resultName: 'notes',
+                tools: [reading.tool],
               }),
               models.notes,
             ).pipe(
@@ -685,6 +698,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 trace.end(stepId, {
                   cached: hit,
                   output: value,
+                  ...readFields(reading.reads()),
                   summary: `${count} notes`,
                   ...(warnings.length ? { warnings } : {}),
                 });
@@ -693,7 +707,7 @@ const tourProgram = Effect.fnUntraced(function* (
               Effect.catchTag('ModelError', (error) =>
                 Effect.sync(() => {
                   failed++;
-                  trace.end(stepId, { warnings: [error.message] }, 'failed');
+                  trace.end(stepId, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
                   send({
                     type: 'job.error',
                     stage: 'notes',
@@ -827,4 +841,9 @@ function dedupeKeys<T extends { overallSummary: string; groups: (GroupDefinition
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The files a call read, for its trace step; nothing when it read none. */
+function readFields(reads: string[]): { reads?: string[] } {
+  return reads.length ? { reads } : {};
 }
