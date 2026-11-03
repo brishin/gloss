@@ -40,6 +40,14 @@ notes decision pinned in the file (urgent if it drops or rewrites data, else hig
 lists only its rollout across files. Define sees only that rollout rule; given the full rule it
 restated the schema change change-wide, and notes then skipped it as covered.
 
+Built-in reviewer checks (`decision-checks.ts`) add a "Reviewer checks" section to a notes
+prompt only when a check applies to one of the group's files (today: Python source, from
+Brian's backend review list), so other groups' prompts are unchanged. In the 2026-11-03 eval
+on 11 flashback Python PRs, a plain "check for these" intro found 3 of 13 target findings and
+missed the services-as-parameter one on every PR; telling the model the checks outrank "skip
+refactors" and to go through every function found 10. A generalized, all-language list found
+9 but added structure nits to Swift, Kotlin and TypeScript groups.
+
 The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
 every time. A third candidate, the `sketch`, is an SVG the model draws itself (hand-drawn

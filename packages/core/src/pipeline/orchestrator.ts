@@ -1,4 +1,3 @@
-import process from 'node:process';
 import type {
   DiffPayload,
   FileChange,
@@ -91,17 +90,7 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
 }> {}
 
 export function tourCacheKey(sourceKey: string, fingerprint: string, models: ModelConfig): string {
-  const evalArm = process.env.GLOSS_EVAL_CHECKS;
-  return hashOf({
-    kind: 'tour',
-    PIPELINE_VERSION,
-    PROMPTS_VERSION,
-    QUESTIONS_VERSION,
-    sourceKey,
-    fingerprint,
-    models,
-    ...(evalArm ? { evalArm } : {}),
-  });
+  return hashOf({ kind: 'tour', PIPELINE_VERSION, PROMPTS_VERSION, QUESTIONS_VERSION, sourceKey, fingerprint, models });
 }
 
 /** The trace of the run that produced a cached tour, so its debug view outlives the job. */
@@ -683,6 +672,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 'Change-wide decisions': 'define',
                 'This group': 'define',
                 'Flagged risks': judge ? 'judge-files' : 'define',
+                'Reviewer checks': placedBy,
                 Files: placedBy,
               }),
             });
