@@ -1,6 +1,6 @@
 import type { AskContext, AskEvent, AskRef, AskTurn, DiffPayload, FileChange, Tour } from '@gloss/protocol';
 import { parseAskRef } from '@gloss/protocol';
-import { Effect, Queue, Stream } from 'effect';
+import { Effect, FiberSet, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { type ChatTool, ModelClient } from '../adapters/types.ts';
 import { Repos } from '../sources/repos.ts';
@@ -46,15 +46,34 @@ function inHunks(file: FileChange, side: AskRef['side'], line: number): boolean 
 }
 
 /**
- * The lines an answer cites, as `[label](fileId:line)` links, that exist: in the diff, or anywhere
- * in a file the model read whole. Model output is untrusted, so the page only links these.
+ * A new file's whole text, from its diff: `Repos.contents` only reads files that existed before
+ * (it fills in unchanged lines), and every line of an added file is in its diff.
  */
-export function citedRefs(text: string, diff: DiffPayload, read: ReadonlySet<string> = new Set()): AskRef[] {
+function addedText(file: FileChange): string | undefined {
+  return file.status === 'added' && !file.truncated && !file.isBinary
+    ? file.hunks
+        .flatMap((hunk) => hunk.patch.split('\n').filter((line) => line.startsWith('+')))
+        .map((line) => line.slice(1))
+        .join('\n')
+    : undefined;
+}
+
+/**
+ * The lines an answer cites, as `[label](fileId:line)` links, that exist: in the diff, or among
+ * the lines `read_file` returned for that side (`read`: last line read, by `fileId:side`). Model
+ * output is untrusted, so the page only links these.
+ */
+export function citedRefs(text: string, diff: DiffPayload, read: ReadonlyMap<string, number> = new Map()): AskRef[] {
   const refs = new Map<string, AskRef>();
   for (const match of text.matchAll(/\]\(\s*([^)\s]+)\s*\)/g)) {
     const ref = parseAskRef(match[1]!);
     const file = ref && diff.files.find((candidate) => candidate.id === ref.fileId);
-    if (ref && file && ref.line > 0 && (read.has(file.id) || inHunks(file, ref.side, ref.line))) {
+    if (
+      ref &&
+      file &&
+      ref.line > 0 &&
+      (ref.line <= (read.get(`${file.id}:${ref.side}`) ?? 0) || inHunks(file, ref.side, ref.line))
+    ) {
       refs.set(`${ref.fileId}:${ref.side}:${ref.line}`, ref);
     }
   }
@@ -82,7 +101,10 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
     Effect.gen(function* () {
       const model = yield* ModelClient;
       const repos = yield* Repos;
-      const read = new Set<string>();
+      // Lines the model has read whole, by `fileId:side`: up to this line number.
+      const read = new Map<string, number>();
+      // Tool calls run as fibers of this stream's scope, so stopping the answer stops their git/gh reads too.
+      const runPromise = yield* FiberSet.makeRuntimePromise<never>();
       const readFile: ChatTool = {
         name: 'read_file',
         description: 'Read a whole changed file, with line numbers, when the diff does not show enough of it.',
@@ -93,21 +115,34 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
           if (!file) {
             return `No changed file has the id ${fileId}.`;
           }
-          const contents = await Effect.runPromise(
-            repos.contents(diff, file).pipe(Effect.orElseSucceed(() => undefined)),
-          );
-          const text = contents ? (side === 'old' ? contents.oldContents : contents.newContents) : undefined;
+          const text =
+            side === 'new' && addedText(file) !== undefined
+              ? addedText(file)
+              : await runPromise(
+                  repos.contents(diff, file).pipe(
+                    Effect.map((contents) => (side === 'old' ? contents?.oldContents : contents?.newContents)),
+                    Effect.orElseSucceed(() => undefined),
+                  ),
+                );
           if (text === undefined) {
             return `${file.path} cannot be read; use the diff.`;
           }
-          if (side === 'new') {
-            read.add(file.id);
+          const lines: string[] = [];
+          let size = 0;
+          for (const [index, line] of text.split('\n').entries()) {
+            const numbered = `${index + 1} ${line}`;
+            if (size + numbered.length > READ_BUDGET) {
+              break;
+            }
+            lines.push(numbered);
+            size += numbered.length + 1;
           }
-          const numbered = text
-            .split('\n')
-            .map((line, index) => `${index + 1} ${line}`)
-            .join('\n');
-          return numbered.length > READ_BUDGET ? `${numbered.slice(0, READ_BUDGET)}\n... (truncated)` : numbered;
+          const key = `${file.id}:${side === 'old' ? 'deletions' : 'additions'}`;
+          read.set(key, Math.max(read.get(key) ?? 0, lines.length));
+          const total = text.split('\n').length;
+          return lines.length < total
+            ? `${lines.join('\n')}\n... (truncated at line ${lines.length} of ${total})`
+            : lines.join('\n');
         },
       };
       const pathOf = (input: unknown) => {

@@ -1,5 +1,5 @@
 import type { AskEvent, DiffPayload, Tour } from '@gloss/protocol';
-import { Effect, Layer, Stream } from 'effect';
+import { Effect, Fiber, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { createFakeModelClient } from '../adapters/fake.ts';
 import { ModelClient } from '../adapters/types.ts';
@@ -97,7 +97,10 @@ describe('citedRefs', () => {
       { fileId: 'f1', side: 'additions', line: 11 },
       { fileId: 'f1', side: 'deletions', line: 11 },
     ]);
-    expect(citedRefs('[c](f1:40)', diff, new Set(['f1']))).toEqual([{ fileId: 'f1', side: 'additions', line: 40 }]);
+    const read = new Map([['f1:additions', 40]]);
+    expect(citedRefs('[c](f1:40) [d](f1:41) [e](f1:-40)', diff, read)).toEqual([
+      { fileId: 'f1', side: 'additions', line: 40 },
+    ]);
   });
 });
 
@@ -170,5 +173,63 @@ describe('runAsk', () => {
       ),
     );
     expect(output).toBe('1 one\n2 two');
+  });
+});
+
+describe('read_file', () => {
+  const readWith = async (contents: Repos['Service']['contents'], fileId = 'f1', files = diff.files) => {
+    let output = '';
+    let refs: unknown;
+    const base = createFakeModelClient({ answers: {}, chat: () => '[x](f1:2) [y](f2:2)' });
+    const model: ModelClient['Service'] = {
+      ...base,
+      chat: (request) =>
+        Effect.promise(() => request.tools[0]!.run({ fileId })).pipe(
+          Effect.tap((text) => Effect.sync(() => (output = text))),
+          Effect.andThen(base.chat(request)),
+        ),
+    };
+    const events = await Effect.runPromise(
+      Stream.runCollect(runAsk({ tour, diff: { ...diff, files }, question: 'q' })).pipe(
+        Effect.provide(Layer.merge(Layer.succeed(ModelClient, model), repos(contents))),
+      ),
+    );
+    refs = (events.at(-1) as Extract<AskEvent, { type: 'ask.done' }>).refs;
+    return { output, refs };
+  };
+
+  it('reads an added file from its diff, and its lines become citable', async () => {
+    const added = {
+      ...diff.files[0]!,
+      id: 'f2',
+      status: 'added' as const,
+      hunks: [{ ...diff.files[0]!.hunks[0]!, oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, patch: '+one\n+two' }],
+    };
+    const { output, refs } = await readWith(() => Effect.succeed(undefined), 'f2', [diff.files[0]!, added]);
+    expect(output).toBe('1 one\n2 two');
+    expect(refs).toEqual([{ fileId: 'f2', side: 'additions', line: 2 }]);
+  });
+
+  it('stops the read when the answer is interrupted', async () => {
+    let interrupted = false;
+    const model = createFakeModelClient({ answers: {} });
+    const hang: ModelClient['Service'] = {
+      ...model,
+      chat: (request) =>
+        Effect.promise(() => request.tools[0]!.run({ fileId: 'f1' })).pipe(Effect.as({ text: '', model: 'm' })),
+    };
+    const fiber = Effect.runFork(
+      Stream.runCollect(runAsk({ tour, diff, question: 'q' })).pipe(
+        Effect.provide(
+          Layer.merge(
+            Layer.succeed(ModelClient, hang),
+            repos(() => Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => (interrupted = true))))),
+          ),
+        ),
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    expect(interrupted).toBe(true);
   });
 });
