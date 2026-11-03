@@ -632,8 +632,10 @@ function normalizeDecisionWalks(
         warnings.push(`Dropped a snippet of decision ${decision}: ${rawSnippet.fileId}:${rawSnippet.from} ${snippet}.`);
         continue;
       }
+      // The same code only when another snippet already shows this one's focus: overlapping
+      // context alone keeps both, so each line that makes a choice still gets its caption.
       const same = snippets.findIndex(
-        (other) => other.hunkId === snippet.hunkId && other.from <= snippet.to && snippet.from <= other.to,
+        (other) => other.hunkId === snippet.hunkId && other.from <= snippet.focus && snippet.focus <= other.to,
       );
       if (same >= 0) {
         kept.set(index, same);

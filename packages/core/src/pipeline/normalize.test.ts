@@ -420,6 +420,11 @@ describe('normalizeWalkthrough', () => {
     expect(walkthrough!.decisions[0]!.snippets).toHaveLength(2);
   });
 
+  it('keeps snippets that overlap only in context, each with its own focus', () => {
+    const { walkthrough } = walk([entry(0, [snippet('f2', 'h2', 1, 5, 2), snippet('f2', 'h2', 5, 9, 8)])]);
+    expect(walkthrough!.decisions[0]!.snippets.map((at) => at.focus)).toEqual([2, 8]);
+  });
+
   it('moves a focus the diff does not show onto the first added line in range', () => {
     const { walkthrough } = walk([entry(0, [snippet('f2', 'h2', 14, 18, 99)])]);
     expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ from: 14, to: 18, focus: 16 });
