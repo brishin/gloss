@@ -1,3 +1,5 @@
+import { lstat, readlink, realpath } from 'node:fs/promises';
+import { join, sep } from 'node:path';
 import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/protocol';
 import { Data } from 'effect';
 import { git } from './exec.ts';
@@ -120,8 +122,20 @@ export function repoPath(path: string): string | undefined {
 export async function readRepoFile(diff: DiffPayload, path: string, signal?: AbortSignal): Promise<string> {
   const { ref, meta } = diff;
   const changed = diff.files.some((file) => file.path === path && file.status !== 'removed');
-  if (ref.kind === 'local' && !meta.headSha && !changed) {
-    return git(ref.repo, ['cat-file', '--textconv', `HEAD:${path}`], { signal });
+  if (ref.kind === 'local' && !meta.headSha) {
+    if (!changed) {
+      return git(ref.repo, ['cat-file', '--textconv', `HEAD:${path}`], { signal });
+    }
+    // The working tree follows symlinks; a changed link reads as its target path, as git stores it,
+    // and nothing outside the repository is read.
+    const full = join(ref.repo, path);
+    if ((await lstat(full)).isSymbolicLink()) {
+      return readlink(full);
+    }
+    const [root, real] = await Promise.all([realpath(ref.repo), realpath(full)]);
+    if (!real.startsWith(root + sep)) {
+      throw new Error(`${path} is outside the repository`);
+    }
   }
   return readHead(diff, path, signal);
 }

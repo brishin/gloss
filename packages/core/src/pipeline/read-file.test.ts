@@ -49,6 +49,14 @@ describe('fileReader', () => {
     expect(reader.reads()).toEqual(['src/service.py lines 1-400', 'src/service.py lines 990-1000']);
   });
 
+  it('clips one huge line', async () => {
+    const reader = fileReader(diff, async () => `${'x'.repeat(100_000)}\nnext`);
+    const out = await reader.tool.run({ path: 'bundle.js' });
+    expect(out.length).toBeLessThan(25_000);
+    expect(out).toContain('... (line cut)');
+    expect(out).toContain('read from 2 for more');
+  });
+
   it('refuses paths outside the repository, removed files, failed and binary reads, and too many reads', async () => {
     const reader = fileReader(diff, async (path) => {
       if (path === 'missing.py') {

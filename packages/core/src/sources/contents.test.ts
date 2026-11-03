@@ -1,5 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { DiffPayload } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { reverseApply, StaleFileError } from './contents.ts';
+import { readRepoFile, reverseApply, StaleFileError } from './contents.ts';
 import { parseHunks } from './patch-parser.ts';
 
 const hunks = (patch: string) => parseHunks(patch.split('\n'));
@@ -41,5 +46,40 @@ describe('reverseApply', () => {
   it('rebuilds a large file', () => {
     const tail = Array.from({ length: 200_000 }, (_, i) => `line ${i}`).join('\n');
     expect(reverseApply(`NEW\n${tail}\n`, hunks('@@ -1 +1 @@\n-old\n+NEW'))).toBe(`old\n${tail}\n`);
+  });
+});
+
+describe('readRepoFile', () => {
+  it('never follows a working-tree symlink out of the repository', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gloss-read-'));
+    const repo = join(dir, 'repo');
+    try {
+      execFileSync('git', ['init', '-q', repo]);
+      writeFileSync(join(dir, 'secret'), 'TOKEN');
+      writeFileSync(join(repo, 'a.txt'), 'a\n');
+      symlinkSync('../secret', join(repo, 'linked'));
+      const file = (path: string) => ({
+        id: path,
+        path,
+        status: 'added' as const,
+        additions: 1,
+        deletions: 0,
+        isBinary: false,
+        truncated: false,
+        hunks: [],
+      });
+      const diff: DiffPayload = {
+        id: 'd',
+        ref: { kind: 'local', repo, target: '' },
+        sourceKey: 'k',
+        fingerprint: 'x',
+        meta: { title: 't', baseRef: 'a', headRef: 'b', commits: [] },
+        files: [file('a.txt'), file('linked')],
+      };
+      expect(await readRepoFile(diff, 'a.txt')).toBe('a\n');
+      expect(await readRepoFile(diff, 'linked')).toBe('../secret');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -69,7 +69,10 @@ export function fileReader(diff: DiffPayload, read: (path: string) => Promise<st
       const out: string[] = [];
       let size = 0;
       for (let line = from; line <= lines.length && out.length < READ_LINES; line++) {
-        const numbered = `${line} ${lines[line - 1]}`;
+        const body = lines[line - 1]!;
+        // One huge line (a minified bundle) is clipped too.
+        const clipped = body.length > READ_CHARS ? `${body.slice(0, READ_CHARS)} ... (line cut)` : body;
+        const numbered = `${line} ${clipped}`;
         if (out.length && size + numbered.length > READ_CHARS) {
           break;
         }
