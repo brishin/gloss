@@ -4,7 +4,7 @@ import { type AnyRouter, defaultParseSearch } from '@tanstack/react-router';
 import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { type AskTurnView, savedTurns } from './ask-model.ts';
-import { Gloss, glossRuntime, request } from './client.ts';
+import { Gloss, glossRuntime, isExport, request } from './client.ts';
 import type { SavedReview } from './review-draft.ts';
 import { stackRefs } from './sidebar-tree.ts';
 import { navigateToPipeline, navigateToRef } from './source-routes.tsx';
@@ -57,7 +57,7 @@ const knownStacks = new Map<string, Stack>();
 /** The tour page's program for one ref. The page creates one per mount, so two tours never share state. */
 export function tourProgram(ref: SourceRef, router: AnyRouter) {
   return makeProgram(glossRuntime, {
-    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref))),
+    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref)), isExport()),
     update,
     run: (cmd) => run(cmd, router),
     key: (cmd) =>

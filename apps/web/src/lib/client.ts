@@ -1,5 +1,6 @@
 import {
   createHttpGlossClient,
+  createSnapshotGlossClient,
   DEFAULT_BACKEND_URL,
   type FileContents,
   type GlossClient,
@@ -15,6 +16,7 @@ import {
   type SourceRef,
   type Stack,
   type Subscription,
+  type TourSnapshot,
   type Trace,
   type UpdateStatus,
 } from '@gloss/protocol';
@@ -25,7 +27,7 @@ import { settled } from './trace-view.ts';
 declare global {
   interface Window {
     /** Injected by the gloss CLI when it serves this app; `backendUrl: ''` means same origin. */
-    __GLOSS__?: { backendUrl?: string; token?: string };
+    __GLOSS__?: { backendUrl?: string; token?: string; snapshot?: TourSnapshot };
   }
 }
 
@@ -38,9 +40,21 @@ export function backendConfig(): { baseUrl: string; token?: string } {
   };
 }
 
-/** The backend, as the web app's only service: everything else is in the browser. */
+/** The tour a static export carries (set by `export.tsx` before the app mounts), if this page is one. */
+const exportedSnapshot = (): TourSnapshot | undefined =>
+  typeof window === 'undefined' ? undefined : window.__GLOSS__?.snapshot;
+
+export const isExport = (): boolean => exportedSnapshot() !== undefined;
+
+/**
+ * The backend, as the web app's only service: everything else is in the browser. An export
+ * reads its snapshot instead, through the same interface.
+ */
 export class Gloss extends Context.Service<Gloss, GlossClient>()('@gloss/web/Gloss') {
-  static layer = Layer.sync(Gloss, () => createHttpGlossClient(backendConfig()));
+  static layer = Layer.sync(Gloss, () => {
+    const snapshot = exportedSnapshot();
+    return snapshot ? createSnapshotGlossClient(snapshot) : createHttpGlossClient(backendConfig());
+  });
 }
 
 /** A failed backend call; `cause` is what the client threw. */

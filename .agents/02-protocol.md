@@ -55,6 +55,14 @@ finished tour and the answered turns, and the backend reads the diff from its ca
 (`fileId:-line` for removed lines); `refs` lists only the citations `citedRefs` found in the diff,
 and the web app links only those. Threads are saved per diff in the browser (`gloss.ask.<diffId>`).
 
+**Snapshot** (`snapshot.ts`): `gloss export` reads a finished tour through any `GlossClient`
+(`captureTourSnapshot`): the job's event log, its diffs, whole files up to a size cap, the
+trace, the stack and PR body attachments as `data:` URLs. `createSnapshotGlossClient` serves it
+back read-only, so the page replays the log through `reduceTourEvent` as it does live. The CLI
+embeds it, gzipped, in one HTML file with the web app's export build (`vite.export.config.ts`:
+one module, every shiki grammar in one gzipped table). The tour model's `exported` flag hides
+what needs a backend (Re-run, Ask, Review, stack stepping).
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

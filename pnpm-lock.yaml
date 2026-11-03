@@ -75,6 +75,9 @@ catalogs:
     scheduler:
       specifier: 0.28.0
       version: 0.28.0
+    shiki:
+      specifier: 4.5.0
+      version: 4.5.0
     typescript:
       specifier: 7.0.2
       version: 7.0.2
@@ -176,6 +179,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.1.2(vite@8.3.5(@types/node@26.6.5)(jiti@2.7.0))
+      shiki:
+        specifier: 'catalog:'
+        version: 4.5.0
 
   packages/cli:
     dependencies:

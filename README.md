@@ -31,11 +31,16 @@ gloss https://github.com/owner/repo/pull/123   # or owner/repo#123
 gloss                                          # this repo: uncommitted changes, else branch vs main
 gloss main...HEAD                              # a range, a commit, or `worktree`
 gloss tour main...HEAD                         # print the tour in the terminal
+gloss export owner/repo#123 -o tour.html       # save the tour as one HTML file
 ```
 
 Each launch first updates gloss (pull, install, build) and restarts its server if the
 code changed. A running app shows an Update button when new commits land.
 `gloss --help` lists every command.
+
+An export is the tour page itself, in light and dark, with the tour's events, diff and
+whole files inside. It opens from disk with no server and fetches nothing. Re-run, Ask
+and Review need the server, so an export leaves them out.
 
 ## Models
 
