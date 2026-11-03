@@ -401,6 +401,7 @@ function RulesSection() {
           placeholder={'- Flag every new environment variable\n- Flag a changed timeout or retry count as high'}
           value={text}
           onChange={(next) => setText(next)}
+          isReadOnly={waiting}
           status={
             AsyncResult.isFailure(saving) && !waiting
               ? { type: 'error', message: 'Could not save the rules.' }
