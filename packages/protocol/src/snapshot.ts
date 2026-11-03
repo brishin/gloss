@@ -69,11 +69,12 @@ export async function captureTourSnapshot(
     throw new Error(`The tour did not finish${reason}`);
   }
 
+  // A tour replayed from the cache sends no `diff.ready`, so its own diff id counts too.
+  const diffIds = new Set(events.flatMap((event) => (event.type === 'diff.ready' ? [event.diffId] : [])));
+  diffIds.add(last.tour.diffId);
   const diffs: TourSnapshot['diffs'] = {};
-  for (const event of events) {
-    if (event.type === 'diff.ready' && !diffs[event.diffId]) {
-      diffs[event.diffId] = await client.diff(event.diffId);
-    }
+  for (const diffId of diffIds) {
+    diffs[diffId] = await client.diff(diffId);
   }
 
   const files: TourSnapshot['files'] = {};

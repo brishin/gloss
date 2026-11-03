@@ -369,11 +369,10 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'GroupStepped', by: 1 };
     case 'k':
       return { type: 'GroupStepped', by: -1 };
-    // An export holds one PR of the stack.
     case 'K':
-      return model.exported ? undefined : { type: 'StackStepped', by: 1 };
+      return { type: 'StackStepped', by: 1 };
     case 'J':
-      return model.exported ? undefined : { type: 'StackStepped', by: -1 };
+      return { type: 'StackStepped', by: -1 };
     case 'o':
       return { type: 'GroupSelected', key: OVERVIEW };
     case 'n':
@@ -484,18 +483,21 @@ function step(model: Model, msg: Msg): Next {
     case 'StackLoaded':
       return [{ ...model, stack: msg.stack }, [{ type: 'RevealRailRow' }]];
     case 'RailOpened':
-      return [
-        model,
-        [
-          {
-            type: 'SaveRailAnchor',
-            anchor: { key: serializeRef(msg.ref), offset: msg.offset },
-          },
-          { type: 'OpenRef', ref: msg.ref },
-        ],
-      ];
+      // An export holds one PR of the stack, so the others stay where they are.
+      return model.exported
+        ? [model, []]
+        : [
+            model,
+            [
+              {
+                type: 'SaveRailAnchor',
+                anchor: { key: serializeRef(msg.ref), offset: msg.offset },
+              },
+              { type: 'OpenRef', ref: msg.ref },
+            ],
+          ];
     case 'StackStepped': {
-      const target = stackNeighbour(model, msg.by);
+      const target = model.exported ? undefined : stackNeighbour(model, msg.by);
       return target ? [model, [{ type: 'OpenRef', ref: target }]] : [model, []];
     }
     case 'FileJumped':

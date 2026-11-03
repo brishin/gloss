@@ -90,6 +90,14 @@ describe('tour snapshots', () => {
     });
   });
 
+  test('read the diff of a tour replayed from the cache, which sends no diff.ready', async () => {
+    const cached = [events[0]!, { ...events[3]!, seq: 2 }];
+    const snapshot = await captureTourSnapshot(backend(cached), ref, { fetch: png });
+    expect(Object.keys(snapshot.diffs)).toEqual(['d']);
+    expect(Object.keys(snapshot.files)).toHaveLength(2);
+    expect(Object.keys(snapshot.assets)).toHaveLength(1);
+  });
+
   test('keep whole files only up to the limit', async () => {
     const snapshot = await captureTourSnapshot(backend(events), ref, { fetch: png, limits: { fileChars: 8 } });
     expect(Object.keys(snapshot.files)).toEqual([fileKey('d', 'f1')]);
