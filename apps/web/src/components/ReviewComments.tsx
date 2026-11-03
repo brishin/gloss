@@ -12,6 +12,8 @@ export interface Reviewer {
   cancel: () => void;
   save: () => void;
   remove: (id: string) => void;
+  /** Asks the tour's model about the selected lines instead, with the box's text as the question. */
+  ask?: () => void;
 }
 
 /** ⌘↵ / Ctrl↵ sends, Escape cancels: the keys every review box shares. */
@@ -57,6 +59,7 @@ export function CommentComposer({
       />
       <div className="comment-actions">
         <Button size="sm" variant="ghost" label="Cancel" onClick={reviewer.cancel} />
+        {reviewer.ask && <Button size="sm" variant="secondary" label="Ask" onClick={reviewer.ask} />}
         <Button size="sm" variant="primary" label="Add to review" isDisabled={!body.trim()} onClick={reviewer.save} />
       </div>
     </div>
