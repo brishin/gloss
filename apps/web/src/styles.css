@@ -472,10 +472,14 @@
     white-space: nowrap;
   }
 
+  /* Room above and below inside the clip, so reviewer badges and the decision pill are not cut. */
   .pull-head .stats {
     flex-wrap: nowrap;
     overflow: hidden;
     white-space: nowrap;
+    align-items: center;
+    padding-block: 4px;
+    margin-block: -4px;
   }
 
   .pull-head .stats > * {
@@ -723,6 +727,29 @@
   .ref-icon[data-state='closed'],
   .pull-state[data-state='closed'] strong {
     color: var(--color-text-red);
+  }
+
+  /* An open PR's review decision: a tinted pill, so it reads at a glance from any stop. */
+  .pull-state .review-decision {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    padding: 1px 8px 1px 6px;
+    border-radius: 999px;
+    font-weight: 600;
+    color: var(--color-text-green);
+    background: color-mix(in oklch, var(--color-text-green) 14%, var(--color-background-body));
+  }
+
+  .pull-state[data-review='changes'] .review-decision {
+    color: var(--color-text-red);
+    background: color-mix(in oklch, var(--color-text-red) 14%, var(--color-background-body));
+  }
+
+  .pull-state .review-decision svg {
+    width: 14px;
+    height: 14px;
   }
 
   .pull-state {
