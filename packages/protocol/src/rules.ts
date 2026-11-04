@@ -191,7 +191,12 @@ export const EditRulesRequestSchema = v.object({
   history: v.optional(
     v.pipe(
       v.array(
-        v.object({ instruction: v.pipe(v.string(), v.maxLength(4000)), reply: v.pipe(v.string(), v.maxLength(4000)) }),
+        v.object({
+          instruction: v.pipe(v.string(), v.maxLength(4000)),
+          reply: v.pipe(v.string(), v.maxLength(4000)),
+          /** The rules as they were before this turn, so "undo that" can bring removed rules back. */
+          before: v.optional(v.pipe(v.array(RuleRowSchema), v.maxLength(RULES_MAX * 2))),
+        }),
       ),
       v.maxLength(10),
     ),
@@ -199,6 +204,7 @@ export const EditRulesRequestSchema = v.object({
   ),
 });
 export type EditRulesRequest = v.InferInput<typeof EditRulesRequestSchema>;
+export type EditRulesTurn = v.InferOutput<typeof EditRulesRequestSchema>['history'][number];
 
 export const EditRulesResponseSchema = v.object({
   rules: v.array(RuleRowSchema),
