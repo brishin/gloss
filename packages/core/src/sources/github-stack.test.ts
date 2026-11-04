@@ -81,12 +81,13 @@ describe('walkStack', () => {
     ]);
   });
 
-  test('only the PR asked about keeps since, mergedBy, queuePosition and reviewers', async () => {
+  test('only the PR asked about keeps since, mergedBy, queuePosition, reviewers and reviewDecision', async () => {
     const detail = {
       since: '2026-11-02T00:00:00Z',
       mergedBy: 'a',
       queuePosition: 2,
       reviewers: [{ login: 'r', state: 'approved' as const }],
+      reviewDecision: 'approved' as const,
     };
     const pulls = [
       { ...pr(1, 'main', 'a', 'merged'), ...detail },

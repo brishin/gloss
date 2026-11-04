@@ -77,7 +77,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     headRef,
     ...(blurb ? { blurb } : {}),
   });
-  const { since, mergedBy, queuePosition, reviewers } = current;
+  const { since, mergedBy, queuePosition, reviewers, reviewDecision } = current;
   return [
     ...below.map(member),
     {
@@ -86,6 +86,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
       ...(mergedBy ? { mergedBy } : {}),
       ...(queuePosition ? { queuePosition } : {}),
       ...(reviewers?.length ? { reviewers } : {}),
+      ...(reviewDecision ? { reviewDecision } : {}),
     },
     ...above.map(member),
   ];
