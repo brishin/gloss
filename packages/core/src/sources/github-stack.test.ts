@@ -182,4 +182,12 @@ describe('reviewDecisionOf', () => {
   ] as const)('%s', (_, decision, reviewers, expected) => {
     expect(reviewDecisionOf(decision, reviewers)).toBe(expected);
   });
+
+  test('asking for a review again keeps the change request', () => {
+    const reviews = [
+      { author: { login: 'a' }, state: 'CHANGES_REQUESTED' as const },
+      { author: { login: 'b' }, state: 'APPROVED' as const },
+    ];
+    expect(reviewDecisionOf(null, reviewersOf(reviews, []))).toBe('changes');
+  });
 });

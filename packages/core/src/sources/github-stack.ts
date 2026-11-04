@@ -220,7 +220,8 @@ export function reviewersOf(
 
 /**
  * GitHub's decision when the repo's rules give one. Without rules GitHub gives none, so it
- * follows the reviews: any change request wins, else any approval.
+ * follows the submitted reviews: any change request wins, else any approval. Pass the
+ * reviews without review requests: asking a reviewer again does not withdraw their verdict.
  */
 export function reviewDecisionOf(
   decision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null | undefined,
@@ -305,7 +306,10 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         pull.reviewRequests?.nodes ?? [],
         pull.author?.login,
       );
-      const reviewDecision = reviewDecisionOf(pull.reviewDecision, reviewers);
+      const reviewDecision = reviewDecisionOf(
+        pull.reviewDecision,
+        reviewersOf(pull.latestReviews?.nodes ?? [], [], pull.author?.login),
+      );
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
