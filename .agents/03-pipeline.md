@@ -36,7 +36,7 @@ each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-`
 Decisions name a choice and what it costs or risks, so a reviewer can accept or reject it: asked for a choice and its reason, the model restated the author's case. Define judges costs from the diff, not the description, and lists only choices no single file makes. Notes count an omission as a decision (a missing check or limit) and write a risk in a choice as a decision, not a note. Priority is by consequence if the choice is wrong, and the lower of two when unsure. In the 2026-11-02 eval, stricter note wording and wider Jev risk criteria both made notes worse: stricter wording cut insights, and more flags produced reassuring risk notes.
 
 The user's own decision rules (`decisionRules` in `~/.gloss/config.json`, edited on the settings
-page) are sets of rules, each with an optional `files` regex tested against changed paths
+page) are sets of rules, each with an optional `files` glob tested against changed paths (gitignore-style, `glob.ts`: `*.py` matches at any depth, `src/**/*.{ts,tsx}` is anchored, as Copilot, Greptile and CodeRabbit scope rules)
 (`rulesFor`; a set that matches only some of a prompt's files names them after each rule). They go into the define prompt (sets matching any changed file) and each group's
 notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
 system text, so tours without rules keep their prompts and caches. A rule wins over the built-in

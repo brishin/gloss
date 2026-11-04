@@ -233,8 +233,8 @@ describe('runTour', () => {
 
     const sets = [
       { rules: ['Flag every new environment variable'] },
-      { files: '^src/auth\\.ts$', rules: ['Flag a weaker auth check as urgent'] },
-      { files: '\\.py$', rules: ['Flag a service passed by global'] },
+      { files: 'src/auth.ts', rules: ['Flag a weaker auth check as urgent'] },
+      { files: '*.py', rules: ['Flag a service passed by global'] },
     ];
     const second = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     // A tour cached without rules is not reused once there are rules.

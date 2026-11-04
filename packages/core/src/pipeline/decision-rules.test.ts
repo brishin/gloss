@@ -53,7 +53,7 @@ describe('rule findings', () => {
 });
 
 describe('checkDecisionRules', () => {
-  const sets = [{ rules: rules.slice(0, 1) }, { files: '\\.env$', rules: rules.slice(1) }];
+  const sets = [{ rules: rules.slice(0, 1) }, { files: '*.env', rules: rules.slice(1) }];
   const run = (judge?: JudgeClient['Service'], cache = createMemoryCacheStore()) =>
     Effect.runPromise(
       checkDecisionRules(sets).pipe(
@@ -79,7 +79,7 @@ describe('checkDecisionRules', () => {
       findings: [{ set: 0, rule: 0, kind: 'contradiction', other: { set: 1, rule: 1 } }],
       checked: true,
     });
-    expect(seen).toContain(`${rules[1]} (only in files whose path matches the regular expression /\\.env$/)`);
+    expect(seen).toContain(`${rules[1]} (only in files whose path matches the glob *.env)`);
     expect(judge.calls).toBe(3);
     await run(judge, cache);
     expect(judge.calls).toBe(3);

@@ -129,7 +129,7 @@ export function flattenRules(sets: readonly DecisionRuleSet[]): { ref: RuleRef; 
   return sets.flatMap((set, setIndex) =>
     set.rules.map((rule, ruleIndex) => ({
       ref: { set: setIndex, rule: ruleIndex },
-      text: set.files ? `${rule} (only in files whose path matches the regular expression /${set.files}/)` : rule,
+      text: set.files ? `${rule} (only in files whose path matches the glob ${set.files})` : rule,
     })),
   );
 }

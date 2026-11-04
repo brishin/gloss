@@ -5,41 +5,11 @@
  * with a slash it is anchored to the file's directory. The last matching line wins.
  */
 
+import { globMatcher } from '@gloss/protocol';
+
 interface Rule {
   match: (path: string) => boolean;
   value: boolean;
-}
-
-function globToRegExp(glob: string): RegExp {
-  let source = '';
-  for (let i = 0; i < glob.length; i++) {
-    const char = glob[i]!;
-    if (char === '*') {
-      if (glob[i + 1] === '*') {
-        const slash = glob[i + 2] === '/';
-        source += slash ? '(?:.*/)?' : '.*';
-        i += slash ? 2 : 1;
-      } else {
-        source += '[^/]*';
-      }
-    } else if (char === '?') {
-      source += '[^/]';
-    } else if (char === '[') {
-      const end = glob.indexOf(']', i + 1);
-      if (end === -1) {
-        source += '\\[';
-      } else {
-        source += `[${glob
-          .slice(i + 1, end)
-          .replace(/^!/, '^')
-          .replace(/\\/g, '\\\\')}]`;
-        i = end;
-      }
-    } else {
-      source += char.replace(/[.+^${}()|\\]/g, '\\$&');
-    }
-  }
-  return new RegExp(`^${source}(?:/.*)?$`);
 }
 
 export function parseGitattributes(text: string): Rule[] {
@@ -66,9 +36,7 @@ export function parseGitattributes(text: string): Rule[] {
     if (value === undefined || !pattern) {
       continue;
     }
-    const anchored = pattern.replace(/^\//, '');
-    const regexp = globToRegExp(pattern.includes('/') ? anchored : `**/${anchored}`);
-    rules.push({ match: (path) => regexp.test(path), value });
+    rules.push({ match: globMatcher(pattern), value });
   }
   return rules;
 }

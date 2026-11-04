@@ -47,11 +47,11 @@ describe('parseRepoConfig', () => {
       'sets that do not parse left out',
       JSON.stringify({
         decisionRules: [
-          { files: '(', rules: ['Bad'] },
-          { files: '\\.py$', rules: ['Good'] },
+          { files: 7, rules: ['Bad'] },
+          { files: '*.py', rules: ['Good'] },
         ],
       }),
-      [{ files: '\\.py$', rules: ['Good'] }],
+      [{ files: '*.py', rules: ['Good'] }],
     ],
   ])('%s', (_, text, rules) => {
     expect(parseRepoConfig(text).decisionRules).toEqual(rules);

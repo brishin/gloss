@@ -53,15 +53,6 @@ const toSets = (drafts: readonly Draft[]): DecisionRuleSet[] =>
     return rules.length ? [files ? { files, rules } : { rules }] : [];
   });
 
-const badPattern = (pattern: string) => {
-  try {
-    new RegExp(pattern);
-    return false;
-  } catch {
-    return true;
-  }
-};
-
 function findingText(finding: RuleFinding, sets: readonly DecisionRuleSet[]): string {
   const line = `Line ${finding.rule + 1}`;
   if (finding.other) {
@@ -115,7 +106,6 @@ function DecisionRules() {
   }
   const sets = toSets(drafts);
   const dirty = JSON.stringify(sets) !== JSON.stringify(saved.sets);
-  const invalid = drafts.some((draft) => badPattern(draft.files.trim()));
   const waiting = AsyncResult.isWaiting(saving);
   const update = (index: number, change: Partial<Draft>) =>
     setDrafts(drafts.map((draft, i) => (i === index ? { ...draft, ...change } : draft)));
@@ -126,14 +116,14 @@ function DecisionRules() {
         <h2>Decisions to flag</h2>
       </div>
       <Text color="secondary">
-        Your own rules, one per line, added to the ones gloss flags by default. A files pattern keeps them to the files
-        whose path it matches.
+        Your own rules, one per line, added to the ones gloss flags by default. A files glob, such as *.py or src/**,
+        keeps them to the files whose path it matches.
       </Text>
       <form
         className="rules-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!invalid) save(sets);
+          save(sets);
         }}
       >
         {drafts.map((draft, index) => (
@@ -142,14 +132,11 @@ function DecisionRules() {
               <TextInput
                 label="Files"
                 isLabelHidden
-                placeholder="All files, or a pattern such as \.py$"
+                placeholder="All files, or a glob such as *.py"
                 value={draft.files}
                 isReadOnly={waiting}
                 onChange={(files) => update(index, { files })}
                 containerClassName="rules-files"
-                status={
-                  badPattern(draft.files.trim()) ? { type: 'error', message: 'Not a regular expression' } : undefined
-                }
               />
               {drafts.length > 1 && (
                 <Button
@@ -184,7 +171,7 @@ function DecisionRules() {
           </div>
         ))}
         <div className="setup-actions">
-          <Button type="submit" variant="secondary" label="Save" isDisabled={!dirty || invalid} isLoading={waiting} />
+          <Button type="submit" variant="secondary" label="Save" isDisabled={!dirty} isLoading={waiting} />
           <Button
             variant="ghost"
             label="Add rules for other files"
