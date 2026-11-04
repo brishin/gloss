@@ -102,11 +102,20 @@ class ConfigFetchError extends Data.TaggedError('ConfigFetchError')<{ cause: unk
 /** How long a repository's config is used before GitHub is asked again. */
 export const REPO_CONFIG_TTL = Duration.minutes(10);
 
-type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
+/** The repository whose `.gloss/config.json` applies to every repository of its owner. */
+export const ORG_CONFIG_REPO = '.github';
+
+const lower = (key: string) => key.toLowerCase();
+
+/** Configs from broadest to narrowest (org, then repo) as one: their rule sets in that order. */
+export function mergeRepoConfigs(configs: readonly RepoConfig[]): RepoConfig {
+  return { decisionRules: configs.flatMap((config) => config.decisionRules) };
+}
 
 /**
- * Each repository's config, for every tour of it. Local repositories read the file at HEAD with
- * git. GitHub repositories are asked at most once per `REPO_CONFIG_TTL`, and then with the last
+ * Each repository's config, for every tour of it: the org's (its owner's `.github` repository),
+ * then the repository's own. Local repositories read only their own file at HEAD with git.
+ * GitHub repositories are asked at most once per `REPO_CONFIG_TTL`, and then with the last
  * answer's ETag, so an unchanged file costs nothing against the rate limit. Tours of one repo at
  * once (a stack) share one request. A failed request is not kept: the tour uses the last answer,
  * or no config, and the next tour asks again.
@@ -123,7 +132,6 @@ export const makeRepoConfigs = (
       options.readLocal ?? ((repo: string) => tryGit(repo, ['cat-file', 'blob', `HEAD:${REPO_CONFIG_PATH}`]));
     // Keyed by `owner/repo`, lower case: one entry per repository, whichever PR asks.
     const known = new Map<string, { config: RepoConfig; etag?: string }>();
-    const keyOf = (ref: GithubRef) => `${ref.owner}/${ref.repo}`.toLowerCase();
 
     const cache = yield* Cache.makeWith(
       (key: string) =>
@@ -157,18 +165,22 @@ export const makeRepoConfigs = (
             Effect.map((text) => (text === undefined ? EMPTY_REPO_CONFIG : parseRepoConfig(text))),
           );
         }
-        const key = keyOf(ref);
-        return (revalidate ? Cache.invalidate(cache, key) : Effect.void).pipe(
-          Effect.andThen(Cache.get(cache, key)),
-          Effect.catch(() => Effect.succeed(known.get(key)?.config ?? EMPTY_REPO_CONFIG)),
-        );
+        const one = (key: string) =>
+          (revalidate ? Cache.invalidate(cache, key) : Effect.void).pipe(
+            Effect.andThen(Cache.get(cache, key)),
+            Effect.catch(() => Effect.succeed(known.get(key)?.config ?? EMPTY_REPO_CONFIG)),
+          );
+        // The owner's `.github` repository holds its org-wide config, as for GitHub's community files.
+        const keys = [...new Set([`${ref.owner}/${ORG_CONFIG_REPO}`, `${ref.owner}/${ref.repo}`].map(lower))];
+        return Effect.forEach(keys, one, { concurrency: 'unbounded' }).pipe(Effect.map(mergeRepoConfigs));
       },
     };
   });
 
 /**
- * The config a reviewed repository commits at `.gloss/config.json`, read at the start of each
- * tour. Optional: without it tours use only the user's config.
+ * The config a reviewed repository commits at `.gloss/config.json`, after its org's (the same file
+ * in the owner's `.github` repository), read at the start of each tour. Optional: without it tours
+ * use only the user's config.
  */
 export class RepoConfigs extends Context.Service<
   RepoConfigs,

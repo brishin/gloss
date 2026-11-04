@@ -47,7 +47,9 @@ summary of the prompts' rules; keep it in step), too vague, or a repeat of or at
 rule. The findings only advise; the save always goes through.
 
 A reviewed repository can commit its own rule sets, same shape, at `.gloss/config.json`
-(`repo-config.ts`). They come before the user's sets in the prompts and the tour key. GitHub
+(`repo-config.ts`), and an org can commit the same file in its `.github` repository for all its
+repos (as Probot does). Sets merge broadest first: org, then repo, then the user's, in the prompts
+and the tour key; `rulesFor` drops a repeated rule. Local repos read only their own file. GitHub
 repos read the file from the default branch, never the PR head, so a PR cannot change the rules
 it is reviewed by; local repos read it at HEAD. To keep `gh` calls low, each repo's answer is
 kept in memory for 10 minutes (one entry per repo, shared by a stack), then asked again with its

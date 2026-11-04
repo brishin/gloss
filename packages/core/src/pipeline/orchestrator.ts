@@ -193,8 +193,8 @@ const tourProgram = Effect.fnUntraced(function* (
     new PipelineError({ stage: 'fetch', code: 'source', message: messageOf(cause), cause });
 
   // Stage 0: fetch. A finished tour for this exact head and config replays at once.
-  // The repository's config is read beside the fingerprint, so it adds no wait. Its rule sets come
-  // before the user's: the user's own rules are the last word.
+  // The org's and repository's configs are read beside the fingerprint, so they add no wait. Rule
+  // sets merge broadest first (org, repo, user), so the user's own rules are the last word.
   const [fingerprint, repoConfig] = yield* Effect.all(
     [
       Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError }),

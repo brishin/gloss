@@ -18,18 +18,23 @@ import {
 const pr = (number: number, owner = 'acme', repo = 'api'): SourceRef => ({ kind: 'github-pr', owner, repo, number });
 const config = (rule: string) => JSON.stringify({ decisionRules: [rule] });
 
-/** A fake GitHub that records each request's ETag and answers from `answers` in order. */
-function fakeGithub(answers: (ConfigResponse | Error)[]) {
+/**
+ * A fake GitHub that records each request's ETag and answers from `answers` in order: `acme/api`
+ * from `answers`, the org's `.github` repository from `org`. `requests` lists `acme/api`'s only.
+ */
+function fakeGithub(answers: (ConfigResponse | Error)[], org: (ConfigResponse | Error)[] = []) {
   const requests: { repo: string; etag?: string }[] = [];
+  const orgRequests: { repo: string; etag?: string }[] = [];
   const fetch = async (owner: string, repo: string, etag: string | undefined) => {
-    requests.push({ repo: `${owner}/${repo}`, ...(etag ? { etag } : {}) });
-    const answer = answers.shift() ?? { kind: 'missing' };
+    const isOrg = repo === '.github';
+    (isOrg ? orgRequests : requests).push({ repo: `${owner}/${repo}`, ...(etag ? { etag } : {}) });
+    const answer = (isOrg ? org : answers).shift() ?? { kind: 'missing' };
     if (answer instanceof Error) {
       throw answer;
     }
     return answer;
   };
-  return { requests, fetch };
+  return { requests, orgRequests, fetch };
 }
 
 describe('parseRepoConfig', () => {
@@ -145,7 +150,27 @@ describe('RepoConfigs', () => {
         { rules: ['Flag L'] },
       ]);
       expect((yield* configs.get({ kind: 'local', repo: '/work/other', target: '' })).decisionRules).toEqual([]);
-      expect(github.requests).toEqual([]);
+      expect([...github.requests, ...github.orgRequests]).toEqual([]);
+    }),
+  );
+
+  it.effect("puts the org's rules (its .github repository) before the repository's", () =>
+    Effect.gen(function* () {
+      const github = fakeGithub(
+        [{ kind: 'found', text: config('Flag repo'), etag: '"r1"' }],
+        [{ kind: 'found', text: config('Flag org'), etag: '"o1"' }, { kind: 'unchanged' }],
+      );
+      const configs = yield* makeRepoConfigs({ fetch: github.fetch });
+      expect((yield* configs.get(pr(1))).decisionRules).toEqual([{ rules: ['Flag org'] }, { rules: ['Flag repo'] }]);
+      // Another repo of the same owner shares the org's entry.
+      expect((yield* configs.get(pr(2, 'acme', 'web'))).decisionRules).toEqual([{ rules: ['Flag org'] }]);
+      expect(github.orgRequests).toEqual([{ repo: 'acme/.github' }]);
+      yield* TestClock.adjust(REPO_CONFIG_TTL);
+      yield* configs.get(pr(1));
+      expect(github.orgRequests.at(-1)).toEqual({ repo: 'acme/.github', etag: '"o1"' });
+      // A PR in the .github repository itself reads its config once.
+      yield* configs.get(pr(3, 'other', '.github'));
+      expect(github.orgRequests.filter((request) => request.repo === 'other/.github')).toHaveLength(1);
     }),
   );
 
