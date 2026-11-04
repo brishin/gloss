@@ -1,4 +1,4 @@
-import type { PullState, Reviewer, SourceRef, Stack, StackMember } from '@gloss/protocol';
+import type { PullState, ReviewDecision, Reviewer, SourceRef, Stack, StackMember } from '@gloss/protocol';
 import { ghJson, ghPaginated, pullState } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
@@ -168,6 +168,7 @@ interface PullGraphJson {
         baseRefName: string;
         headRefName: string;
         headRepository: { nameWithOwner: string } | null;
+        reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
         latestReviews: { nodes: ReviewJson[] } | null;
         reviewRequests: { nodes: ReviewRequestJson[] } | null;
       } | null;
@@ -216,13 +217,29 @@ export function reviewersOf(
   return [...reviewed, ...pending];
 }
 
+/**
+ * GitHub's decision when the repo's rules give one. Without rules GitHub gives none, so it
+ * follows the reviews: any change request wins, else any approval.
+ */
+export function reviewDecisionOf(
+  decision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null | undefined,
+  reviewers: readonly Reviewer[],
+): ReviewDecision | undefined {
+  if (decision === 'APPROVED') return 'approved';
+  if (decision === 'CHANGES_REQUESTED') return 'changes';
+  if (decision === 'REVIEW_REQUIRED') return undefined;
+  if (reviewers.some((reviewer) => reviewer.state === 'changes')) return 'changes';
+  if (reviewers.some((reviewer) => reviewer.state === 'approved')) return 'approved';
+  return undefined;
+}
+
 const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     defaultBranchRef { name }
     pullRequest(number: $number) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
-      headRepository { nameWithOwner }
+      headRepository { nameWithOwner } reviewDecision
       latestReviews(first: 20) { nodes { author { login } state } }
       reviewRequests(first: 20) {
         nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
@@ -287,6 +304,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         pull.reviewRequests?.nodes ?? [],
         pull.author?.login,
       );
+      const reviewDecision = reviewDecisionOf(pull.reviewDecision, reviewers);
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
@@ -297,6 +315,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         ...(state === 'merged' && pull.mergedBy?.login ? { mergedBy: pull.mergedBy.login } : {}),
         ...(queue ? { queuePosition: queue.position } : {}),
         ...(reviewers.length ? { reviewers } : {}),
+        ...(reviewDecision ? { reviewDecision } : {}),
         ...(pull.author?.login ? { author: pull.author.login } : {}),
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,

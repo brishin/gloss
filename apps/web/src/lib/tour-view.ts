@@ -5,6 +5,7 @@ import type {
   LfsPointer,
   GroupView,
   PullState,
+  ReviewDecision,
   ReviewState,
   RiskNote,
   StackMember,
@@ -173,6 +174,12 @@ export const PULL_STATE_LABEL: Record<PullState, string> = {
   queued: 'In merge queue',
   merged: 'Merged',
   closed: 'Closed',
+};
+
+/** An open PR's review decision, in place of "Open" in the PR head. */
+export const REVIEW_DECISION_LABEL: Record<ReviewDecision, string> = {
+  approved: 'Approved',
+  changes: 'Changes requested',
 };
 
 /** What a reviewer's mark means, after their login in its tooltip. */

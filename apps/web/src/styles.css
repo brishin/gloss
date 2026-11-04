@@ -725,6 +725,10 @@
     color: var(--color-text-red);
   }
 
+  .pull-state[data-review='changes'] strong {
+    color: var(--color-text-red);
+  }
+
   .pull-state {
     display: inline-flex;
     align-items: center;
