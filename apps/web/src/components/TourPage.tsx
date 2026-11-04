@@ -58,7 +58,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const next = stops[at + 1];
   const running = isRunning(model);
   const select = (key: string) => dispatch({ type: 'GroupSelected', key });
-  const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
+  const jumpToFile = useCallback(
+    (fileId: string, line?: number) => dispatch({ type: 'FileJumped', fileId, line }),
+    [dispatch],
+  );
   const reviewable = canReview(model);
   const askable = canAsk(model);
   const { review } = model;
@@ -285,7 +288,12 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             </section>
             {state.walkthrough && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
-                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+                <Walkthrough
+                  walkthrough={state.walkthrough}
+                  decisions={state.decisions ?? []}
+                  diff={diff}
+                  onJumpToFile={jumpToFile}
+                />
               </section>
             )}
             {groups.map((group) => (

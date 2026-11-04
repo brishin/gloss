@@ -1,17 +1,26 @@
 import type {
   CallFrame,
   Decision,
+  DecisionNode,
+  DecisionWalk,
   Excerpt,
   FileChange,
   GroupNotes,
   ResolvedGroup,
+  Snippet,
   Visual,
   Walkthrough,
   WalkStep,
 } from '@gloss/protocol';
 import { sanitizeSvg } from '@gloss/protocol';
 import type * as v from 'valibot';
-import type { DefineSchema, NotesSchema, SketchSchema, WalkthroughResultSchema } from './prompts.ts';
+import type {
+  CallPathResultSchema,
+  DefineSchema,
+  NotesSchema,
+  SketchSchema,
+  WalkthroughResultSchema,
+} from './prompts.ts';
 
 /** Line numbers each side of a hunk actually shows, so a note can only land on a visible line. */
 function visibleLines(hunk: FileChange['hunks'][number]): { additions: Set<number>; deletions: Set<number> } {
@@ -434,18 +443,271 @@ export function normalizeVisuals(raw: RawVisuals | undefined): { visuals: Visual
   };
 }
 
-/** Most frames a call tree keeps, and how deep it nests, before it stops reading at a glance. */
-const MAX_FRAMES = 16;
-const MAX_DEPTH = 6;
+type RawWalk = v.InferOutput<typeof WalkthroughResultSchema>['decisions'][number];
 
-type RawFrame = v.InferOutput<typeof WalkthroughResultSchema>['frames'][number];
+/** Most rows a decision's tree keeps, and how deep it nests, before it stops reading at a glance. */
+const MAX_NODES = 14;
+const MAX_DEPTH = 6;
+const MAX_SNIPPETS = 3;
+/** Most rows a snippet shows, removed ones too: a snippet is a few lines, never a hunk. */
+const MAX_SNIPPET_ROWS = 16;
+const MAX_REFS = 6;
+const MAX_LINKS = 3;
+
+const whole = (value: unknown) => (Number.isFinite(value) ? Math.floor(value as number) : 0);
 
 /**
- * The call tree's trust boundary. Depths are made a tree (the first frame is a root, none is
- * more than one deeper than the frame before), files are known ids (or paths), and a line
- * stays only where the diff shows it on the new side, so a model's guess at an unseen
- * definition is never shown as fact. Returns why the tree is not worth walking, if it is not:
- * one with no call in it is a list, and one that touches nothing the change adds is plumbing.
+ * Each row of a hunk by new-side position: a removed row sits at the new line after it.
+ * A snippet `from`..`to` shows the rows at `from`..`to`, plus removed rows at `to + 1`, so
+ * lines removed at the end of a hunk still show (`sliceHunk` in the web app does the same).
+ */
+function hunkRows(hunk: FileChange['hunks'][number]): { at: number; kind: '+' | '-' | ' ' }[] {
+  const rows: { at: number; kind: '+' | '-' | ' ' }[] = [];
+  let newLine = hunk.newStart;
+  for (const line of hunk.patch.split('\n')) {
+    const marker = line[0] ?? ' ';
+    if (marker === '\\') {
+      continue;
+    }
+    if (marker === '-') {
+      rows.push({ at: newLine, kind: '-' });
+    } else {
+      rows.push({ at: newLine++, kind: marker === '+' ? '+' : ' ' });
+    }
+  }
+  return rows;
+}
+
+const shows = (row: { at: number; kind: string }, from: number, to: number) =>
+  row.at >= from && row.at <= (row.kind === '-' ? to + 1 : to);
+
+/**
+ * A snippet the diff can show: a known file and the hunk that holds its focus (the id is only a
+ * hint), its range clamped to that hunk and grown to hold the focus, then narrowed around the
+ * focus to at most `MAX_SNIPPET_ROWS` rows (or dropped, when the focus alone shows more). A focus
+ * the hunk does not show moves to the first added line in range, so the marked line is always one
+ * the reviewer sees. A dropped snippet returns why.
+ */
+function normalizeSnippet(
+  raw: Partial<RawWalk['snippets'][number]>,
+  byKey: ReadonlyMap<string, FileChange>,
+): Snippet | string {
+  const file = byKey.get(String(raw.fileId ?? ''));
+  if (!file) {
+    return 'is not in the diff';
+  }
+  let from = whole(raw.from);
+  let to = whole(raw.to);
+  if (from > to) {
+    [from, to] = [to, from];
+  }
+  let focus = whole(raw.focus);
+  const holds = (hunk: FileChange['hunks'][number], line: number) =>
+    hunkRows(hunk).some((row) => row.kind !== '-' && row.at === line);
+  // The focus wins over the id: a hint that names another hunk would move the marked line.
+  const hinted = (candidate: FileChange['hunks'][number]) => candidate.id === raw.hunkId;
+  const hunk =
+    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, focus)) ??
+    file.hunks.find((candidate) => holds(candidate, focus)) ??
+    file.hunks.find((candidate) => hinted(candidate) && holds(candidate, from)) ??
+    file.hunks.find((candidate) => holds(candidate, from));
+  if (!hunk) {
+    return 'is not in the diff';
+  }
+  const rows = hunkRows(hunk);
+  const lines = rows.filter((row) => row.kind !== '-').map((row) => row.at);
+  const first = lines[0]!;
+  const last = lines.at(-1)!;
+  from = Math.min(Math.max(from, first), last);
+  to = Math.max(Math.min(to, last), from);
+  if (!lines.includes(focus)) {
+    focus = rows.find((row) => row.kind === '+' && row.at >= from && row.at <= to)?.at ?? from;
+  }
+  from = Math.max(Math.min(from, focus), focus - MAX_SNIPPET_ROWS);
+  to = Math.min(Math.max(to, focus), focus + MAX_SNIPPET_ROWS);
+  // New-side lines in a hunk are consecutive, so narrowing is a step from the end farther from the focus.
+  const count = () => rows.filter((row) => shows(row, from, to)).length;
+  while (count() > MAX_SNIPPET_ROWS && (from < focus || to > focus)) {
+    if (to - focus >= focus - from) {
+      to--;
+    } else {
+      from++;
+    }
+  }
+  if (count() > MAX_SNIPPET_ROWS) {
+    // The focus alone sits beside more removed rows than a snippet shows.
+    return `shows more than ${MAX_SNIPPET_ROWS} rows at its focus`;
+  }
+  const note = clip(String(raw.note ?? ''), 200);
+  return {
+    fileId: file.id,
+    hunkId: hunk.id,
+    from,
+    to,
+    focus,
+    caption: clip(String(raw.caption ?? ''), 200),
+    ...(note ? { note } : {}),
+  };
+}
+
+/**
+ * A decision's tree as the client may show it. Depths are made a tree (the first row is a root,
+ * none is more than one deeper than the row before); a row is a call when it names a function,
+ * else a concept with a label. A file is a known id and a line stays only where the diff shows it
+ * on the new side, so a guess at an unseen definition is never shown as fact. `snippets` maps the
+ * model's snippet indexes to the kept ones. Returns no tree when it is not worth drawing: one with
+ * no child is a list, and a call path that touches nothing the change adds is plumbing.
+ */
+function normalizeTree(
+  kind: unknown,
+  raw: readonly Partial<RawWalk['nodes'][number]>[],
+  byKey: ReadonlyMap<string, FileChange>,
+  snippets: ReadonlyMap<number, number>,
+): DecisionNode[] | undefined {
+  if (kind !== 'calls' && kind !== 'concepts') {
+    return undefined;
+  }
+  const nodes: DecisionNode[] = [];
+  for (const node of raw.slice(0, MAX_NODES)) {
+    const name = clip(String(node.name ?? ''), 48).replace(/\(.*$/, '');
+    const label = clip(String(node.label ?? ''), 60);
+    if (!name && !label) {
+      continue;
+    }
+    const depth = Math.min(Math.max(0, whole(node.depth)), nodes.length ? nodes.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const file = byKey.get(String(node.fileId ?? ''));
+    const line = whole(node.line);
+    const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
+    const place = { ...(file ? { path: file.path } : {}), ...(file && shown ? { line } : {}) };
+    const note = clip(String(node.note ?? ''), 80);
+    const snippet = snippets.get(whole(node.snippet));
+    const extra = { ...(note ? { note } : {}), ...(snippet === undefined ? {} : { snippet }) };
+    if (name) {
+      const receiver = clip(String(node.receiver ?? ''), 40).replace(/\.$/, '');
+      const args = clip(String(node.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
+      const status = node.status === 'new' || node.status === 'changed' ? node.status : 'same';
+      nodes.push({
+        kind: 'call',
+        depth,
+        ...(receiver ? { receiver } : {}),
+        name,
+        ...(args ? { args } : {}),
+        ...place,
+        status,
+        ...extra,
+      });
+    } else {
+      nodes.push({ kind: 'concept', depth, label, ...place, ...extra });
+    }
+  }
+  if (!nodes.some((node) => node.depth > 0)) {
+    return undefined;
+  }
+  const calls = nodes.filter((node) => node.kind === 'call');
+  if (kind === 'calls' && !calls.some((node) => node.status !== 'same')) {
+    return undefined;
+  }
+  return nodes;
+}
+
+/**
+ * The decision entries as the client may show them: each names a real, unclaimed decision (of
+ * `decisions` listed in the prompt), shows at least one snippet the diff holds, and keeps a
+ * tree only where `normalizeTree` does. Refs and links that point nowhere are dropped. Entries
+ * follow the decisions' order; a decision with no code to show is left to its overview line.
+ */
+function normalizeDecisionWalks(
+  raw: readonly Partial<RawWalk>[],
+  byKey: ReadonlyMap<string, FileChange>,
+  decisions: number,
+  warnings: string[],
+): DecisionWalk[] {
+  const walks = new Map<number, DecisionWalk>();
+  for (const entry of raw) {
+    const decision = whole(entry.decision);
+    const title = clip(String(entry.title ?? ''), 80);
+    if (decision < 0 || decision >= decisions || walks.has(decision) || !title) {
+      warnings.push(`Dropped a walkthrough entry: decision ${entry.decision} is not listed, repeated or untitled.`);
+      continue;
+    }
+    const snippets: Snippet[] = [];
+    const kept = new Map<number, number>();
+    for (const [index, rawSnippet] of (Array.isArray(entry.snippets) ? entry.snippets : []).entries()) {
+      const snippet = normalizeSnippet(rawSnippet, byKey);
+      if (typeof snippet === 'string') {
+        warnings.push(`Dropped a snippet of decision ${decision}: ${rawSnippet.fileId}:${rawSnippet.from} ${snippet}.`);
+        continue;
+      }
+      // The same code only when another snippet already shows this one's focus: overlapping
+      // context alone keeps both, so each line that makes a choice still gets its caption.
+      const same = snippets.findIndex(
+        (other) => other.hunkId === snippet.hunkId && other.from <= snippet.focus && snippet.focus <= other.to,
+      );
+      if (same >= 0) {
+        kept.set(index, same);
+      } else if (snippets.length < MAX_SNIPPETS) {
+        kept.set(index, snippets.length);
+        snippets.push(snippet);
+      }
+    }
+    if (snippets.length === 0) {
+      warnings.push(`Dropped the walkthrough of decision ${decision}: none of its code is in the diff.`);
+      continue;
+    }
+    const tree = normalizeTree(entry.tree, Array.isArray(entry.nodes) ? entry.nodes : [], byKey, kept);
+    const refs: DecisionWalk['refs'] = [];
+    for (const ref of Array.isArray(entry.refs) ? entry.refs : []) {
+      const file = byKey.get(String(ref.fileId ?? ''));
+      const label = clip(String(ref.label ?? ''), 60);
+      if (!file || !label || refs.length >= MAX_REFS) {
+        continue;
+      }
+      const line = whole(ref.line);
+      const shown = file.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
+      if (!refs.some((other) => other.fileId === file.id && other.line === (shown ? line : undefined))) {
+        refs.push({ label, fileId: file.id, ...(shown ? { line } : {}) });
+      }
+    }
+    const links: DecisionWalk['links'] = [];
+    for (const link of Array.isArray(entry.links) ? entry.links : []) {
+      const to = whole(link.to);
+      const text = clip(String(link.text ?? ''), 200);
+      if (to >= 0 && to < decisions && to !== decision && text && !links.some((other) => other.to === to)) {
+        links.push({ to, text });
+      }
+    }
+    const instead = clip(String(entry.instead ?? ''), 160);
+    const check = clip(String(entry.check ?? ''), 300);
+    walks.set(decision, {
+      decision,
+      title,
+      why: clip(String(entry.why ?? ''), 400),
+      ...(instead ? { instead } : {}),
+      ...(check ? { check } : {}),
+      ...(tree ? { tree } : {}),
+      snippets,
+      refs,
+      links: links.slice(0, MAX_LINKS),
+    });
+  }
+  return [...walks.values()].toSorted((a, b) => a.decision - b.decision);
+}
+
+/** Most frames a path's call tree keeps before it stops reading at a glance. */
+const MAX_FRAMES = 16;
+
+type RawFrame = v.InferOutput<typeof CallPathResultSchema>['frames'][number];
+
+/** The two walkthrough calls' answers together: the decisions, and the call path. */
+type RawWalkthrough = Partial<
+  v.InferOutput<typeof WalkthroughResultSchema> & v.InferOutput<typeof CallPathResultSchema>
+>;
+
+/**
+ * A path's call tree, the trust boundary as for a decision's tree. Depths are made a tree, files
+ * are known ids (or paths), and a line stays only where the diff shows it on the new side. Returns
+ * why the tree is not worth walking, if it is not: one with no call in it is a list, and one that
+ * touches nothing the change adds is plumbing.
  */
 function normalizeFrames(
   raw: readonly Partial<RawFrame>[],
@@ -460,10 +722,9 @@ function normalizeFrames(
       continue;
     }
     kept.set(index, frames.length);
-    const wanted = Number.isFinite(frame.depth) ? Math.max(0, Math.floor(frame.depth!)) : 0;
-    const depth = Math.min(wanted, frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const depth = Math.min(Math.max(0, whole(frame.depth)), frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
     const file = byKey.get(String(frame.fileId ?? ''));
-    const line = Number(frame.line);
+    const line = whole(frame.line);
     const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
     const receiver = clip(String(frame.receiver ?? ''), 40).replace(/\.$/, '');
     const args = clip(String(frame.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
@@ -494,31 +755,6 @@ const EXCERPT_CONTEXT = 3;
 const MAX_EXCERPT_LINES = 30;
 
 /**
- * Each row of a hunk by new-side position: a removed row sits at the new line after it.
- * An excerpt `from`..`to` shows the rows at `from`..`to`, plus removed rows at `to + 1`, so
- * lines removed at the end of a hunk still show (`sliceHunk` in the web app does the same).
- */
-function hunkRows(hunk: FileChange['hunks'][number]): { at: number; kind: '+' | '-' | ' ' }[] {
-  const rows: { at: number; kind: '+' | '-' | ' ' }[] = [];
-  let newLine = hunk.newStart;
-  for (const line of hunk.patch.split('\n')) {
-    const marker = line[0] ?? ' ';
-    if (marker === '\\') {
-      continue;
-    }
-    if (marker === '-') {
-      rows.push({ at: newLine, kind: '-' });
-    } else {
-      rows.push({ at: newLine++, kind: marker === '+' ? '+' : ' ' });
-    }
-  }
-  return rows;
-}
-
-const shows = (row: { at: number; kind: string }, from: number, to: number) =>
-  row.at >= from && row.at <= (row.kind === '-' ? to + 1 : to);
-
-/**
  * The last line up to `to` at which the excerpt shows at most `MAX_EXCERPT_LINES` rows,
  * removed ones too, so a large replacement cannot flood the step; `undefined` when even
  * `from` alone shows more. One pass: a kept line `p` as the end shows every row before the
@@ -547,8 +783,9 @@ function cappedEnd(rows: readonly { at: number; kind: string }[], from: number, 
 }
 
 /**
- * An excerpt the diff can show: a known file and hunk (the hunk holding `from` when the id is
- * wrong), its range clamped to the hunk, then trimmed to the changes in it plus a little context.
+ * An excerpt the diff can show: a known file and the hunk that shows most of its lines (the id is
+ * only a hint), its range clamped to the hunk, then trimmed to the changes in it plus a little
+ * context. With none of its lines in the diff, the named hunk's changes show.
  */
 function normalizeExcerpt(
   raw: { fileId?: string; hunkId?: string; from?: number; to?: number },
@@ -558,14 +795,24 @@ function normalizeExcerpt(
   if (!file) {
     return undefined;
   }
-  let from = Number.isFinite(raw.from) ? Math.floor(raw.from!) : 0;
-  let to = Number.isFinite(raw.to) ? Math.floor(raw.to!) : 0;
+  let from = whole(raw.from);
+  let to = whole(raw.to);
   if (from > to) {
     [from, to] = [to, from];
   }
-  const hunk =
-    file.hunks.find((candidate) => candidate.id === raw.hunkId) ??
-    file.hunks.find((candidate) => hunkRows(candidate).some((row) => row.kind !== '-' && row.at === from));
+  // The lines win over the id: the hunk that shows most of `from`..`to`, the named one on a tie,
+  // since a hint that names another hunk would show unrelated code, and a range that starts on
+  // the last line of one hunk means the next.
+  const inRange = (candidate: FileChange['hunks'][number]) =>
+    hunkRows(candidate).filter((row) => row.kind !== '-' && row.at >= from && row.at <= to).length;
+  let hunk = file.hunks.find((candidate) => candidate.id === raw.hunkId);
+  let most = hunk ? inRange(hunk) : 0;
+  for (const candidate of file.hunks) {
+    const count = inRange(candidate);
+    if (count > most) {
+      [hunk, most] = [candidate, count];
+    }
+  }
   if (!hunk) {
     return undefined;
   }
@@ -596,23 +843,24 @@ function normalizeExcerpt(
 }
 
 /**
- * The walkthrough as the client may show it: a checked call tree, and steps that point at
- * its frames and at lines the diff shows. A step with no code is dropped, and so
- * is a walkthrough of fewer than two steps: one step is the overview again.
+ * The call path as the client may show it: a checked call tree, and steps that point at its
+ * frames and at lines the diff shows. A step with no code is dropped, and so is a path of fewer
+ * than two steps: one step is the overview again.
  */
-export function normalizeWalkthrough(
-  raw: Partial<v.InferOutput<typeof WalkthroughResultSchema>>,
-  files: readonly FileChange[],
-): { walkthrough?: Walkthrough; warnings: string[] } {
+function normalizePaths(
+  raw: RawWalkthrough,
+  byKey: ReadonlyMap<string, FileChange>,
+  warnings: string[],
+): { frames: CallFrame[]; steps: WalkStep[] } {
+  const none = { frames: [], steps: [] };
   if (!Array.isArray(raw.steps) || raw.steps.length === 0 || !Array.isArray(raw.frames) || raw.frames.length === 0) {
-    return { warnings: [] };
+    return none;
   }
-  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
   const { frames, kept, why } = normalizeFrames(raw.frames, byKey);
   if (why) {
-    return { warnings: [`Dropped the walkthrough: ${why}.`] };
+    warnings.push(`Dropped the call path: ${why}.`);
+    return none;
   }
-  const warnings: string[] = [];
   const steps: WalkStep[] = [];
   for (const step of raw.steps.slice(0, MAX_STEPS)) {
     const title = clip(String(step.title ?? ''), 80);
@@ -621,7 +869,7 @@ export function normalizeWalkthrough(
       const normalized = normalizeExcerpt(excerpt, byKey);
       if (!normalized) {
         warnings.push(
-          `Dropped a walkthrough excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff, or too long to show.`,
+          `Dropped a call path excerpt: ${excerpt.fileId}/${excerpt.hunkId} is not in the diff, or too long to show.`,
         );
         continue;
       }
@@ -648,7 +896,48 @@ export function normalizeWalkthrough(
     });
   }
   if (steps.length < 2) {
-    return { warnings: [...warnings, 'Dropped the walkthrough: it has fewer than two steps with code.'] };
+    warnings.push('Dropped the call path: it has fewer than two steps with code.');
+    return none;
   }
-  return { walkthrough: { frames: [...frames], steps }, warnings };
+  return { frames, steps };
+}
+
+/** A call is the same function when its file, receiver and name match; without a file it is unknown. */
+const callKey = (call: { path?: string; receiver?: string; name: string }) =>
+  call.path === undefined ? undefined : `${call.path}:${call.receiver ?? ''}.${call.name}`;
+
+/**
+ * Whether the decisions' call trees already show every new or changed function on the path. A
+ * frame whose file is unknown cannot be matched, so the path stays.
+ */
+function walked(frames: readonly CallFrame[], walks: readonly DecisionWalk[]): boolean {
+  const shown = new Set(
+    walks.flatMap((walk) => (walk.tree ?? []).flatMap((node) => (node.kind === 'call' ? [callKey(node)] : []))),
+  );
+  const changed = frames.filter((frame) => frame.status !== 'same');
+  return changed.length > 0 && changed.every((frame) => callKey(frame) !== undefined && shown.has(callKey(frame)));
+}
+
+/**
+ * The walkthrough as the client may show it: the decision entries (`normalizeDecisionWalks`)
+ * and the call path (`normalizePaths`), unless the decisions' trees already walk it. Either part
+ * may be empty; with both empty there is no walkthrough.
+ */
+export function normalizeWalkthrough(
+  raw: RawWalkthrough,
+  files: readonly FileChange[],
+  decisions: number,
+): { walkthrough?: Walkthrough; warnings: string[] } {
+  const byKey = new Map(files.flatMap((file) => [[file.id, file] as const, [file.path, file] as const]));
+  const warnings: string[] = [];
+  const walks = normalizeDecisionWalks(Array.isArray(raw.decisions) ? raw.decisions : [], byKey, decisions, warnings);
+  let { frames, steps } = normalizePaths(raw, byKey, warnings);
+  if (steps.length > 0 && walked(frames, walks)) {
+    warnings.push('Dropped the call path: the decisions already walk it.');
+    [frames, steps] = [[], []];
+  }
+  if (walks.length === 0 && steps.length === 0) {
+    return { warnings };
+  }
+  return { walkthrough: { decisions: walks, frames, steps }, warnings };
 }

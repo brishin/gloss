@@ -1,6 +1,6 @@
 import type { CallFrame, DiffHunk } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { callParents, sliceHunk, stepFrames } from './excerpt.ts';
+import { callParents, sliceHunk, snippetHosts, stepFrames } from './excerpt.ts';
 
 describe('sliceHunk', () => {
   const hunk: DiffHunk = {
@@ -24,6 +24,23 @@ describe('sliceHunk', () => {
     // Lines removed at the end of a hunk come with the last line before them.
     const trailing = { ...hunk, patch: ' a\n b\n c\n-oldCall()', newLines: 3, oldLines: 4 };
     expect(sliceHunk(trailing, 10, 12).patch).toBe(' a\n b\n c\n-oldCall()');
+  });
+});
+
+describe('callParents', () => {
+  it('finds the nearest row one level up', () => {
+    const rows = [0, 1, 2, 1, 0, 1].map((depth) => ({ depth }));
+    expect(callParents(rows)).toEqual([-1, 0, 1, 0, -1, 4]);
+  });
+});
+
+describe('snippetHosts', () => {
+  it('hangs each snippet under the last row of the first run that shows it, once', () => {
+    const rows = [undefined, 1, 1, undefined, 0, 1, 0].map((snippet) => ({ snippet }));
+    expect([...snippetHosts(rows)]).toEqual([
+      [2, 1],
+      [4, 0],
+    ]);
   });
 });
 

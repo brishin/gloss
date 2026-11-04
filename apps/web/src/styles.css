@@ -1239,7 +1239,8 @@
     min-width: 0;
   }
 
-  .walk-step h2 {
+  .walk-step h2,
+  .walk-step h3 {
     display: flex;
     align-items: baseline;
     gap: var(--spacing-2);
@@ -1249,6 +1250,22 @@
     color: var(--color-text-secondary);
     font-variant-numeric: tabular-nums;
     font-weight: 500;
+  }
+
+  /* The key code paths after the decisions: its steps read down a dimmed slice of one call tree. */
+  .walk-path {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+    margin-top: var(--spacing-8);
+  }
+
+  .walk-steps:empty {
+    display: none;
+  }
+
+  .walk-steps:empty + .walk-path {
+    margin-top: 0;
   }
 
   .walk-step-text {
@@ -1264,6 +1281,125 @@
   .walk-row[data-dim],
   .walk-lines path[data-dim] {
     opacity: 0.38;
+  }
+
+  .walk-flag {
+    display: inline-flex;
+    align-self: center;
+  }
+
+  .walk-flag .flag-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .walk-explain {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    max-width: 72ch;
+  }
+
+  .walk-why {
+    margin: 0;
+  }
+
+  /* "Instead of" and "Check": a label column, so wrapped text lines up. */
+  .walk-line {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+
+  .walk-line > span:first-child {
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .walk-explain code,
+  .walk-caption code,
+  .walk-node-note code,
+  .walk-note code,
+  .walk-links code {
+    font-size: 12px;
+  }
+
+  /* Tree rows that are concepts, not calls: a hollow dot and the body font. */
+  .walk-dot {
+    flex: none;
+    box-sizing: border-box;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-text-secondary);
+    background: var(--color-background-body);
+  }
+
+  .walk-concept {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+
+  .walk-node-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+  }
+
+  /* A snippet hung under its tree row; its left edge sits one level in. */
+  .walk-hung {
+    margin: 2px 0 var(--spacing-2);
+  }
+
+  .walk-caption {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--color-text-primary);
+  }
+
+  /* The one note a snippet pins under its focus line. */
+  .walk-note {
+    margin: 2px var(--spacing-2) 6px 56px;
+    padding: 4px 10px;
+    border-left: 2px solid var(--gloss-ink);
+    background: var(--color-background-surface);
+    font-family: var(--font-family-body);
+    font-size: 12.5px;
+    white-space: normal;
+    color: var(--color-text-primary);
+  }
+
+  .walk-refs,
+  .walk-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12.5px;
+    color: var(--color-text-secondary);
+  }
+
+  .walk-refs li {
+    display: flex;
+    gap: var(--spacing-2);
+    align-items: baseline;
+  }
+
+  .walk-links b {
+    font-weight: 600;
+    color: var(--color-text-primary);
   }
 
   .walk-excerpt {
@@ -1419,6 +1555,18 @@
   .decision-ref {
     font-family: var(--font-family-code);
     color: var(--color-text-secondary);
+  }
+
+  /* A decision the walkthrough reads in code: the text opens it. */
+  .decision-walk {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--color-border-emphasized);
+    text-underline-offset: 3px;
+  }
+
+  .decision-walk:hover {
+    text-decoration-color: currentColor;
   }
 
   /* A section is named by its label, not a path. */
