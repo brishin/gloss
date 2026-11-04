@@ -372,12 +372,124 @@ Then propose two candidate visuals of the main decision, drawn from data; only o
 Call the submit tool once with the complete result.`;
 
 /**
- * The walkthrough: the call path as a call tree, then a few steps down it, each with the
- * short slices of code it reaches. Flat frames with a depth, because tool schemas draw
- * recursion poorly. Frames and excerpts point at numbered lines, which `normalizeWalkthrough`
- * checks against the diff.
+ * The walkthrough: each change-wide decision read in code. Short snippets with the line that
+ * makes the choice, and a tree only when the decision has one (calls or concepts). Flat tree
+ * rows with a depth, because tool schemas draw recursion poorly. Everything points at numbered
+ * lines, which `normalizeWalkthrough` checks against the diff.
  */
 export const WalkthroughResultSchema = v.pipe(
+  v.object({
+    decisions: v.pipe(
+      v.array(
+        v.object({
+          decision: v.pipe(v.number(), v.description('Number of the decision under "Key decisions", from 0.')),
+          title: short(
+            'The choice in a few words, as a claim, e.g. "Catch-up replays share 24 slots per process". No Markdown.',
+          ),
+          why: short(
+            'One or two sentences on why the change makes this choice, from what the code shows. Code names in backticks.',
+          ),
+          instead: short('The option it chose against, in a few words; "" when there was no real alternative.'),
+          check: short(
+            'One sentence on what the reviewer should hold the code to: the consequence that follows if the choice is wrong, or a case it does not cover. "" when there is none.',
+          ),
+          snippets: v.pipe(
+            v.array(
+              v.object({
+                fileId: short('Id of the file, from "## Files".'),
+                hunkId: short('Id of the hunk, from its "@@ hunk" header.'),
+                from: v.pipe(v.number(), v.description('First new-file line number to show, as printed in the diff.')),
+                to: v.pipe(v.number(), v.description('Last new-file line number to show, as printed in the diff.')),
+                focus: v.pipe(
+                  v.number(),
+                  v.description('The new-file line number, from..to, of the one line that makes the choice.'),
+                ),
+                caption: short(
+                  'One sentence on what these lines show about the decision, e.g. "Every replay takes a slot first, so the 25th waits here."',
+                ),
+                note: short(
+                  'One sentence pinned under the focus line, only for what the code does not say (a consequence, what the line replaced); "" otherwise.',
+                ),
+              }),
+            ),
+            v.description(
+              '1-3 snippets in reading order: the lines where the decision is made first, then where it takes effect. 2-12 lines each.',
+            ),
+          ),
+          tree: v.pipe(
+            v.picklist(['none', 'calls', 'concepts']),
+            v.description(
+              'calls: the decision runs across a call path or many callers reach it. concepts: the decision defines a hierarchy (what counts, kinds, which case resolves how). none: the snippets say it all, which is common.',
+            ),
+          ),
+          nodes: v.pipe(
+            v.array(
+              v.object({
+                depth: v.pipe(
+                  v.number(),
+                  v.description('0 for a root; a child is one deeper than the row it belongs to.'),
+                ),
+                receiver: short('calls: what the function is called on, e.g. "self._slots"; "" otherwise.'),
+                name: short('calls: the function or method name only; "" for a concept.'),
+                args: short('calls: its parameters as short names, or "..."; "" otherwise.'),
+                status: v.pipe(
+                  v.picklist(['new', 'changed', 'same']),
+                  v.description(
+                    'calls: new if the change adds it, changed if its body or signature changes, same otherwise. concepts: same.',
+                  ),
+                ),
+                label: short(
+                  'concepts: the concept in a few words, e.g. "Snapshot cached before the deploy"; "" for a call.',
+                ),
+                note: short('A few words on its part in the decision, e.g. "waits here once 24 run"; "" when none.'),
+                fileId: short('Id of the file that defines it, or "".'),
+                line: v.pipe(
+                  v.number(),
+                  v.description('The new-file line number printed before its definition in the diff, or 0.'),
+                ),
+                snippet: v.pipe(
+                  v.number(),
+                  v.description('Index (from 0) of the snippet that shows under this row, or -1.'),
+                ),
+              }),
+            ),
+            v.description('The tree, top down, 3-12 rows. Empty when tree is none.'),
+          ),
+          refs: v.pipe(
+            v.array(
+              v.object({
+                label: short('A few words on what this place does with the decision, e.g. "Admin check".'),
+                fileId: short('Id of the file.'),
+                line: v.pipe(v.number(), v.description('The new-file line number printed in the diff, or 0.')),
+              }),
+            ),
+            v.description(
+              'Other places the decision reaches that the snippets and tree do not show (more callers, a test that holds it), up to 6. Often empty.',
+            ),
+          ),
+          links: v.pipe(
+            v.array(
+              v.object({
+                to: v.pipe(v.number(), v.description('Number of another decision under "Key decisions".')),
+                text: short('One sentence on how they connect: one forces, enables or costs the other.'),
+              }),
+            ),
+            v.description('Other key decisions this one depends on or forces. Often empty.'),
+          ),
+        }),
+      ),
+      v.description('One entry per key decision that code in the diff makes or carries out, in the listed order.'),
+    ),
+  }),
+  v.description("The change's key decisions, each read in a few lines of code."),
+);
+
+/**
+ * The key code paths, read beside the decisions: a call tree from an entry point a reviewer knows,
+ * read in 2-5 steps with short excerpts. Its own call, because asked in the decisions call the
+ * model left it empty. `normalizeWalkthrough` checks it against the diff.
+ */
+export const CallPathResultSchema = v.pipe(
   v.object({
     frames: v.pipe(
       v.array(
@@ -407,7 +519,7 @@ export const WalkthroughResultSchema = v.pipe(
         }),
       ),
       v.description(
-        'The call tree, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no call path.',
+        'The call tree of the key code paths, top down: each frame is followed by what it calls, one level deeper, in call order. 4-14 frames. Empty when the change adds or alters no key code path.',
       ),
     ),
     steps: v.pipe(
@@ -441,7 +553,7 @@ export const WalkthroughResultSchema = v.pipe(
       v.description('2-5 steps that follow the call tree top down. Empty when the tree is not worth walking.'),
     ),
   }),
-  v.description('The call path read in order, step by step, with the code each step reaches.'),
+  v.description('The key code paths read in order, step by step, with the code each step reaches.'),
 );
 
 export const SKETCH_SYSTEM = `You are a senior engineer drawing the one figure a reviewer sees first in a guided review tour of a code change: an explainer of its main decision, like a figure in a design doc. Read the change and the tour's summary and decisions, find the mechanism the decision changes, then draw it.
@@ -450,15 +562,31 @@ ${SKETCH_GUIDE}
 
 Call the submit tool once with the caption and the svg.`;
 
-export const WALKTHROUGH_SYSTEM = `You are a senior engineer walking a reviewer through the call path a code change adds or alters, before they read the change file by file. First draw the path as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
+export const WALKTHROUGH_SYSTEM = `You are a senior engineer walking a reviewer through the key decisions of a code change, before they read it file by file. The tour already lists the decisions. For each one, help the reviewer understand it, see where it lives in the code, and read the few lines that build it, so they can accept or reject it on purpose.
 
-The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters. Use two or three entry points only when the change adds separate paths; each starts again at depth 0. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
+For each key decision that code in the diff makes or carries out:
+- title: the choice as a short claim.
+- why: one or two sentences on why the change makes it, judged from the code, not the description.
+- instead: the option it chose against.
+- check: what the reviewer should hold the code to, such as the consequence if the choice is wrong, or a case it leaves out.
+- snippets: 1-3 short slices of the diff, 2-12 lines each, in reading order: where the choice is made first, then where it takes effect. Mark the one line that makes the choice as focus. The caption says what the lines show; never paraphrase the code line by line. Add a note only for what the code does not say.
+- tree: only when it helps the reviewer see how the decision connects. Use calls when the decision runs across functions on a call path, or when many callers now reach it (the callers are the rows). Use concepts when the decision defines a hierarchy, such as what counts and what does not, or which case resolves how. Otherwise use none. Most decisions need none. A row whose code a snippet shows points at that snippet, and the snippet appears under the row. Leave out logging, framework plumbing and small getters.
+- refs: other places the decision reaches, one line each, when they are not already in a snippet or the tree.
+- links: another key decision this one forces, enables or costs.
+
+Skip a decision that no code in the diff shows, such as a change to a process or a dependency. Point slices and rows at the file id, the hunk id from its "@@ hunk" header, and new-file line numbers printed in the diff. When a diff is truncated or omitted, or the decision runs through code the diff does not show, call read_file to follow it rather than guess. Snippets still point only at lines the diff prints, and a row you found by reading takes line 0.
+
+Call the submit tool once with the result.`;
+
+export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the key code paths a code change adds or alters, before they read the change file by file: the paths a reviewer must follow to trust the change, not every path it touches. First draw them as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
+
+The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include every new or changed function on that path, and the unchanged callers needed to connect them (status same). Leave out logging, error helpers, framework plumbing and small getters. Use two or three entry points only when the change has separate key paths; each starts again at depth 0. Leave out a path that only repeats another or that a reviewer would not need to follow. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
 
 The steps: 2-5 steps that follow the tree top down. Each step names the frames it covers and shows 1-3 short slices of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them. Keep each slice under 25 lines; never a whole file. A step can show slices from different files when a call crosses them. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
 
 When a diff is truncated or omitted, or the path runs through code the diff does not show, call read_file to follow it rather than guess. Frames and slices still point only at lines the diff prints; a frame you found by reading takes line 0.
 
-Return no frames and no steps when the change has no call path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
+Return no frames and no steps only when the change has no key code path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
 
 Call the submit tool once with the frames and the steps.`;
 
@@ -485,7 +613,7 @@ ${MIGRATION_PIN}
 Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 19;
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
@@ -493,6 +621,7 @@ export const PROMPTS_VERSION = hashOf({
   NOTES_SYSTEM,
   SKETCH_SYSTEM,
   WALKTHROUGH_SYSTEM,
+  CALL_PATH_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
   SCHEMA_VERSION,
@@ -667,10 +796,34 @@ function numberedDiffs(files: readonly FileChange[]): string[] {
 }
 
 /**
- * The change with numbered lines, so frames and excerpts can point at them, plus what the
- * tour already says about it.
+ * The change with numbered lines, so snippets and tree rows can point at them, plus the tour's
+ * summary and its key decisions, numbered from 0.
  */
 export function buildWalkthroughPrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  overallSummary: string,
+  decisions: readonly Pick<Decision, 'text' | 'priority'>[],
+): string {
+  return [
+    header(meta),
+    '',
+    `## Files (${files.length})`,
+    ...files.map(manifestLine),
+    '',
+    '## Diffs',
+    ...numberedDiffs(files),
+    '',
+    '## The tour so far',
+    overallSummary,
+    '',
+    '## Key decisions',
+    ...decisions.map((decision, index) => `${index}. (${decision.priority}) ${decision.text}`),
+  ].join('\n');
+}
+
+/** The change with numbered lines, so the call tree and excerpts can point at them, plus the tour so far. */
+export function buildCallPathPrompt(
   meta: DiffMeta,
   files: readonly FileChange[],
   overallSummary: string,

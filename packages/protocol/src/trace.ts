@@ -6,6 +6,7 @@ export const StepKindSchema = v.picklist([
   'define',
   'sketch',
   'walkthrough',
+  'callpath',
   'judge-files',
   'judge-groups',
   'judge-visual',

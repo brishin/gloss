@@ -16,6 +16,10 @@ export const ReviewerSchema = v.object({
 });
 export type Reviewer = v.InferOutput<typeof ReviewerSchema>;
 
+/** Where the PR's review stands as a whole: approved, or changes requested. */
+export const ReviewDecisionSchema = v.picklist(['approved', 'changes']);
+export type ReviewDecision = v.InferOutput<typeof ReviewDecisionSchema>;
+
 export const StackMemberSchema = v.object({
   number: v.number(),
   title: v.string(),
@@ -33,6 +37,8 @@ export const StackMemberSchema = v.object({
   queuePosition: v.optional(v.number()),
   /** Who reviewed or is asked to review, reviews first. Only the PR asked about has it. */
   reviewers: v.optional(v.array(ReviewerSchema)),
+  /** Approved or changes requested, as GitHub decides it. Only the PR asked about has it. */
+  reviewDecision: v.optional(ReviewDecisionSchema),
   /** The opening words of the PR's description, without its template lines; context for naming the stack. */
   blurb: v.optional(v.string()),
 });

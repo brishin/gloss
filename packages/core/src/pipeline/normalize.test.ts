@@ -338,6 +338,282 @@ describe('normalizeWalkthrough', () => {
     hunks: [{ id: 'h2', header: '@@ -1,40 +1,40 @@', oldStart: 1, oldLines: 40, newStart: 1, newLines: 40, patch }],
   };
   const files = [file, long];
+  type Raw = NonNullable<Parameters<typeof normalizeWalkthrough>[0]['decisions']>[number];
+  type RawSnippet = Raw['snippets'][number];
+  type RawNode = Raw['nodes'][number];
+  const snippet = (fileId: string, hunkId: string, from: number, to: number, focus: number): RawSnippet => ({
+    fileId,
+    hunkId,
+    from,
+    to,
+    focus,
+    caption: 'What these lines show.',
+    note: '',
+  });
+  const entry = (decision: number, snippets: RawSnippet[], more: Partial<Raw> = {}): Raw => ({
+    decision,
+    title: 'A choice',
+    why: 'Because.',
+    instead: '',
+    check: '',
+    snippets,
+    tree: 'none',
+    nodes: [],
+    refs: [],
+    links: [],
+    ...more,
+  });
+  const node = (depth: number, fields: Partial<RawNode>): RawNode => ({
+    depth,
+    receiver: '',
+    name: '',
+    args: '',
+    status: 'same',
+    label: '',
+    note: '',
+    fileId: '',
+    line: 0,
+    snippet: -1,
+    ...fields,
+  });
+  const walk = (decisions: Raw[], count = 3, list = files) => normalizeWalkthrough({ decisions }, list, count);
+
+  it('keeps one entry per listed decision, in their order, and drops entries with no code', () => {
+    const at = [snippet('f1', 'h1', 10, 13, 11)];
+    const { walkthrough, warnings } = walk([
+      entry(2, at, { instead: 'Something else', check: 'What to hold it to.' }),
+      entry(0, at),
+      entry(0, at),
+      entry(5, at),
+      entry(1, [snippet('f9', 'h1', 1, 2, 1)]),
+      { ...entry(1, at), title: '' },
+    ]);
+    expect(walkthrough!.decisions.map((walk) => walk.decision)).toEqual([0, 2]);
+    expect(walkthrough!.decisions[1]).toMatchObject({ instead: 'Something else', check: 'What to hold it to.' });
+    expect(walkthrough!.decisions[0]).not.toHaveProperty('instead');
+    expect(warnings).toEqual([
+      'Dropped a walkthrough entry: decision 0 is not listed, repeated or untitled.',
+      'Dropped a walkthrough entry: decision 5 is not listed, repeated or untitled.',
+      'Dropped a snippet of decision 1: f9:1 is not in the diff.',
+      'Dropped the walkthrough of decision 1: none of its code is in the diff.',
+      'Dropped a walkthrough entry: decision 1 is not listed, repeated or untitled.',
+    ]);
+    expect(walk([])).toEqual({ warnings: [] });
+    expect(walk([entry(0, [])]).walkthrough).toBeUndefined();
+  });
+
+  it('pins snippets to a hunk that shows their focus, and narrows long ones around it', () => {
+    const { walkthrough } = walk([
+      entry(0, [
+        // The whole hunk around line 30: narrowed to 16 rows (the removed one counts) around it.
+        snippet('f2', 'h2', 1, 40, 30),
+        // A wrong hunk id is repaired from the focus; a path works as a file id.
+        { ...snippet('src/a.ts', 'nope', 11, 12, 12), note: 'Only what the code does not say.' },
+        // Overlaps the first: the same code, so it is not shown twice.
+        snippet('f2', 'h2', 28, 31, 29),
+      ]),
+    ]);
+    const [a, b] = walkthrough!.decisions[0]!.snippets;
+    expect(a).toEqual({ fileId: 'f2', hunkId: 'h2', from: 23, to: 37, focus: 30, caption: 'What these lines show.' });
+    expect(b).toMatchObject({ fileId: 'f1', hunkId: 'h1', from: 11, to: 12, focus: 12 });
+    expect(b!.note).toBe('Only what the code does not say.');
+    expect(walkthrough!.decisions[0]!.snippets).toHaveLength(2);
+  });
+
+  it('keeps snippets that overlap only in context, each with its own focus', () => {
+    const { walkthrough } = walk([entry(0, [snippet('f2', 'h2', 1, 5, 2), snippet('f2', 'h2', 5, 9, 8)])]);
+    expect(walkthrough!.decisions[0]!.snippets.map((at) => at.focus)).toEqual([2, 8]);
+  });
+
+  it('moves a focus the diff does not show onto the first added line in range', () => {
+    const { walkthrough } = walk([entry(0, [snippet('f2', 'h2', 14, 18, 99)])]);
+    expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ from: 14, to: 18, focus: 16 });
+  });
+
+  it('keeps lines removed at the end of a hunk', () => {
+    const trailing: FileChange = {
+      ...file,
+      id: 'f3',
+      hunks: [
+        {
+          id: 'h3',
+          header: '@@ -1,4 +1,3 @@',
+          oldStart: 1,
+          oldLines: 4,
+          newStart: 1,
+          newLines: 3,
+          patch: ' a\n b\n c\n-oldCall()',
+        },
+      ],
+    };
+    const { walkthrough } = walk([entry(0, [snippet('f3', 'h3', 1, 3, 3)])], 1, [trailing]);
+    expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ from: 1, to: 3, focus: 3 });
+  });
+
+  it('keeps the hunk that shows the focus over a hunk id that names another', () => {
+    const split: FileChange = {
+      ...file,
+      id: 'f4',
+      hunks: [
+        {
+          id: 'a',
+          header: '@@ -1,5 +1,5 @@',
+          oldStart: 1,
+          oldLines: 5,
+          newStart: 1,
+          newLines: 5,
+          patch: ' 1\n 2\n+3\n 4\n 5',
+        },
+        {
+          id: 'b',
+          header: '@@ -20,5 +20,5 @@',
+          oldStart: 20,
+          oldLines: 5,
+          newStart: 20,
+          newLines: 5,
+          patch: ' 20\n 21\n+22\n 23\n 24',
+        },
+      ],
+    };
+    const { walkthrough } = walk([entry(0, [snippet('f4', 'a', 3, 22, 22)])], 1, [split]);
+    expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ hunkId: 'b', from: 20, to: 22, focus: 22 });
+  });
+
+  it('drops a snippet whose focus alone sits beside more removed rows than a snippet shows', () => {
+    const replaced: FileChange = {
+      ...file,
+      id: 'f6',
+      hunks: [
+        {
+          id: 'h6',
+          header: '@@ -1,40 +1,1 @@',
+          oldStart: 1,
+          oldLines: 40,
+          newStart: 1,
+          newLines: 1,
+          patch: [...Array.from({ length: 40 }, (_, i) => `-old ${i}`), '+new'].join('\n'),
+        },
+      ],
+    };
+    const { walkthrough, warnings } = walk([entry(0, [snippet('f6', 'h6', 1, 1, 1)])], 1, [replaced]);
+    expect(walkthrough).toBeUndefined();
+    expect(warnings).toEqual([
+      'Dropped a snippet of decision 0: f6:1 shows more than 16 rows at its focus.',
+      'Dropped the walkthrough of decision 0: none of its code is in the diff.',
+    ]);
+  });
+
+  it('narrows a very large hunk quickly', () => {
+    const rows = 20_000;
+    const huge: FileChange = {
+      ...file,
+      id: 'f5',
+      hunks: [
+        {
+          id: 'h5',
+          header: `@@ -0,0 +1,${rows} @@`,
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: rows,
+          patch: Array.from({ length: rows }, (_, i) => `+line ${i}`).join('\n'),
+        },
+      ],
+    };
+    const started = performance.now();
+    const { walkthrough } = walk([entry(0, [snippet('f5', 'h5', 1, rows, 10_000)])], 1, [huge]);
+    expect(walkthrough!.decisions[0]!.snippets[0]).toMatchObject({ from: 9_992, to: 10_007, focus: 10_000 });
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('makes a tree a tree, maps its snippets, and keeps only lines the diff shows', () => {
+    const at = [snippet('f9', 'h1', 1, 1, 1), snippet('f1', 'h1', 10, 13, 11)];
+    const { walkthrough } = walk([
+      entry(0, at, {
+        tree: 'calls',
+        nodes: [
+          node(1, { name: 'handler', fileId: 'f1', line: 99 }),
+          node(3, {
+            receiver: 'Rules.',
+            name: 'check',
+            args: '(a, b)',
+            status: 'new',
+            fileId: 'src/a.ts',
+            line: 12,
+            snippet: 1,
+          }),
+          node(1, { name: '', label: '' }),
+          node(1, { label: 'Every other caller', note: 'admin, MCP', snippet: 0 }),
+        ],
+      }),
+    ]);
+    expect(walkthrough!.decisions[0]!.tree).toEqual([
+      // A root never nests, and a line outside the diff is a guess, so it goes.
+      { kind: 'call', depth: 0, name: 'handler', path: 'src/a.ts', status: 'same' },
+      // Snippet 1 is the first one kept; snippet 0 was dropped, so the row loses it.
+      {
+        kind: 'call',
+        depth: 1,
+        receiver: 'Rules',
+        name: 'check',
+        args: 'a, b',
+        path: 'src/a.ts',
+        line: 12,
+        status: 'new',
+        snippet: 0,
+      },
+      { kind: 'concept', depth: 1, label: 'Every other caller', note: 'admin, MCP' },
+    ]);
+  });
+
+  it('drops a tree that is a list, or a call path with nothing new on it', () => {
+    const at = [snippet('f1', 'h1', 10, 13, 11)];
+    const tree = (kind: Raw['tree'], nodes: RawNode[]) =>
+      walk([entry(0, at, { tree: kind, nodes })]).walkthrough!.decisions[0]!.tree;
+    expect(tree('concepts', [node(0, { label: 'A' }), node(0, { label: 'B' })])).toBeUndefined();
+    expect(tree('calls', [node(0, { name: 'a' }), node(1, { name: 'b' })])).toBeUndefined();
+    expect(tree('none', [node(0, { name: 'a' }), node(1, { name: 'b', status: 'new' })])).toBeUndefined();
+    expect(tree('concepts', [node(0, { label: 'Counts' }), node(1, { label: 'capture' })])).toHaveLength(2);
+  });
+
+  it('keeps refs to known files and links to other listed decisions', () => {
+    const at = [snippet('f1', 'h1', 10, 13, 11)];
+    const { walkthrough } = walk([
+      entry(0, at, {
+        refs: [
+          { label: 'Admin check', fileId: 'f2', line: 16 },
+          { label: 'Elsewhere', fileId: 'f1', line: 500 },
+          { label: 'Elsewhere', fileId: 'f1', line: 501 },
+          { label: 'Gone', fileId: 'f9', line: 1 },
+        ],
+        links: [
+          { to: 2, text: 'Forces it.' },
+          { to: 2, text: 'Again.' },
+          { to: 0, text: 'Itself.' },
+          { to: 7, text: 'Nowhere.' },
+        ],
+      }),
+    ]);
+    expect(walkthrough!.decisions[0]!.refs).toEqual([
+      { label: 'Admin check', fileId: 'f2', line: 16 },
+      { label: 'Elsewhere', fileId: 'f1' },
+    ]);
+    expect(walkthrough!.decisions[0]!.links).toEqual([{ to: 2, text: 'Forces it.' }]);
+  });
+});
+
+describe('normalizeWalkthrough call paths', () => {
+  // 40 new-side lines; changes at 16 (added) and 30 (added, after a removed line).
+  const patch = Array.from({ length: 40 }, (_, i) =>
+    i + 1 === 16 ? '+new' : i + 1 === 30 ? '-old\n+new' : ` line ${i + 1}`,
+  ).join('\n');
+  const long: FileChange = {
+    ...file,
+    id: 'f2',
+    path: 'src/b.ts',
+    hunks: [{ id: 'h2', header: '@@ -1,40 +1,40 @@', oldStart: 1, oldLines: 40, newStart: 1, newLines: 40, patch }],
+  };
+  const files = [file, long];
   const frame = (depth: number, name: string, status: 'new' | 'changed' | 'same', fileId = 'f1', line = 0) => ({
     depth,
     receiver: '',
@@ -353,7 +629,7 @@ describe('normalizeWalkthrough', () => {
     { depth: 1, name: 'check', status: 'new' as const },
   ];
   const walk = (raw: Parameters<typeof normalizeWalkthrough>[0], list = files) =>
-    normalizeWalkthrough({ frames: rawFrames, ...raw }, list);
+    normalizeWalkthrough({ decisions: [], frames: rawFrames, ...raw }, list, 0);
   const step = (excerpts: { fileId: string; hunkId: string; from: number; to: number }[], picked = [0]) => ({
     title: 'Step',
     text: 'Does a thing.',
@@ -380,8 +656,9 @@ describe('normalizeWalkthrough', () => {
         ]),
       ],
     });
-    expect(warnings).toEqual(['Dropped a walkthrough excerpt: f9/h1 is not in the diff, or too long to show.']);
+    expect(warnings).toEqual(['Dropped a call path excerpt: f9/h1 is not in the diff, or too long to show.']);
     expect(walkthrough).toEqual({
+      decisions: [],
       frames,
       steps: [
         {
@@ -423,12 +700,12 @@ describe('normalizeWalkthrough', () => {
     expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 29 }]);
   });
 
-  it('drops steps with no code, and a walkthrough of fewer than two steps', () => {
+  it('drops steps with no code, and a path of fewer than two steps', () => {
     const one = walk({
       steps: [step([{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }]), step([]), { ...step([]), title: '' }],
     });
     expect(one.walkthrough).toBeUndefined();
-    expect(one.warnings).toEqual(['Dropped the walkthrough: it has fewer than two steps with code.']);
+    expect(one.warnings).toEqual(['Dropped the call path: it has fewer than two steps with code.']);
     expect(walk({ steps: [] })).toEqual({ warnings: [] });
   });
 
@@ -453,7 +730,7 @@ describe('normalizeWalkthrough', () => {
     ]);
     // A tree with no calls is a list, and one with nothing new is plumbing.
     expect(walk({ frames: [frame(0, 'a', 'new'), frame(0, 'b', 'new')], steps }).warnings).toEqual([
-      'Dropped the walkthrough: its call tree has no calls, which a list says as well.',
+      'Dropped the call path: its call tree has no calls, which a list says as well.',
     ]);
     expect(walk({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')], steps }).walkthrough).toBeUndefined();
     expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
@@ -545,5 +822,106 @@ describe('normalizeWalkthrough', () => {
     );
     expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f5', hunkId: 'h5', from: 1, to: 30 }]);
     expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('takes an excerpt from the hunk that holds its lines over a hunk id that names another', () => {
+    const split: FileChange = {
+      ...file,
+      id: 'f4',
+      hunks: [
+        {
+          id: 'a',
+          header: '@@ -1,5 +1,5 @@',
+          oldStart: 1,
+          oldLines: 5,
+          newStart: 1,
+          newLines: 5,
+          patch: ' 1\n 2\n+3\n 4\n 5',
+        },
+        {
+          id: 'b',
+          header: '@@ -20,5 +20,5 @@',
+          oldStart: 20,
+          oldLines: 5,
+          newStart: 20,
+          newLines: 5,
+          patch: ' 20\n 21\n+22\n 23\n 24',
+        },
+      ],
+    };
+    const excerpt = { fileId: 'f4', hunkId: 'a', from: 21, to: 23 };
+    const { walkthrough } = walk({ steps: [step([excerpt]), step([excerpt])] }, [split]);
+    expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f4', hunkId: 'b', from: 21, to: 23 }]);
+    // A range that starts on the last line of one hunk reads the next one.
+    const across = { fileId: 'f4', hunkId: 'a', from: 5, to: 24 };
+    const next = walk({ steps: [step([across]), step([across])] }, [split]);
+    expect(next.walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f4', hunkId: 'b', from: 20, to: 24 }]);
+  });
+
+  it('keeps call paths next to decision entries', () => {
+    const at = { fileId: 'f1', hunkId: 'h1', from: 10, to: 13 };
+    const decision = {
+      decision: 0,
+      title: 'A choice',
+      why: 'Because.',
+      instead: '',
+      check: '',
+      snippets: [{ ...at, focus: 11, caption: 'These lines.', note: '' }],
+      tree: 'none' as const,
+      nodes: [],
+      refs: [],
+      links: [],
+    };
+    const { walkthrough } = normalizeWalkthrough(
+      { decisions: [decision], frames: rawFrames, steps: [step([at]), step([at])] },
+      files,
+      1,
+    );
+    expect(walkthrough!.decisions.map((walk) => walk.title)).toEqual(['A choice']);
+    expect(walkthrough!.frames).toEqual(frames);
+    expect(walkthrough!.steps).toHaveLength(2);
+
+    // A decision whose call tree already shows every new or changed frame walks the path.
+    const row = { receiver: '', args: '', label: '', note: '', fileId: '', line: 0, snippet: -1 };
+    const covered = normalizeWalkthrough(
+      {
+        decisions: [
+          {
+            ...decision,
+            tree: 'calls',
+            nodes: [
+              { ...row, depth: 0, name: 'handler', status: 'same' },
+              { ...row, depth: 1, name: 'check', status: 'new', fileId: 'f1' },
+            ],
+          },
+        ],
+        frames: [frame(0, 'handler', 'same', ''), frame(1, 'check', 'new', 'f1')],
+        steps: [step([at]), step([at])],
+      },
+      files,
+      1,
+    );
+    expect(covered.walkthrough).toMatchObject({ frames: [], steps: [] });
+    expect(covered.warnings).toEqual(['Dropped the call path: the decisions already walk it.']);
+    // The same name in another file, or in no known file, is another function: the path stays.
+    const elsewhere = normalizeWalkthrough(
+      {
+        decisions: [
+          {
+            ...decision,
+            tree: 'calls',
+            nodes: [
+              { ...row, depth: 0, name: 'handler', status: 'same' },
+              { ...row, depth: 1, name: 'check', status: 'new', fileId: 'f2' },
+            ],
+          },
+        ],
+        frames: [frame(0, 'handler', 'same', ''), frame(1, 'check', 'new', 'f1')],
+        steps: [step([at]), step([at])],
+      },
+      files,
+      1,
+    );
+    expect(elsewhere.walkthrough!.steps).toHaveLength(2);
   });
 });
