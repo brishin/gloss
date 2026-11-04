@@ -22,6 +22,7 @@ describe('globMatcher', () => {
     ['file?.txt', 'file1.txt', true],
     ['a.{b', 'a.{b', true],
     ['(', '(', true],
+    ['[z-a].py', 'a.py', false],
   ])('%s on %s', (glob, path, matches) => {
     expect(globMatcher(glob)(path)).toBe(matches);
   });

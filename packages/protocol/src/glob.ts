@@ -8,7 +8,12 @@ export function globToRegExp(glob: string): RegExp {
   const trimmed = glob.trim();
   const anchored = trimmed.replace(/^\//, '').replace(/\/$/, '');
   const source = segmentSource(trimmed.replace(/\/$/, '').includes('/') ? anchored : `**/${anchored}`);
-  return new RegExp(`^${source}(?:/.*)?$`);
+  try {
+    return new RegExp(`^${source}(?:/.*)?$`);
+  } catch {
+    // A class that cannot compile (`[z-a]`) in a hand-written config: the glob matches nothing.
+    return /(?!)/;
+  }
 }
 
 /** One test per glob; `globToRegExp` builds it. */

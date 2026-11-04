@@ -23,6 +23,7 @@ describe('rulesFor', () => {
     { rules: ['Everywhere'] },
     { files: '*.py', rules: ['Python only', 'Everywhere'] },
     { files: 'apps/web/**', rules: ['Web only'] },
+    { files: '[z-a]', rules: ['Broken glob'] },
   ];
   it.each([
     ['no files: only unscoped rules', [], ['Everywhere']],
