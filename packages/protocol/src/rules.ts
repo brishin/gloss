@@ -124,3 +124,36 @@ export function rulesFor(sets: readonly DecisionRuleSet[], paths: readonly strin
   }
   return rules;
 }
+
+/**
+ * Rule sets from a config someone wrote by hand (`decisionRules` in `~/.gloss/config.json` or a
+ * repository's `.gloss/config.json`). A set that does not parse is left out; a plain list of
+ * strings is one set for all files.
+ */
+export function readRuleSets(value: unknown): DecisionRuleSet[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  if (value.every((rule) => typeof rule === 'string')) {
+    const rules = value.map((rule: string) => rule.trim()).filter(Boolean);
+    return rules.length ? [{ rules }] : [];
+  }
+  return value.flatMap((set) => {
+    const parsed = v.safeParse(DecisionRuleSetSchema, set);
+    return parsed.success ? [parsed.output] : [];
+  });
+}
+
+/** The first sets that fit in `RULE_SETS_MAX` sets and `RULES_MAX` rules; the rest are left out. */
+export function capRuleSets(sets: readonly DecisionRuleSet[]): DecisionRuleSet[] {
+  const kept: DecisionRuleSet[] = [];
+  let count = 0;
+  for (const set of sets) {
+    if (kept.length === RULE_SETS_MAX || count + set.rules.length > RULES_MAX) {
+      break;
+    }
+    kept.push(set);
+    count += set.rules.length;
+  }
+  return kept;
+}

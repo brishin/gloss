@@ -46,6 +46,15 @@ cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RU
 summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
 rule. The findings only advise; the save always goes through.
 
+A reviewed repository can commit its own rule sets, same shape, at `.gloss/config.json`
+(`repo-config.ts`). They come before the user's sets in the prompts and the tour key. GitHub
+repos read the file from the default branch, never the PR head, so a PR cannot change the rules
+it is reviewed by; local repos read it at HEAD. To keep `gh` calls low, each repo's answer is
+kept in memory for 10 minutes (one entry per repo, shared by a stack), then asked again with its
+ETag: an unchanged file answers 304, which does not count against the rate limit. The request
+runs beside the fingerprint, so it adds no wait. A re-run asks at once. A failed request is never
+kept; the tour uses the last answer, or none. Jev's rule check covers only the user's sets.
+
 Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
 notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define
 lists only its rollout across files. Define sees only that rollout rule; given the full rule it

@@ -27,6 +27,14 @@ export { isGenerated, parseGitattributes } from './gitattributes.ts';
 export { readFileContents, readRepoFile, repoPath, reverseApply, StaleFileError } from './contents.ts';
 export { readLfsObject } from './lfs.ts';
 export { RepoError, Repos } from './repos.ts';
+export {
+  EMPTY_REPO_CONFIG,
+  makeRepoConfigs,
+  parseRepoConfig,
+  REPO_CONFIG_PATH,
+  type RepoConfig,
+  RepoConfigs,
+} from './repo-config.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';
 export type { DiffSource, FetchedDiff } from './types.ts';
