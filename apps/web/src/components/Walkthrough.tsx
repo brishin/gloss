@@ -487,6 +487,19 @@ function SnippetView({
   );
 }
 
+/**
+ * Marks a snippet's focus line as pierre marks a selected one. Not a selection: pierre pins the
+ * gutter's "+" to the selection, so every comment would land on the focus line.
+ */
+const focusCSS = (line: number) => `
+  :is([data-line="${line}"], [data-column-number="${line}"]):not([data-line-type="change-deletion"]) {
+    --diffs-computed-selected-line-bg: light-dark(
+      color-mix(in lab, var(--diffs-computed-diff-line-bg) 82%, var(--diffs-selection-mix-target)),
+      color-mix(in lab, var(--diffs-computed-diff-line-bg) 75%, var(--diffs-selection-mix-target))
+    );
+  }
+`;
+
 /** What a walkthrough line carries: a snippet's note, or the reviewer's comments. */
 type ExcerptAnnotation =
   | { kind: 'note'; note: string }
@@ -538,15 +551,10 @@ function ExcerptDiff({
     ],
     [note, focus, drafts, editing, side, line],
   );
-  // The lines being commented on, else the focus line.
+  // The lines being commented on; selected only while the comment is written, as in the file's diff.
   const selected = useMemo<SelectedLineRange | null>(
-    () =>
-      side && line !== undefined
-        ? { start: startLine ?? line, end: line, side, endSide: side }
-        : focus !== undefined
-          ? { start: focus, end: focus, side: 'additions', endSide: 'additions' }
-          : null,
-    [side, line, startLine, focus],
+    () => (side && line !== undefined ? { start: startLine ?? line, end: line, side, endSide: side } : null),
+    [side, line, startLine],
   );
   const placed = useMemo<Reviewer | undefined>(
     () =>
@@ -558,16 +566,16 @@ function ExcerptDiff({
     [reviewer, place],
   );
   const options = useMemo(
-    () =>
-      placed
-        ? {
-            ...EXCERPT_OPTIONS,
-            enableGutterUtility: true,
-            onGutterUtilityClick: (range: Parameters<typeof anchorFromRange>[1]) =>
-              placed.start(anchorFromRange(file.id, range)),
-          }
-        : EXCERPT_OPTIONS,
-    [placed, file.id],
+    () => ({
+      ...EXCERPT_OPTIONS,
+      unsafeCSS: focus === undefined ? undefined : focusCSS(focus),
+      ...(placed && {
+        enableGutterUtility: true,
+        onGutterUtilityClick: (range: Parameters<typeof anchorFromRange>[1]) =>
+          placed.start(anchorFromRange(file.id, range)),
+      }),
+    }),
+    [placed, file.id, focus],
   );
   return (
     <FileDiff<ExcerptAnnotation>
