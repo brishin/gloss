@@ -1,4 +1,4 @@
-import type { CallFrame, DiffHunk, Excerpt, FileChange } from '@gloss/protocol';
+import type { CallFrame, DiffHunk, DiffSide, Excerpt, FileChange } from '@gloss/protocol';
 
 /**
  * The lines of `hunk` whose new-side number is in `from`..`to`, with the removed lines that sit
@@ -129,4 +129,14 @@ export function callLocations(frames: readonly CallFrame[]): string[] {
     const line = frame.line === undefined ? '' : `:${frame.line}`;
     return sameFile && line ? line : `${file}${file ? line : ''}`;
   });
+}
+
+/** Whether an excerpt's one hunk shows `line` on `side`, so a comment there can sit in it. */
+export function excerptShows(file: FileChange, side: DiffSide, line: number): boolean {
+  const hunk = file.hunks[0];
+  if (!hunk) {
+    return false;
+  }
+  const [start, count] = side === 'additions' ? [hunk.newStart, hunk.newLines] : [hunk.oldStart, hunk.oldLines];
+  return line >= start && line < start + count;
 }

@@ -11,13 +11,33 @@ import type {
   Snippet,
   Walkthrough as WalkthroughData,
 } from '@gloss/protocol';
-import { type DiffLineAnnotation, processFile, type SelectedLineRange } from '@pierre/diffs';
+import { type DiffLineAnnotation, type FileDiffMetadata, processFile, type SelectedLineRange } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
-import { Fragment, memo, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { callLocations, callParents, excerptFile, excerptLabel, snippetHosts, stepFrames } from '../lib/excerpt.ts';
+import {
+  createContext,
+  Fragment,
+  memo,
+  type ReactNode,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  callLocations,
+  callParents,
+  excerptFile,
+  excerptLabel,
+  excerptShows,
+  snippetHosts,
+  stepFrames,
+} from '../lib/excerpt.ts';
+import { anchorFromRange, type Composing, type DraftComment } from '../lib/review-draft.ts';
 import { decisionFlag, splitPath } from '../lib/tour-view.ts';
 import { unifiedText } from './FileView.tsx';
 import { FlagIcon } from './icons.tsx';
+import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
 /** Row height and indent per level, in px. */
 const ROW = 28;
@@ -32,14 +52,38 @@ const EXCERPT_OPTIONS = {
   hunkSeparators: 'simple' as const,
 };
 
+/** The pending review, so the walkthrough's diffs take line comments as the groups' diffs do. */
+interface WalkReview {
+  comments: readonly DraftComment[];
+  /** The comment being written, when it is written in the walkthrough. */
+  composing: Composing | undefined;
+  reviewer: Reviewer | undefined;
+}
+
+const ReviewContext = createContext<WalkReview>({ comments: [], composing: undefined, reviewer: undefined });
+
 /**
  * The change-wide decisions read in code, between the overview and the groups. Each says why,
  * what it chose against and what to check, then shows the few lines that build it: under the
  * rows of its tree when it has one (calls, or a hierarchy of concepts), else in reading order.
  * Then the key code paths the decisions do not walk, step by step down their call tree. A file's name
- * jumps to it in its group, where its notes and comments are.
+ * jumps to it in its group, where its notes and comments are. Its diffs take line comments.
  */
 export const Walkthrough = memo(function Walkthrough({
+  comments,
+  composing,
+  reviewer,
+  ...props
+}: Parameters<typeof WalkthroughBody>[0] & WalkReview) {
+  const review = useMemo(() => ({ comments, composing, reviewer }), [comments, composing, reviewer]);
+  return (
+    <ReviewContext.Provider value={review}>
+      <WalkthroughBody {...props} />
+    </ReviewContext.Provider>
+  );
+});
+
+const WalkthroughBody = memo(function WalkthroughBody({
   walkthrough,
   decisions,
   diff,
@@ -148,7 +192,13 @@ function CallPath({
             )}
             {step.excerpts.map((excerpt, index) =>
               diff ? (
-                <ExcerptView key={index} files={files} excerpt={excerpt} onOpen={onOpen} />
+                <ExcerptView
+                  key={index}
+                  place={`path:${number}:${index}`}
+                  files={files}
+                  excerpt={excerpt}
+                  onOpen={onOpen}
+                />
               ) : (
                 <Skeleton key={index} height={120} />
               ),
@@ -162,10 +212,12 @@ function CallPath({
 
 /** One hunk slice under a slim `dir/base:lines` label, with no file chrome, so several read as one. */
 function ExcerptView({
+  place,
   files,
   excerpt,
   onOpen,
 }: {
+  place: string;
   files: ReadonlyMap<string, FileChange>;
   excerpt: Excerpt;
   onOpen: (fileId: string, line?: number) => void;
@@ -190,7 +242,7 @@ function ExcerptView({
           <span>:{lines}</span>
         </button>
       </figcaption>
-      <FileDiff fileDiff={parsed} disableWorkerPool options={EXCERPT_OPTIONS} />
+      <ExcerptDiff place={place} file={file} parsed={parsed} />
     </figure>
   );
 }
@@ -294,9 +346,9 @@ function DecisionCode({
 }) {
   const hosts = useMemo(() => snippetHosts(walk.tree ?? []), [walk.tree]);
   const hung = new Set(hosts.values());
-  const view = (snippet: Snippet) =>
+  const view = (snippet: Snippet, at: number) =>
     diff ? (
-      <SnippetView files={files} snippet={snippet} onOpen={onOpen} />
+      <SnippetView place={`walk:${walk.decision}:${at}`} files={files} snippet={snippet} onOpen={onOpen} />
     ) : (
       <Skeleton height={Math.min(220, 22 * (snippet.to - snippet.from + 2))} />
     );
@@ -309,13 +361,13 @@ function DecisionCode({
             const at = hosts.get(row);
             return at === undefined ? null : (
               <div className="walk-hung" style={{ marginLeft: (node.depth + 1) * INDENT }}>
-                {view(walk.snippets[at]!)}
+                {view(walk.snippets[at]!, at)}
               </div>
             );
           }}
         />
       )}
-      {walk.snippets.map((snippet, at) => (hung.has(at) ? null : <Fragment key={at}>{view(snippet)}</Fragment>))}
+      {walk.snippets.map((snippet, at) => (hung.has(at) ? null : <Fragment key={at}>{view(snippet, at)}</Fragment>))}
     </>
   );
 }
@@ -398,28 +450,20 @@ function DecisionTree({
   );
 }
 
-type Note = { note: string };
-
 /** A few lines of one hunk: the caption says what they show, the focus line is marked, its note sits under it. */
 function SnippetView({
+  place,
   files,
   snippet,
   onOpen,
 }: {
+  place: string;
   files: ReadonlyMap<string, FileChange>;
   snippet: Snippet;
   onOpen: (fileId: string, line?: number) => void;
 }) {
   const file = useMemo(() => excerptFile(files, snippet), [files, snippet]);
   const parsed = useMemo(() => (file ? processFile(unifiedText(file)) : undefined), [file]);
-  const selected = useMemo<SelectedLineRange>(
-    () => ({ start: snippet.focus, end: snippet.focus, side: 'additions', endSide: 'additions' }),
-    [snippet.focus],
-  );
-  const notes = useMemo<DiffLineAnnotation<Note>[]>(
-    () => (snippet.note ? [{ side: 'additions', lineNumber: snippet.focus, metadata: { note: snippet.note } }] : []),
-    [snippet.note, snippet.focus],
-  );
   if (!file || !parsed) {
     return null;
   }
@@ -438,17 +482,118 @@ function SnippetView({
           <span>:{lines}</span>
         </button>
       </figcaption>
-      <FileDiff<Note>
-        fileDiff={parsed}
-        disableWorkerPool
-        options={EXCERPT_OPTIONS}
-        selectedLines={selected}
-        lineAnnotations={notes}
-        renderAnnotation={(annotation) =>
-          annotation.metadata && <div className="walk-note">{inlineCode(annotation.metadata.note)}</div>
-        }
-      />
+      <ExcerptDiff place={place} file={file} parsed={parsed} focus={snippet.focus} note={snippet.note} />
     </figure>
+  );
+}
+
+/**
+ * Marks a snippet's focus line as pierre marks a selected one. Not a selection: pierre pins the
+ * gutter's "+" to the selection, so every comment would land on the focus line.
+ */
+const focusCSS = (line: number) => `
+  :is([data-line="${line}"], [data-column-number="${line}"]):not([data-line-type="change-deletion"]) {
+    --diffs-computed-selected-line-bg: light-dark(
+      color-mix(in lab, var(--diffs-computed-diff-line-bg) 82%, var(--diffs-selection-mix-target)),
+      color-mix(in lab, var(--diffs-computed-diff-line-bg) 75%, var(--diffs-selection-mix-target))
+    );
+  }
+`;
+
+/** What a walkthrough line carries: a snippet's note, or the reviewer's comments. */
+type ExcerptAnnotation =
+  | { kind: 'note'; note: string }
+  | { kind: 'draft'; comment: DraftComment }
+  | { kind: 'composer' };
+
+/**
+ * An excerpt's diff. The gutter's "+" starts a review comment here as in the file's own diff:
+ * it joins the same pending review, and shows in both places.
+ */
+function ExcerptDiff({
+  place,
+  file,
+  parsed,
+  focus,
+  note,
+}: {
+  /** Which walkthrough diff this is, so the composer opens only in the one it was started in. */
+  place: string;
+  file: FileChange;
+  parsed: FileDiffMetadata;
+  focus?: number;
+  note?: string;
+}) {
+  const { comments, composing, reviewer } = useContext(ReviewContext);
+  const here = composing?.place === place ? composing : undefined;
+  const editing = here?.editing;
+  const side = here?.side;
+  const line = here?.line;
+  const startLine = here?.startLine;
+  const drafts = useMemo(
+    () => comments.filter((comment) => comment.fileId === file.id && excerptShows(file, comment.side, comment.line)),
+    [comments, file],
+  );
+  const annotations = useMemo<DiffLineAnnotation<ExcerptAnnotation>[]>(
+    () => [
+      ...(note && focus !== undefined
+        ? [{ side: 'additions' as const, lineNumber: focus, metadata: { kind: 'note' as const, note } }]
+        : []),
+      // The comment being edited gives way to its composer.
+      ...drafts
+        .filter((comment) => comment.id !== editing)
+        .map((comment) => ({
+          side: comment.side,
+          lineNumber: comment.line,
+          metadata: { kind: 'draft' as const, comment },
+        })),
+      ...(side && line !== undefined ? [{ side, lineNumber: line, metadata: { kind: 'composer' as const } }] : []),
+    ],
+    [note, focus, drafts, editing, side, line],
+  );
+  // The lines being commented on; selected only while the comment is written, as in the file's diff.
+  const selected = useMemo<SelectedLineRange | null>(
+    () => (side && line !== undefined ? { start: startLine ?? line, end: line, side, endSide: side } : null),
+    [side, line, startLine],
+  );
+  const placed = useMemo<Reviewer | undefined>(
+    () =>
+      reviewer && {
+        ...reviewer,
+        start: (anchor) => reviewer.start(anchor, place),
+        edit: (id) => reviewer.edit(id, place),
+      },
+    [reviewer, place],
+  );
+  const options = useMemo(
+    () => ({
+      ...EXCERPT_OPTIONS,
+      unsafeCSS: focus === undefined ? undefined : focusCSS(focus),
+      ...(placed && {
+        enableGutterUtility: true,
+        onGutterUtilityClick: (range: Parameters<typeof anchorFromRange>[1]) =>
+          placed.start(anchorFromRange(file.id, range)),
+      }),
+    }),
+    [placed, file.id, focus],
+  );
+  return (
+    <FileDiff<ExcerptAnnotation>
+      fileDiff={parsed}
+      disableWorkerPool
+      options={options}
+      selectedLines={selected}
+      lineAnnotations={annotations}
+      renderAnnotation={(annotation) =>
+        annotation.metadata?.kind === 'composer' ? (
+          here && placed && <CommentComposer anchor={here} body={here.body} reviewer={placed} />
+        ) : annotation.metadata?.kind === 'draft' ? (
+          placed && <DraftCommentCard comment={annotation.metadata.comment} reviewer={placed} />
+        ) : annotation.metadata ? (
+          <div className="walk-note">{inlineCode(annotation.metadata.note)}</div>
+        ) : null
+      }
+    />
   );
 }
 

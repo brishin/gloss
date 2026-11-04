@@ -166,8 +166,8 @@ export type Msg =
   | { type: 'ReviewSent'; diffId: string; verdict: ReviewVerdict; url: string }
   | { type: 'ReviewFailed'; diffId: string; error: string }
   | { type: 'ReviewNoticeDismissed' }
-  | { type: 'CommentStarted'; anchor: CommentAnchor }
-  | { type: 'CommentEdited'; id: string }
+  | { type: 'CommentStarted'; anchor: CommentAnchor; place?: string }
+  | { type: 'CommentEdited'; id: string; place?: string }
   | { type: 'CommentBodyChanged'; body: string }
   | { type: 'CommentCancelled' }
   | { type: 'CommentSaved' }
@@ -650,10 +650,10 @@ function stepReview(model: Model, msg: Msg): Next {
     case 'ReviewNoticeDismissed':
       return [set({ sent: undefined }), []];
     case 'CommentStarted':
-      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '' } }), []] : [model, []];
+      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '', place: msg.place } }), []] : [model, []];
     case 'CommentEdited': {
       const draft = review.comments.find((comment) => comment.id === msg.id);
-      return draft ? [set({ composing: { ...draft, editing: draft.id } }), []] : [model, []];
+      return draft ? [set({ composing: { ...draft, editing: draft.id, place: msg.place } }), []] : [model, []];
     }
     case 'CommentBodyChanged':
       return review.composing ? [set({ composing: { ...review.composing, body: msg.body } }), []] : [model, []];
@@ -665,7 +665,7 @@ function stepReview(model: Model, msg: Msg): Next {
       if (!composing || !path || !composing.body.trim()) {
         return [model, []];
       }
-      const { editing, ...anchor } = composing;
+      const { editing, place: _place, ...anchor } = composing;
       const draft = { ...anchor, id: editing ?? `${anchor.fileId}:${anchor.side}:${anchor.line}:${Date.now()}`, path };
       const comments = editing
         ? review.comments.map((comment) => (comment.id === editing ? draft : comment))

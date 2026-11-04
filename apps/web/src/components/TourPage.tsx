@@ -69,8 +69,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     () =>
       reviewable
         ? {
-            start: (anchor) => dispatch({ type: 'CommentStarted', anchor }),
-            edit: (id) => dispatch({ type: 'CommentEdited', id }),
+            start: (anchor, place) => dispatch({ type: 'CommentStarted', anchor, place }),
+            edit: (id, place) => dispatch({ type: 'CommentEdited', id, place }),
             change: (body) => dispatch({ type: 'CommentBodyChanged', body }),
             cancel: () => dispatch({ type: 'CommentCancelled' }),
             save: () => dispatch({ type: 'CommentSaved' }),
@@ -293,6 +293,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   decisions={state.decisions ?? []}
                   diff={diff}
                   onJumpToFile={jumpToFile}
+                  comments={review.comments}
+                  composing={review.composing?.place ? review.composing : undefined}
+                  reviewer={reviewer}
                 />
               </section>
             )}
