@@ -2,6 +2,7 @@ import type { Decision, DiffMeta, FileChange, FileJudgment, GroupDefinition, Res
 import { CATEGORIES, CATEGORY_GUIDE, DECISION_PRIORITIES, RISK_KEYS, RISK_LABELS } from '@gloss/protocol';
 import * as v from 'valibot';
 import { hashOf } from '../hash.ts';
+import { checksSection, type DecisionCheck } from './decision-checks.ts';
 import { isAgentGuidance, isDocumentation } from './guidance.ts';
 import { looksGenerated, looksLikeTest } from './heuristics.ts';
 import { YES } from './judge-questions.ts';
@@ -241,6 +242,18 @@ const noteCritical = v.optional(
   ),
 );
 
+const lineDecision = v.object({
+  fileId: v.string(),
+  hunkId: v.pipe(v.string(), v.description('The hunk id shown in the hunk header.')),
+  side: v.pipe(
+    v.picklist(['additions', 'deletions']),
+    v.description('"additions" for a + or unchanged line, "deletions" for a - line.'),
+  ),
+  line: v.pipe(v.number(), v.description('The line number of the line that makes the choice.')),
+  text: decisionText,
+  priority: decisionPriority,
+});
+
 export const NotesSchema = v.object({
   fileNotes: v.pipe(
     v.array(v.object({ fileId: v.string(), text: noteText, critical: noteCritical })),
@@ -280,21 +293,19 @@ export const NotesSchema = v.object({
     ),
   ),
   decisions: v.pipe(
-    v.array(
-      v.object({
-        fileId: v.string(),
-        hunkId: v.pipe(v.string(), v.description('The hunk id shown in the hunk header.')),
-        side: v.pipe(
-          v.picklist(['additions', 'deletions']),
-          v.description('"additions" for a + or unchanged line, "deletions" for a - line.'),
-        ),
-        line: v.pipe(v.number(), v.description('The line number of the line that makes the choice.')),
-        text: decisionText,
-        priority: decisionPriority,
-      }),
-    ),
+    v.array(lineDecision),
     v.description(
       'Key decisions this group makes in code, each pinned to the line that makes it: a chosen approach, default, data shape, check or ordering a reviewer should agree with on purpose. Never on tests or stylesheets, and never one the change-wide list covers. Most groups have 0-3, and an unimportant group has none.',
+    ),
+  ),
+});
+
+/** What a reviewer-checks call returns: decisions only, merged into the group's notes. */
+export const ChecksSchema = v.object({
+  decisions: v.pipe(
+    v.array(lineDecision),
+    v.description(
+      "One decision for each place this group's code falls short of a listed check, pinned to the line that makes the choice. Empty when the code passes every check or none applies.",
     ),
   ),
 });
@@ -841,6 +852,38 @@ export function buildNotesPrompt(
   judgments: Record<string, FileJudgment>,
   decisions: readonly Decision[] = [],
 ): string {
+  const parts = groupContext(meta, overallSummary, group, decisions);
+  const risks = files.flatMap((file) =>
+    flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),
+  );
+  parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
+  parts.push(...filesSection(files));
+  return parts.join('\n');
+}
+
+/**
+ * One reviewer-checks call's prompt: the notes prompt's context and files without the flagged
+ * risks, then the checks last, so the calls for one group differ only at the end.
+ */
+export function buildChecksPrompt(
+  meta: DiffMeta,
+  overallSummary: string | undefined,
+  group: ResolvedGroup,
+  files: readonly FileChange[],
+  checks: readonly DecisionCheck[],
+  decisions: readonly Decision[] = [],
+): string {
+  const parts = groupContext(meta, overallSummary, group, decisions);
+  parts.push(...filesSection(files), ...checksSection(checks));
+  return parts.join('\n');
+}
+
+function groupContext(
+  meta: DiffMeta,
+  overallSummary: string | undefined,
+  group: ResolvedGroup,
+  decisions: readonly Decision[],
+): string[] {
   const parts = [header(meta)];
   if (overallSummary) {
     parts.push('', '## Overall', overallSummary);
@@ -853,12 +896,12 @@ export function buildNotesPrompt(
     );
   }
   parts.push('', `## This group: ${group.label}`, group.summary);
-  const risks = files.flatMap((file) =>
-    flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),
-  );
-  parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
+  return parts;
+}
+
+function filesSection(files: readonly FileChange[]): string[] {
+  const parts = ['', '## Files'];
   let remaining = TOTAL_BUDGET;
-  parts.push('', '## Files');
   for (const file of files) {
     const reason = collapsedReason(file);
     if (reason) {
@@ -873,7 +916,7 @@ export function buildNotesPrompt(
     remaining -= body.length;
     parts.push(`### ${manifestLine(file)}`, body);
   }
-  return parts.join('\n');
+  return parts;
 }
 
 export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the whole files (call read_file).

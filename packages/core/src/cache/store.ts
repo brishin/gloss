@@ -13,6 +13,7 @@ export type CacheKind =
   | 'callpath'
   | 'followup'
   | 'notes'
+  | 'checks'
   | 'stack-name'
   | 'tour'
   | 'trace';

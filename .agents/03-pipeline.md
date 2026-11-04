@@ -40,6 +40,19 @@ notes decision pinned in the file (urgent if it drops or rewrites data, else hig
 lists only its rollout across files. Define sees only that rollout rule; given the full rule it
 restated the schema change change-wide, and notes then skipped it as covered.
 
+Built-in reviewer checks (`decision-checks.ts`) run as their own call on the notes model,
+beside the notes call, for each group with a file a check applies to (today: Python source,
+from Brian's backend review list). The notes prompt never sees them, so it stays byte-identical
+to a tour without checks and keeps its cache entry and usual decisions; check decisions merge in
+unless a decision already sits within 3 lines. In the 2026-11-03 eval on 11 flashback Python
+PRs, a plain "check for these" found 3 of 13 target findings and missed the services-as-parameter
+one on every PR; telling the model the checks outrank "skip refactors" and to go through every
+function found 10. A generalized, all-language list found 9 but added structure nits to Swift,
+Kotlin and TypeScript groups. Folded into the notes prompt, the checks crowded out usual
+decisions (43% of baseline-stable ones kept vs 60% for a baseline rerun, 67% when told the
+findings come on top). As a separate call they cost nothing there and hit as many targets; one
+call per check (7 per group) found no more than one call with all of them.
+
 The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
 every time. A third candidate, the `sketch`, is an SVG the model draws itself (hand-drawn
