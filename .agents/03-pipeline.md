@@ -45,6 +45,10 @@ save, Jev checks each rule, read with its files pattern (`decision-rules.ts`, on
 cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RULES`, a short
 summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
 rule. The findings only advise; the save always goes through.
+The settings page shows one row per rule with its own files pattern; rows save as sets (rows that
+share a pattern share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
+`editDecisionRules`, define tier) rewrites the whole list from a request in words; the result is an
+unsaved draft that the user saves (and Jev checks) like a hand edit.
 
 Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
 notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define

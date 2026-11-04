@@ -1,6 +1,6 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-import { DecisionRuleSetsSchema, parseRules, rulesFor } from './rules.ts';
+import { DecisionRuleSetsSchema, parseRules, rowsFromSets, rulesFor, setsFromRows } from './rules.ts';
 
 describe('parseRules', () => {
   it.each([
@@ -54,5 +54,34 @@ describe('DecisionRuleSetsSchema', () => {
     expect(v.is(DecisionRuleSetsSchema, [{ rules: [] }])).toBe(false);
     const many = Array.from({ length: 21 }, (_, i) => `Flag ${i}`);
     expect(v.is(DecisionRuleSetsSchema, [{ rules: many.slice(0, 11) }, { rules: many.slice(11) }])).toBe(false);
+  });
+});
+
+describe('rule rows', () => {
+  it('save as sets by pattern, in first-seen order, and read back as the same rows', () => {
+    const rows = [
+      { text: 'A' },
+      { text: 'B', files: '\\.py$' },
+      { text: ' ' },
+      { text: 'C', files: '  ' },
+      { text: 'A' },
+      { text: 'D', files: '\\.py$' },
+    ];
+    const { sets, refs } = setsFromRows(rows);
+    expect(sets).toEqual([{ rules: ['A', 'C'] }, { files: '\\.py$', rules: ['B', 'D'] }]);
+    expect(refs).toEqual([
+      { set: 0, rule: 0 },
+      { set: 1, rule: 0 },
+      undefined,
+      { set: 0, rule: 1 },
+      undefined,
+      { set: 1, rule: 1 },
+    ]);
+    expect(rowsFromSets(sets)).toEqual([
+      { text: 'A' },
+      { text: 'C' },
+      { text: 'B', files: '\\.py$' },
+      { text: 'D', files: '\\.py$' },
+    ]);
   });
 });

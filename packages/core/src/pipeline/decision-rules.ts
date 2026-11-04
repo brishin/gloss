@@ -1,6 +1,14 @@
-import type { DecisionRuleSet, RuleFinding, RuleRef } from '@gloss/protocol';
+import {
+  type DecisionRuleSet,
+  RULE_MAX,
+  type RuleFinding,
+  type RuleRef,
+  type RuleRow,
+  RULES_MAX,
+} from '@gloss/protocol';
 import { Effect, Option } from 'effect';
-import { JudgeClient, type JudgeAnswer, type JudgeQuestion } from '../adapters/types.ts';
+import * as v from 'valibot';
+import { JudgeClient, type JudgeAnswer, type JudgeQuestion, ModelClient } from '../adapters/types.ts';
 import { TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
 import { YES } from './judge-questions.ts';
@@ -177,3 +185,105 @@ export const checkDecisionRules = Effect.fnUntraced(function* (sets: readonly De
     }),
   });
 });
+
+const RuleRowsResultSchema = v.object({
+  rules: v.pipe(
+    v.array(
+      v.object({
+        text: v.pipe(
+          v.string(),
+          v.description(
+            'One rule: an imperative sentence naming which decisions to flag, e.g. "Flag every new environment variable".',
+          ),
+        ),
+        files: v.pipe(
+          v.string(),
+          v.description(
+            'A JavaScript regular expression tested against each changed file\'s path, e.g. "\\\\.py$" or "^apps/web/"; "" for all files.',
+          ),
+        ),
+      }),
+    ),
+    v.description(
+      'The complete list of rules after the change, in order: keep every rule the request leaves alone, word for word.',
+    ),
+  ),
+  reply: v.pipe(
+    v.string(),
+    v.description(
+      'One or two plain sentences to the reviewer on what you changed, or a short question if the request is unclear (then return the rules unchanged).',
+    ),
+  ),
+});
+
+export const EDIT_RULES_SYSTEM = `You edit a code reviewer's own rules for which decisions gloss flags in a pull request review. gloss already flags decisions by its built-in rules; the reviewer's rules add to them, win where they disagree, and can name a priority (low, medium, high, urgent).
+
+Apply the reviewer's request to the current rules: add, remove, reword, split, merge or scope rules as asked, and nothing else. Keep each rule one short imperative sentence that names a kind of code, behavior or choice, so it is clear whether a change falls under it. Do not add a rule a built-in rule already covers, unless the reviewer asks for it, for example to raise its priority. Scope a rule to some files only when the request says which files (a language, a directory, a kind of file), with a regular expression on the path.
+
+Call the submit tool once with the complete list and your reply.`;
+
+/** The current rules and the request, with the built-in rules to avoid repeating. */
+export function buildEditRulesPrompt(request: {
+  rules: readonly RuleRow[];
+  instruction: string;
+  history: readonly { instruction: string; reply: string }[];
+}): string {
+  const row = (rule: RuleRow) => `- ${rule.text}${rule.files ? ` [files: ${rule.files}]` : ''}`;
+  return [
+    '## Built-in rules',
+    ...Object.values(BUILT_IN_DECISION_RULES).map((rule) => `- ${rule}`),
+    '',
+    '## Current rules',
+    ...(request.rules.length ? request.rules.map(row) : ['(none)']),
+    ...(request.history.length
+      ? [
+          '',
+          '## Earlier in this edit',
+          ...request.history.flatMap((turn) => [`Reviewer: ${turn.instruction}`, `You: ${turn.reply}`]),
+        ]
+      : []),
+    '',
+    '## Request',
+    request.instruction,
+  ].join('\n');
+}
+
+/**
+ * The model rewrites the rules from a request in words; nothing is saved, the settings page
+ * shows the result as a draft. Model output is untrusted: blank rules go, a pattern that does
+ * not compile is dropped (the rule then applies to all files), and the list is capped.
+ */
+export const editDecisionRules = Effect.fnUntraced(function* (request: {
+  rules: readonly RuleRow[];
+  instruction: string;
+  history: readonly { instruction: string; reply: string }[];
+}) {
+  const model = yield* ModelClient;
+  const { data } = yield* model.prompt({
+    tier: 'define',
+    system: EDIT_RULES_SYSTEM,
+    prompt: buildEditRulesPrompt(request),
+    result: RuleRowsResultSchema,
+    resultName: 'rules',
+  });
+  return { rules: normalizeRuleRows(data.rules), reply: data.reply.trim() };
+});
+
+export function normalizeRuleRows(rows: readonly { text: string; files?: string }[]): RuleRow[] {
+  const out: RuleRow[] = [];
+  for (const row of rows) {
+    const text = row.text.trim().replace(/\s+/g, ' ').slice(0, RULE_MAX);
+    let files = row.files?.trim().slice(0, RULE_MAX) || undefined;
+    if (files) {
+      try {
+        new RegExp(files);
+      } catch {
+        files = undefined;
+      }
+    }
+    if (text && !out.some((seen) => seen.text === text && seen.files === files)) {
+      out.push(files ? { text, files } : { text });
+    }
+  }
+  return out.slice(0, RULES_MAX);
+}

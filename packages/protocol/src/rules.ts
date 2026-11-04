@@ -124,3 +124,66 @@ export function rulesFor(sets: readonly DecisionRuleSet[], paths: readonly strin
   }
   return rules;
 }
+
+/**
+ * One rule as the settings page shows it: its own row, with its own files pattern. Rows are
+ * saved as sets (rows with the same pattern share one), so the config and the pipeline keep sets.
+ */
+export const RuleRowSchema = v.object({
+  text: v.pipe(v.string(), v.trim(), v.maxLength(RULE_MAX)),
+  files: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(RULE_MAX))),
+});
+export type RuleRow = v.InferOutput<typeof RuleRowSchema>;
+
+export function rowsFromSets(sets: readonly DecisionRuleSet[]): RuleRow[] {
+  return sets.flatMap((set) => set.rules.map((text) => (set.files ? { text, files: set.files } : { text })));
+}
+
+/**
+ * Rows as sets, in the order each pattern first appears, plus where each row landed (`refs`,
+ * undefined for a row left out). Blank rows and repeats within a pattern are left out.
+ */
+export function setsFromRows(rows: readonly RuleRow[]): { sets: DecisionRuleSet[]; refs: (RuleRef | undefined)[] } {
+  const sets: DecisionRuleSet[] = [];
+  const refs = rows.map((row) => {
+    const text = row.text.trim().replace(/\s+/g, ' ');
+    const files = row.files?.trim() || undefined;
+    if (!text) {
+      return undefined;
+    }
+    let set = sets.findIndex((candidate) => candidate.files === files);
+    if (set < 0) {
+      set = sets.push(files ? { files, rules: [] } : { rules: [] }) - 1;
+    }
+    const rules = sets[set]!.rules;
+    if (rules.includes(text)) {
+      return undefined;
+    }
+    return { set, rule: rules.push(text) - 1 };
+  });
+  return { sets, refs };
+}
+
+/** A request to change the rules in words: the agent returns the whole new list, unsaved. */
+export const EditRulesRequestSchema = v.object({
+  rules: v.pipe(v.array(RuleRowSchema), v.maxLength(RULES_MAX * 2)),
+  instruction: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(4000)),
+  /** Earlier turns of this edit, so "undo that" or "also for tests" can refer back. */
+  history: v.optional(
+    v.pipe(
+      v.array(
+        v.object({ instruction: v.pipe(v.string(), v.maxLength(4000)), reply: v.pipe(v.string(), v.maxLength(4000)) }),
+      ),
+      v.maxLength(10),
+    ),
+    [],
+  ),
+});
+export type EditRulesRequest = v.InferInput<typeof EditRulesRequestSchema>;
+
+export const EditRulesResponseSchema = v.object({
+  rules: v.array(RuleRowSchema),
+  /** One or two sentences on what changed, or a question when the request was unclear. */
+  reply: v.string(),
+});
+export type EditRulesResponse = v.InferOutput<typeof EditRulesResponseSchema>;

@@ -1,6 +1,7 @@
 import {
   checkDecisionRules,
   DecisionRules,
+  editDecisionRules,
   ModelClient,
   nameStack,
   type PullSummary,
@@ -30,6 +31,7 @@ import {
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
+  EditRulesRequestSchema,
   SaveDecisionRulesSchema,
   serializeRef,
   SourceRefSchema,
@@ -500,6 +502,21 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
+  });
+
+  // Rewrites the rules from a request in words; spends model tokens, so only the app may ask.
+  app.post('/api/rules/edit', async (c) => {
+    if (!fromApp(c)) return c.json({ error: 'Edits are accepted only as JSON from the gloss app' }, 403);
+    const parsed = v.safeParse(EditRulesRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
+    const edited = await run(
+      editDecisionRules(parsed.output).pipe(
+        Effect.map((result) => ({ ok: true as const, result })),
+        Effect.catchTag('ModelError', (error) => Effect.succeed({ ok: false as const, message: error.message })),
+      ),
+      c.req.raw.signal,
+    );
+    return edited.ok ? c.json(edited.result) : c.json({ error: edited.message }, 502);
   });
 
   if (setup) {

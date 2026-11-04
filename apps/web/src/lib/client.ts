@@ -3,6 +3,7 @@ import {
   createSnapshotGlossClient,
   type DecisionRuleSet,
   type DecisionRulesState,
+  type EditRulesRequest,
   DEFAULT_BACKEND_URL,
   type FileContents,
   type GlossClient,
@@ -173,6 +174,11 @@ export const decisionRulesAtom: Atom.Atom<AsyncResult.AsyncResult<DecisionRulesS
 /** Saves the decision rule sets on the backend; resolves with Jev's findings on the saved sets. */
 export const saveDecisionRulesAtom = glossRuntime.fn((sets: readonly DecisionRuleSet[]) =>
   request((client) => client.saveDecisionRules(sets)),
+);
+
+/** Has the backend's model rewrite the rules from a request in words; the result is an unsaved draft. */
+export const editDecisionRulesAtom = glossRuntime.fn((edit: EditRulesRequest) =>
+  request((client) => client.editDecisionRules(edit)),
 );
 
 /**

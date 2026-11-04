@@ -1,11 +1,12 @@
 import { Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { createFakeJudgeClient } from '../adapters/fake.ts';
-import { type JudgeAnswer, JudgeClient, JudgeError } from '../adapters/types.ts';
+import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
+import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import {
   BUILT_IN_DECISION_RULES,
   checkDecisionRules,
+  editDecisionRules,
   ruleFindings,
   ruleQuestions,
   ruleState,
@@ -91,5 +92,39 @@ describe('checkDecisionRules', () => {
       judge: () => Effect.fail(new JudgeError({ message: 'down' })),
     };
     expect(await run(judge)).toEqual({ findings: [], checked: false });
+  });
+});
+
+describe('editDecisionRules', () => {
+  it('sends the built-in and current rules with the request, and cleans what the model returns', async () => {
+    const model = createFakeModelClient({
+      answers: {
+        define: {
+          rules: [
+            { text: '  Flag  N+1 queries ', files: '\\.py$' },
+            { text: 'Flag N+1 queries', files: '\\.py$' },
+            { text: 'Flag a bad pattern', files: '(' },
+            { text: ' ', files: '' },
+          ],
+          reply: ' Added one Python rule. ',
+        },
+      },
+    });
+    const result = await Effect.runPromise(
+      editDecisionRules({
+        rules: [{ text: 'Flag every new environment variable' }],
+        instruction: 'add N+1 for python',
+        history: [{ instruction: 'start', reply: 'ok' }],
+      }).pipe(Effect.provide(Layer.succeed(ModelClient, model))),
+    );
+    expect(result).toEqual({
+      rules: [{ text: 'Flag N+1 queries', files: '\\.py$' }, { text: 'Flag a bad pattern' }],
+      reply: 'Added one Python rule.',
+    });
+    const prompt = model.calls[0]!.prompt;
+    expect(prompt).toContain(`- ${BUILT_IN_DECISION_RULES.one_way_doors}`);
+    expect(prompt).toContain('## Current rules\n- Flag every new environment variable');
+    expect(prompt).toContain('Reviewer: start\nYou: ok');
+    expect(prompt.endsWith('## Request\nadd N+1 for python')).toBe(true);
   });
 });
