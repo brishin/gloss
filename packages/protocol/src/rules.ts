@@ -135,7 +135,8 @@ export function readRuleSets(value: unknown): DecisionRuleSet[] {
     return [];
   }
   if (value.every((rule) => typeof rule === 'string')) {
-    const rules = value.map((rule: string) => rule.trim()).filter(Boolean);
+    // A rule past `RULE_MAX` is left out, as the set schema would refuse it.
+    const rules = value.map((rule: string) => rule.trim()).filter((rule) => rule && rule.length <= RULE_MAX);
     return rules.length ? [{ rules }] : [];
   }
   return value.flatMap((set) => {

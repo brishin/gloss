@@ -39,6 +39,11 @@ describe('parseRepoConfig', () => {
     ['no rules', '{"other": 1}', []],
     ['a plain list', config(' Flag A '), [{ rules: ['Flag A'] }]],
     [
+      'a rule past the length limit left out',
+      JSON.stringify({ decisionRules: ['Flag A', 'x'.repeat(401)] }),
+      [{ rules: ['Flag A'] }],
+    ],
+    [
       'sets that do not parse left out',
       JSON.stringify({
         decisionRules: [
