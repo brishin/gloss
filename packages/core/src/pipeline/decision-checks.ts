@@ -4,8 +4,8 @@ import { looksLikeTest } from './heuristics.ts';
 
 /**
  * Built-in decision checks: the questions a senior reviewer asks of code in one language.
- * The notes pass lists the checks that apply to a group's files, so a group with none of
- * those files gets the same prompt as before. Phrased as what falls short, because a check
+ * A group whose files one applies to gets extra model calls for its checks (see
+ * `CHECKS_SYSTEM`); other groups run as before. Phrased as what falls short, because a check
  * the code passes gets no decision.
  */
 export interface DecisionCheck {
@@ -55,28 +55,80 @@ export const PYTHON_CHECKS: readonly DecisionCheck[] = [
 export const DECISION_CHECKS: readonly DecisionCheck[] = [...PYTHON_CHECKS];
 
 /**
- * "Outrank the guidance to skip refactors" matters: with a plain "check for these" intro the
- * model skipped the services-as-parameter finding on every PR that had it. "On top of" matters
- * too: without it the model made room for check findings by dropping usual decisions, keeping
- * about 43% of the decisions two of three baseline runs agreed on (a baseline run keeps 60%);
- * with it, 67%.
+ * The checks run as their own model calls beside the notes call, which stays byte-identical
+ * to a tour without checks: it keeps its cache entry and all of its usual decisions. Folded
+ * into the notes prompt, the checks crowded usual decisions out even when told they came on
+ * top (67% of baseline-stable decisions kept, 43% without "on top"; a repeat baseline keeps 60%).
+ *
+ * "Outrank the guidance to skip refactors" still matters: with a plain "check for these"
+ * the model skipped the services-as-parameter finding on every PR that had it.
  */
-const INTRO =
-  'The reviewer asks these of every change like this one. They come on top of the decisions you would write for this group anyway: first find those as usual, then add what the checks find, and do not drop a decision to make room, since check findings do not count toward the usual 0-3 decisions per group. The checks outrank the guidance to skip refactors and code structure. Go through every function this group adds or changes, not only the main one, and answer each check against it. For each place the code falls short, write a decision on the line, naming the function and what to do instead; rate it medium unless it is worse. A check the code passes, or one that does not apply, gets nothing: never write that code passes a check.';
+export const CHECKS_SYSTEM = `You are a senior engineer reviewing one group of a code change against checks the reviewer asks of every change like it. Another pass writes this group's notes and usual decisions; your only job is the checks listed under "## Reviewer checks".
 
-/** The notes prompt's checks section for a group, or nothing when no check applies to its files. */
-export function checksSection(
+Go through every function this group adds or changes, not only the main one, and answer each check against it. The checks outrank any sense that code structure or a refactor is not worth a reviewer's time. When a hunk is cut off ("truncated"), a file is omitted, or a check turns on code the diff does not show (a function it calls, its callers, a job's other enqueue sites), call read_file and read that code before you judge.
+
+For each place the code falls short, write a decision on the line that makes the choice, naming the function and what to do instead; rate it medium unless it is worse. A check the code passes, or one that does not apply, gets nothing: never write that code passes a check, and submit no decisions when nothing falls short. Never put a decision on a test, fixture or story file, and skip anything the change-wide list covers.
+
+Only reference file ids listed under "## Files". Decisions reference a file id, the hunk id from the hunk header, and the line number printed before the line. Lines starting with "+" or " " use side "additions"; lines starting with "-" use side "deletions". Point decisions only at lines a hunk prints; a finding in code you read goes on the hunk line that relies on it.
+
+Call the submit tool once with the decisions.`;
+
+export const CHECK_SPLIT: 'one' | 'each' = 'one';
+
+/**
+ * How the checks that apply to a group split into model calls: all of them in one call, or one
+ * call per check. Each batch is one call, so this is also the number of extra calls per group.
+ */
+export function checkBatches(
   files: readonly Pick<FileChange, 'path'>[],
   checks: readonly DecisionCheck[] = DECISION_CHECKS,
-): string[] {
+  split: 'one' | 'each' = CHECK_SPLIT,
+): DecisionCheck[][] {
   const applicable = checks.filter((check) => files.some((file) => check.applies(file.path)));
   if (applicable.length === 0) return [];
-  return ['', '## Reviewer checks', INTRO, ...applicable.map((check) => `- ${check.text}`)];
+  return split === 'each' ? applicable.map((check) => [check]) : [applicable];
+}
+
+/** The checks prompt's closing section: last, so every call for a group shares the rest. */
+export function checksSection(checks: readonly DecisionCheck[]): string[] {
+  return ['', '## Reviewer checks', ...checks.map((check) => `- ${check.text}`)];
+}
+
+/** Bump when `ChecksSchema` in prompts.ts changes. */
+const CHECKS_SCHEMA_VERSION = 1;
+
+/**
+ * Part of the checks call's cache key and of the finished-tour key: a finished tour is
+ * replayed before any prompt is built, so without it a Python tour cached before a check
+ * changed would never run the new checks.
+ */
+export const CHECKS_VERSION = hashOf({
+  CHECKS_SYSTEM,
+  CHECK_SPLIT,
+  CHECKS_SCHEMA_VERSION,
+  checks: DECISION_CHECKS.map((check) => check.text),
+}).slice(0, 12);
+
+interface PinnedDecision {
+  readonly fileId: string;
+  readonly side: string;
+  readonly line: number;
 }
 
 /**
- * Part of the finished-tour cache key. Per-call caches already hash the prompt text, but a
- * finished tour is replayed before any notes prompt is built, so without this a Python tour
- * cached before a check changed would never run the new checks.
+ * The group's decisions: every one the notes call wrote, then each check finding that does not
+ * sit within `near` lines of one already kept, so two calls that pin the same choice show it once.
  */
-export const CHECKS_VERSION = hashOf({ INTRO, checks: DECISION_CHECKS.map((check) => check.text) }).slice(0, 12);
+export function mergeDecisions<D extends PinnedDecision>(written: readonly D[], checked: readonly D[], near = 3): D[] {
+  const kept = [...written];
+  for (const decision of checked) {
+    const taken = kept.some(
+      (other) =>
+        other.fileId === decision.fileId &&
+        other.side === decision.side &&
+        Math.abs(other.line - decision.line) <= near,
+    );
+    if (!taken) kept.push(decision);
+  }
+  return kept;
+}

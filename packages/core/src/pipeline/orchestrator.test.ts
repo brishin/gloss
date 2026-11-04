@@ -105,6 +105,18 @@ const sketch = {
   svg: sketchAnswer.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
 };
 
+/** The fake notes answer: one line note and one decision on line 2 of the first file. */
+function fakeNotes(request: { prompt: string }) {
+  const fileId = /^### (f[0-9a-f]+) /m.exec(request.prompt)?.[1] ?? 'none';
+  const hunkId = /^@@ hunk (h[0-9a-f]+)/m.exec(request.prompt)?.[1] ?? 'none';
+  return {
+    fileNotes: [],
+    lineNotes: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Note.' }],
+    riskNotes: [],
+    decisions: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Compare by name.', priority: 'high' }],
+  };
+}
+
 function fakeModel() {
   return createFakeModelClient({
     answers: {
@@ -115,16 +127,7 @@ function fakeModel() {
           groupKey: 'auth',
         })),
       }),
-      notes: (request) => {
-        const fileId = /^### (f[0-9a-f]+) /m.exec(request.prompt)?.[1] ?? 'none';
-        const hunkId = /^@@ hunk (h[0-9a-f]+)/m.exec(request.prompt)?.[1] ?? 'none';
-        return {
-          fileNotes: [],
-          lineNotes: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Note.' }],
-          riskNotes: [],
-          decisions: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Compare by name.', priority: 'high' }],
-        };
-      },
+      notes: fakeNotes,
     },
   });
 }
@@ -415,5 +418,52 @@ describe('runTour', () => {
     );
     expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain('Defining groups failed');
     expect(trace.get('define')).toMatchObject({ state: 'failed', warnings: [expect.stringContaining('tier define')] });
+  });
+
+  it('runs the reviewer checks as their own call beside an unchanged notes call, and merges their decisions', async () => {
+    const plainRepo = repo;
+    repo = mkdtempSync(join(tmpdir(), 'gloss-test-'));
+    try {
+      git('init', '-q', '-b', 'main');
+      write('app/jobs.py', 'def run():\n    pass\n');
+      git('add', '.');
+      git('commit', '-qm', 'init');
+      write(
+        'app/jobs.py',
+        'def run(services, ids):\n    rows = []\n    count = 0\n    total = 0\n    for i in ids:\n        count += 1\n        rows.append(services.db.get(i))\n',
+      );
+      const base = fakeModel();
+      const model = createFakeModelClient({
+        answers: {
+          notes: (request) => {
+            const answer = fakeNotes(request);
+            if (request.resultName !== 'decisions') return answer;
+            const usual = answer.decisions[0]!;
+            return {
+              decisions: [
+                { ...usual, line: 7, text: 'N+1 lookups in run.', priority: 'medium' },
+                { ...usual, line: 2, text: 'Repeats the usual decision.', priority: 'medium' },
+              ],
+            };
+          },
+        },
+      });
+      const { tour: finished, trace } = await tour({
+        model: {
+          ...model,
+          prompt: (request) => (request.tier === 'notes' ? model.prompt(request) : base.prompt(request)),
+        },
+      });
+      const notesCall = model.calls.find((call) => call.resultName === 'notes')!;
+      const checksCall = model.calls.find((call) => call.resultName === 'decisions')!;
+      expect(notesCall.prompt).not.toContain('## Reviewer checks');
+      expect(checksCall.prompt).toContain('## Reviewer checks');
+      const decisions = Object.values(finished.notes).flatMap((notes) => notes.decisions ?? []);
+      expect(decisions.map((decision) => decision.text)).toEqual(['Compare by name.', 'N+1 lookups in run.']);
+      expect([...trace.keys()].filter((id) => id.startsWith('checks:'))).toHaveLength(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      repo = plainRepo;
+    }
   });
 });

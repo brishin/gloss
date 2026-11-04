@@ -28,7 +28,7 @@ import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from 
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
 import { DiffSources, readRepoFile } from '../sources/index.ts';
-import { CHECKS_VERSION } from './decision-checks.ts';
+import { CHECKS_SYSTEM, CHECKS_VERSION, checkBatches, mergeDecisions } from './decision-checks.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -50,11 +50,13 @@ import {
 } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
+  buildChecksPrompt,
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
   buildSketchPrompt,
   buildWalkthroughPrompt,
+  ChecksSchema,
   DEFINE_SYSTEM,
   flaggedRisks,
   DefineSchema,
@@ -647,6 +649,65 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     });
 
+  /**
+   * One reviewer-checks call for a group, beside its notes call (see `CHECKS_SYSTEM`). Its
+   * decisions merge into the group's notes; a failed call is only a warning.
+   */
+  const runChecks = (
+    group: ReturnType<typeof resolveGroups>[number],
+    members: readonly FileChange[],
+    checks: Parameters<typeof buildChecksPrompt>[4],
+    stepId: string,
+    placedBy: 'place' | 'followup',
+  ) =>
+    Effect.suspend(() => {
+      const checksPrompt = buildChecksPrompt(meta, state.overallSummary, group, members, checks, state.decisions);
+      trace.begin(stepId, 'notes', {
+        subject: `${group.label}: reviewer checks`,
+        inputs: [placedBy, 'define'],
+        model: models.notes,
+        system: CHECKS_SYSTEM,
+        prompt: checksPrompt,
+        sections: promptSections(checksPrompt, {
+          Overall: 'define',
+          'Change-wide decisions': 'define',
+          'This group': 'define',
+          Files: placedBy,
+        }),
+      });
+      const reading = reader();
+      return cached(
+        'checks',
+        { CHECKS_VERSION, model: models.notes, prompt: checksPrompt },
+        prompt(stepId, {
+          tier: 'notes',
+          system: CHECKS_SYSTEM,
+          prompt: checksPrompt,
+          result: ChecksSchema,
+          resultName: 'decisions',
+          tools: [reading.tool],
+        }),
+        models.notes,
+      ).pipe(
+        Effect.map(({ value, hit }) => {
+          trace.end(stepId, {
+            cached: hit,
+            output: value,
+            ...readFields(reading.reads()),
+            summary: `${value.decisions.length} decisions`,
+          });
+          return value.decisions;
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync(() => {
+            warn('notes', `Reviewer checks for "${group.label}" failed: ${error.message}`);
+            trace.end(stepId, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
+            return [];
+          }),
+        ),
+      );
+    });
+
   const writeNotes = (groups: ReturnType<typeof resolveGroups>, placedBy: 'place' | 'followup') =>
     Effect.suspend(() => {
       const annotatable = groups.filter((group) => group.key !== SYNTHETIC_GROUPS.generated.key);
@@ -682,12 +743,11 @@ const tourProgram = Effect.fnUntraced(function* (
                 'Change-wide decisions': 'define',
                 'This group': 'define',
                 'Flagged risks': judge ? 'judge-files' : 'define',
-                'Reviewer checks': placedBy,
                 Files: placedBy,
               }),
             });
             const reading = reader();
-            return cached(
+            const writing = cached(
               'notes',
               { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
               prompt(stepId, {
@@ -699,8 +759,21 @@ const tourProgram = Effect.fnUntraced(function* (
                 tools: [reading.tool],
               }),
               models.notes,
-            ).pipe(
-              Effect.map(({ value, hit }) => {
+            );
+            const checking = checkBatches(members).map((checks, index, batches) =>
+              runChecks(
+                group,
+                members,
+                checks,
+                batches.length > 1 ? `checks:${group.key}:${index + 1}` : `checks:${group.key}`,
+                placedBy,
+              ),
+            );
+            return Effect.all([writing, Effect.all(checking, { concurrency: 'unbounded' })], {
+              concurrency: 'unbounded',
+            }).pipe(
+              Effect.map(([{ value: written, hit }, checked]) => {
+                const value = { ...written, decisions: mergeDecisions(written.decisions, checked.flat()) };
                 const { notes, warnings } = normalizeNotes(value, group, members);
                 for (const message of warnings) {
                   warn('notes', message);
@@ -708,7 +781,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 const count = value.fileNotes.length + value.lineNotes.length + value.riskNotes.length;
                 trace.end(stepId, {
                   cached: hit,
-                  output: value,
+                  output: written,
                   ...readFields(reading.reads()),
                   summary: `${count} notes`,
                   ...(warnings.length ? { warnings } : {}),
