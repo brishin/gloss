@@ -287,8 +287,27 @@ function PullStateLine({ pull }: { pull: StackMember }) {
   const decision = pull.state === 'open' ? pull.reviewDecision : undefined;
   return (
     <span className="pull-state" data-state={pull.state} data-review={decision}>
-      <RefIcon kind="github-pr" state={pull.state} />
-      <strong>{decision ? REVIEW_DECISION_LABEL[decision] : PULL_STATE_LABEL[pull.state]}</strong>
+      {decision ? (
+        <strong className="review-decision">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {REVIEW_MARK[decision]}
+          </svg>
+          {REVIEW_DECISION_LABEL[decision]}
+        </strong>
+      ) : (
+        <>
+          <RefIcon kind="github-pr" state={pull.state} />
+          <strong>{PULL_STATE_LABEL[pull.state]}</strong>
+        </>
+      )}
       {detail && <span className="pull-state-detail">{detail}</span>}
     </span>
   );
