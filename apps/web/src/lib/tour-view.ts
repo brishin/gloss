@@ -176,7 +176,7 @@ export const PULL_STATE_LABEL: Record<PullState, string> = {
   closed: 'Closed',
 };
 
-/** An open PR's review decision, in place of "Open" in the PR head. */
+/** An open PR's review decision, after "Open" in the PR head. */
 export const REVIEW_DECISION_LABEL: Record<ReviewDecision, string> = {
   approved: 'Approved',
   changes: 'Changes requested',

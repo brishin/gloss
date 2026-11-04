@@ -280,14 +280,16 @@ function ReviewMark({ state }: { state: ReviewState }) {
 
 /**
  * The PR's state in its colour, then who and when in plain text. An open PR's review
- * decision takes the state's place, so "Approved" stays in view in the pinned head.
+ * decision follows as a pill, so "Approved" stays in view in the pinned head.
  */
 function PullStateLine({ pull }: { pull: StackMember }) {
   const detail = pullStateDetail(pull, Date.now());
   const decision = pull.state === 'open' ? pull.reviewDecision : undefined;
   return (
     <span className="pull-state" data-state={pull.state} data-review={decision}>
-      {decision ? (
+      <RefIcon kind="github-pr" state={pull.state} />
+      <strong>{PULL_STATE_LABEL[pull.state]}</strong>
+      {decision && (
         <strong className="review-decision">
           <svg
             viewBox="0 0 16 16"
@@ -302,11 +304,6 @@ function PullStateLine({ pull }: { pull: StackMember }) {
           </svg>
           {REVIEW_DECISION_LABEL[decision]}
         </strong>
-      ) : (
-        <>
-          <RefIcon kind="github-pr" state={pull.state} />
-          <strong>{PULL_STATE_LABEL[pull.state]}</strong>
-        </>
       )}
       {detail && <span className="pull-state-detail">{detail}</span>}
     </span>

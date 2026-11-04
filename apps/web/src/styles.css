@@ -734,6 +734,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    margin-left: 4px;
     padding: 1px 8px 1px 6px;
     border-radius: 999px;
     font-weight: 600;
