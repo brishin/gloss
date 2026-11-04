@@ -5,6 +5,7 @@ import { type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapt
 import { createMemoryCacheStore, TourCache } from '../cache/store.ts';
 import {
   BUILT_IN_DECISION_RULES,
+  buildEditRulesPrompt,
   checkDecisionRules,
   editDecisionRules,
   ruleFindings,
@@ -126,5 +127,38 @@ describe('editDecisionRules', () => {
     expect(prompt).toContain('## Current rules\n- Flag every new environment variable');
     expect(prompt).toContain('Reviewer: start\nYou: ok');
     expect(prompt.endsWith('## Request\nadd N+1 for python')).toBe(true);
+  });
+});
+
+describe('buildEditRulesPrompt', () => {
+  it('shows the rules before each earlier turn, so "undo that" can bring removed rules back', () => {
+    const prompt = buildEditRulesPrompt({
+      rules: [{ text: 'Flag A' }],
+      instruction: 'undo that',
+      history: [
+        {
+          instruction: 'remove B',
+          reply: 'Removed B.',
+          before: [{ text: 'Flag A' }, { text: 'Flag B', files: '\\.py$' }],
+        },
+        { instruction: 'hi', reply: 'Hello.' },
+      ],
+    });
+    expect(prompt).toContain(
+      [
+        '## Earlier in this edit',
+        'Rules before this request:',
+        '- Flag A',
+        '- Flag B [files: \\.py$]',
+        'Reviewer: remove B',
+        'You: Removed B.',
+        '',
+        'Reviewer: hi',
+        'You: Hello.',
+        '',
+        '## Request',
+        'undo that',
+      ].join('\n'),
+    );
   });
 });

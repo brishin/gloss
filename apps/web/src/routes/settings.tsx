@@ -69,6 +69,8 @@ function findingText(finding: RuleFinding, rows: readonly RuleRow[], refs: Retur
 interface Turn {
   instruction: string;
   reply: string;
+  /** The rows sent with this turn, so the model can undo it. */
+  before: RuleRow[];
 }
 
 /**
@@ -86,7 +88,7 @@ function DecisionRules() {
   const [rows, setRows] = useState<RuleRow[]>([emptyRow]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
-  const [asked, setAsked] = useState<string | undefined>(undefined);
+  const [asked, setAsked] = useState<{ instruction: string; before: RuleRow[] } | undefined>(undefined);
 
   // The rules as the backend has them: first as loaded, then after each save that went through.
   const show = (state: DecisionRulesState) => {
@@ -106,9 +108,9 @@ function DecisionRules() {
     if (!asked || AsyncResult.isWaiting(editing)) return;
     if (AsyncResult.isSuccess(editing)) {
       setRows(editing.value.rules.length ? editing.value.rules : [emptyRow]);
-      setTurns((done) => [...done, { instruction: asked, reply: editing.value.reply }]);
+      setTurns((done) => [...done, { ...asked, reply: editing.value.reply }]);
     } else if (AsyncResult.isFailure(editing)) {
-      setTurns((done) => [...done, { instruction: asked, reply: 'Could not change the rules. Try again.' }]);
+      setTurns((done) => [...done, { ...asked, reply: 'Could not change the rules. Try again.' }]);
     }
     setAsked(undefined);
   }, [editing]);
@@ -138,9 +140,10 @@ function DecisionRules() {
   const ask = () => {
     const instruction = draft.trim();
     if (!instruction || busy) return;
-    setAsked(instruction);
+    const before = rows.filter((row) => row.text.trim());
+    setAsked({ instruction, before });
     setDraft('');
-    edit({ rules: rows.filter((row) => row.text.trim()), instruction, history: turns.slice(-10) });
+    edit({ rules: before, instruction, history: turns.slice(-10) });
   };
 
   return (
@@ -240,7 +243,7 @@ function DecisionRules() {
             ])}
             {asked && (
               <ChatMessage sender="user">
-                <ChatMessageBubble>{asked}</ChatMessageBubble>
+                <ChatMessageBubble>{asked.instruction}</ChatMessageBubble>
               </ChatMessage>
             )}
           </ChatMessageList>

@@ -1,5 +1,6 @@
 import {
   type DecisionRuleSet,
+  type EditRulesTurn,
   RULE_MAX,
   type RuleFinding,
   type RuleRef,
@@ -220,13 +221,15 @@ export const EDIT_RULES_SYSTEM = `You edit a code reviewer's own rules for which
 
 Apply the reviewer's request to the current rules: add, remove, reword, split, merge or scope rules as asked, and nothing else. Keep each rule one short imperative sentence that names a kind of code, behavior or choice, so it is clear whether a change falls under it. Do not add a rule a built-in rule already covers, unless the reviewer asks for it, for example to raise its priority. Scope a rule to some files only when the request says which files (a language, a directory, a kind of file), with a regular expression on the path.
 
+To undo an earlier turn, go back to the rules as they were before it, listed under "Earlier in this edit".
+
 Call the submit tool once with the complete list and your reply.`;
 
 /** The current rules and the request, with the built-in rules to avoid repeating. */
 export function buildEditRulesPrompt(request: {
   rules: readonly RuleRow[];
   instruction: string;
-  history: readonly { instruction: string; reply: string }[];
+  history: readonly EditRulesTurn[];
 }): string {
   const row = (rule: RuleRow) => `- ${rule.text}${rule.files ? ` [files: ${rule.files}]` : ''}`;
   return [
@@ -239,7 +242,14 @@ export function buildEditRulesPrompt(request: {
       ? [
           '',
           '## Earlier in this edit',
-          ...request.history.flatMap((turn) => [`Reviewer: ${turn.instruction}`, `You: ${turn.reply}`]),
+          ...request.history.flatMap((turn, index) => [
+            ...(index ? [''] : []),
+            ...(turn.before
+              ? ['Rules before this request:', ...(turn.before.length ? turn.before.map(row) : ['(none)'])]
+              : []),
+            `Reviewer: ${turn.instruction}`,
+            `You: ${turn.reply}`,
+          ]),
         ]
       : []),
     '',
@@ -256,7 +266,7 @@ export function buildEditRulesPrompt(request: {
 export const editDecisionRules = Effect.fnUntraced(function* (request: {
   rules: readonly RuleRow[];
   instruction: string;
-  history: readonly { instruction: string; reply: string }[];
+  history: readonly EditRulesTurn[];
 }) {
   const model = yield* ModelClient;
   const { data } = yield* model.prompt({
