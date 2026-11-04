@@ -23,6 +23,10 @@ describe('globMatcher', () => {
     ['a.{b', 'a.{b', true],
     ['(', '(', true],
     ['[z-a].py', 'a.py', false],
+    ['src/app/\\[id\\]/**', 'src/app/[id]/page.tsx', true],
+    ['src/app/\\[id\\]/**', 'src/app/i/page.tsx', false],
+    ['a\\*.md', 'a*.md', true],
+    ['a\\*.md', 'ab.md', false],
   ])('%s on %s', (glob, path, matches) => {
     expect(globMatcher(glob)(path)).toBe(matches);
   });

@@ -26,7 +26,10 @@ function segmentSource(glob: string): string {
   let source = '';
   for (let i = 0; i < glob.length; i++) {
     const char = glob[i]!;
-    if (char === '*') {
+    if (char === '\\' && i + 1 < glob.length) {
+      // `\[id\]` is a literal bracket, as in a Next.js route folder.
+      source += glob[++i]!.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    } else if (char === '*') {
       if (glob[i + 1] === '*') {
         const slash = glob[i + 2] === '/';
         source += slash ? '(?:.*/)?' : '.*';
