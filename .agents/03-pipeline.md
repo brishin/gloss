@@ -46,7 +46,10 @@ Brian's backend review list), so other groups' prompts are unchanged. In the 202
 on 11 flashback Python PRs, a plain "check for these" intro found 3 of 13 target findings and
 missed the services-as-parameter one on every PR; telling the model the checks outrank "skip
 refactors" and to go through every function found 10. A generalized, all-language list found
-9 but added structure nits to Swift, Kotlin and TypeScript groups.
+9 but added structure nits to Swift, Kotlin and TypeScript groups. That intro also crowded out
+usual decisions (43% of baseline-stable ones kept vs 60% for a baseline rerun); saying check
+findings come on top of the usual decisions and outside the 0-3 cap raised it to 67%, at about
+1.5x the decisions of a baseline run on Python PRs.
 
 The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one

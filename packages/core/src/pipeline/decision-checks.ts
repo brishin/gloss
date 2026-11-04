@@ -56,10 +56,13 @@ export const DECISION_CHECKS: readonly DecisionCheck[] = [...PYTHON_CHECKS];
 
 /**
  * "Outrank the guidance to skip refactors" matters: with a plain "check for these" intro the
- * model skipped the services-as-parameter finding on every PR that had it.
+ * model skipped the services-as-parameter finding on every PR that had it. "On top of" matters
+ * too: without it the model made room for check findings by dropping usual decisions, keeping
+ * about 43% of the decisions two of three baseline runs agreed on (a baseline run keeps 60%);
+ * with it, 67%.
  */
 const INTRO =
-  'The reviewer asks these of every change like this one, and they outrank the guidance to skip refactors and code structure. Go through every function this group adds or changes, not only the main one, and answer each check against it. For each place the code falls short, write a decision on the line, naming the function and what to do instead; rate it medium unless it is worse. A check the code passes, or one that does not apply, gets nothing: never write that code passes a check.';
+  'The reviewer asks these of every change like this one. They come on top of the decisions you would write for this group anyway: first find those as usual, then add what the checks find, and do not drop a decision to make room, since check findings do not count toward the usual 0-3 decisions per group. The checks outrank the guidance to skip refactors and code structure. Go through every function this group adds or changes, not only the main one, and answer each check against it. For each place the code falls short, write a decision on the line, naming the function and what to do instead; rate it medium unless it is worse. A check the code passes, or one that does not apply, gets nothing: never write that code passes a check.';
 
 /** The notes prompt's checks section for a group, or nothing when no check applies to its files. */
 export function checksSection(
