@@ -245,7 +245,7 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner } reviewDecision
       latestReviews(first: 20) { nodes { author { login } state } }
-      latestOpinionatedReviews(first: 20) { nodes { author { login } state } }
+      latestOpinionatedReviews(first: 100) { nodes { author { login } state } }
       reviewRequests(first: 20) {
         nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
       }
