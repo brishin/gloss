@@ -41,10 +41,14 @@ page) are sets of rules, each with an optional `files` glob tested against chang
 notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
 system text, so tours without rules keep their prompts and caches. A rule wins over the built-in
 guidance, and its priority is used. All sets join the tour cache key only when there are some. On
-save, Jev checks each rule, read with its files pattern (`decision-rules.ts`, one call per rule,
+save, Jev checks each rule, read with its files glob (`decision-rules.ts`, one call per rule,
 cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RULES`, a short
 summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
 rule. The findings only advise; the save always goes through.
+The settings page shows one row per rule with its own files glob; rows save as sets (rows that
+share a glob share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
+`editDecisionRules`, define tier) rewrites the whole list from a request in words; the result is an
+unsaved draft that the user saves (and Jev checks) like a hand edit.
 
 A reviewed repository can commit its own rule sets, same shape, at `.gloss/config.json`
 (`repo-config.ts`), and an org can commit the same file in its `.github` repository for all its

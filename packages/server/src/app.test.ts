@@ -589,6 +589,25 @@ describe('decision rules API', () => {
     expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
   });
 
+  it('has the model rewrite the rules without saving them', async () => {
+    const rules = rulesLayer();
+    const model = createFakeModelClient({
+      answers: { define: { rules: [{ text: 'Flag B', files: '' }], reply: 'Swapped A for B.' } },
+    });
+    const { client, app } = setup(scripted().run, { extra: rules.layer, model });
+    expect(await client.editDecisionRules({ rules: [{ text: 'Flag A' }], instruction: 'replace A with B' })).toEqual({
+      rules: [{ text: 'Flag B' }],
+      reply: 'Swapped A for B.',
+    });
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
+    const form = await app.request('/api/rules/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ rules: [], instruction: 'x' }),
+    });
+    expect(form.status).toBe(403);
+  });
+
   it('has no rules when the backend keeps none', async () => {
     const { app } = setup(scripted().run);
     expect((await app.request('/api/rules')).status).toBe(404);

@@ -228,6 +228,7 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     saveJudgeKey: missing('Setup'),
     decisionRules: missing('Decision rules'),
     saveDecisionRules: missing('Decision rules'),
+    editDecisionRules: missing('Decision rules'),
     updateStatus: () => Promise.resolve({ behind: 0 }),
     update: missing('Update'),
   };
