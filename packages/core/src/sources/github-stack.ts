@@ -171,6 +171,7 @@ interface PullGraphJson {
         headRepository: { nameWithOwner: string } | null;
         reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
         latestReviews: { nodes: ReviewJson[] } | null;
+        latestOpinionatedReviews: { nodes: ReviewJson[] } | null;
         reviewRequests: { nodes: ReviewRequestJson[] } | null;
       } | null;
       defaultBranchRef: { name: string } | null;
@@ -220,8 +221,9 @@ export function reviewersOf(
 
 /**
  * GitHub's decision when the repo's rules give one. Without rules GitHub gives none, so it
- * follows the submitted reviews: any change request wins, else any approval. Pass the
- * reviews without review requests: asking a reviewer again does not withdraw their verdict.
+ * follows each reviewer's latest approval or change request: any change request wins, else
+ * any approval. Pass those reviews without review requests: neither a later comment nor
+ * asking a reviewer again withdraws a verdict.
  */
 export function reviewDecisionOf(
   decision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null | undefined,
@@ -243,6 +245,7 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner } reviewDecision
       latestReviews(first: 20) { nodes { author { login } state } }
+      latestOpinionatedReviews(first: 20) { nodes { author { login } state } }
       reviewRequests(first: 20) {
         nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
       }
@@ -308,7 +311,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
       );
       const reviewDecision = reviewDecisionOf(
         pull.reviewDecision,
-        reviewersOf(pull.latestReviews?.nodes ?? [], [], pull.author?.login),
+        reviewersOf(pull.latestOpinionatedReviews?.nodes ?? [], [], pull.author?.login),
       );
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
