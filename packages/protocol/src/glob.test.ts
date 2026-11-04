@@ -30,4 +30,16 @@ describe('globMatcher', () => {
   ])('%s on %s', (glob, path, matches) => {
     expect(globMatcher(glob)(path)).toBe(matches);
   });
+
+  it('takes time in proportion to the path, whatever the glob', () => {
+    const start = performance.now();
+    expect(globMatcher(`${'*a'.repeat(200)}b.ts`)(`${'a'.repeat(400)}.ts`)).toBe(false);
+    expect(globMatcher(`${'**/a'.repeat(50)}b`)(`${'a/'.repeat(200)}c`)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it('matches nothing past 64 brace alternatives', () => {
+    expect(globMatcher('{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}')('aaaaaa')).toBe(true);
+    expect(globMatcher('{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}')('aaaaaaa')).toBe(false);
+  });
 });

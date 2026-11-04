@@ -261,7 +261,7 @@ export function buildEditRulesPrompt(request: {
 /**
  * The model rewrites the rules from a request in words; nothing is saved, the settings page
  * shows the result as a draft. Model output is untrusted: blank rules go, repeats go, and the
- * list is capped. A glob that cannot compile matches nothing (`globToRegExp`).
+ * list is capped. A glob that cannot be read matches nothing (`globMatcher`).
  */
 export const editDecisionRules = Effect.fnUntraced(function* (request: {
   rules: readonly RuleRow[];
