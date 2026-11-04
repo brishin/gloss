@@ -534,6 +534,22 @@ describe('review', () => {
     expect(after.review.comments.map((comment) => comment.body)).toEqual(['later']);
   });
 
+  test('a comment written in the walkthrough is written there, and saves as a plain line comment', () => {
+    const [writing] = run(reviewable(), {
+      type: 'CommentStarted',
+      anchor: { fileId: 'f1', side: 'additions', line: 2 },
+      place: 'walk:0:0',
+    });
+    expect(writing.review.composing?.place).toBe('walk:0:0');
+    const [saved] = run(writing, { type: 'CommentBodyChanged', body: 'why?' }, { type: 'CommentSaved' });
+    const draft = saved.review.comments[0]!;
+    expect(draft).toMatchObject({ fileId: 'f1', side: 'additions', line: 2, body: 'why?' });
+    expect(draft).not.toHaveProperty('place');
+    // Edited from its group, it opens there.
+    const [editing] = run(saved, { type: 'CommentEdited', id: draft.id });
+    expect(editing.review.composing).toMatchObject({ editing: draft.id, place: undefined });
+  });
+
   test('request changes without a word opens the dialog with the reason instead of sending', () => {
     const [next, cmds] = run(
       reviewable(),
