@@ -1,8 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import process from 'node:process';
-import { type DecisionRuleSet, DecisionRuleSetSchema } from '@gloss/protocol';
-import * as v from 'valibot';
+import { type DecisionRuleSet, readRuleSets } from '@gloss/protocol';
 import { glossPath } from './paths.ts';
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -118,18 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
  * that does not parse (a hand edit) is left out; a plain list of strings is one set for all files.
  */
 export function readDecisionRules(file: ConfigFile = readConfigFile()): DecisionRuleSet[] {
-  const saved: unknown = file.decisionRules;
-  if (!Array.isArray(saved)) {
-    return [];
-  }
-  if (saved.every((rule) => typeof rule === 'string')) {
-    const rules = saved.map((rule: string) => rule.trim()).filter(Boolean);
-    return rules.length ? [{ rules }] : [];
-  }
-  return saved.flatMap((set) => {
-    const parsed = v.safeParse(DecisionRuleSetSchema, set);
-    return parsed.success ? [parsed.output] : [];
-  });
+  return readRuleSets(file.decisionRules);
 }
 
 /**

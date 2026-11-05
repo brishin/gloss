@@ -192,7 +192,12 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
     case 'ScrollToGroup':
       return once(nextFrame.pipe(Effect.map(() => scrollToSection(groupSection(cmd.key)))));
     case 'ScrollToFile':
-      return once(nextFrame.pipe(Effect.map(() => scrollToSection(fileSection(cmd.fileId)))));
+      return once(
+        nextFrame.pipe(
+          Effect.map(() => scrollToSection(fileSection(cmd.fileId))),
+          Effect.andThen(cmd.line === undefined ? Effect.void : scrollToLine(cmd.fileId, cmd.line)),
+        ),
+      );
     case 'RestoreGroup':
       return once(restore(() => groupSection(cmd.key)));
     case 'RestoreFile':
@@ -349,6 +354,47 @@ const groupSection = (key: string) => document.getElementById(`group-${key}`);
 function scrollToSection(section: HTMLElement | null) {
   section?.scrollIntoView({ block: 'start', behavior: 'instant' });
 }
+
+/**
+ * A new-side line's row in a file's diff. pierre renders into an open shadow root; in a unified
+ * diff a removed row carries its old line number, so it never counts.
+ */
+function lineRow(fileId: string, line: number): HTMLElement | undefined {
+  const hosts = fileSection(fileId)?.querySelectorAll('*') ?? [];
+  for (const host of hosts) {
+    const row = host.shadowRoot?.querySelector<HTMLElement>(
+      `[data-line="${line}"]:not([data-line-type="change-deletion"])`,
+    );
+    if (row) {
+      return row;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Centres a line of a file's diff and flashes it, once its hunk has rendered (a file just opened
+ * renders over a few frames). A line the diff doesn't show leaves the file's header in place.
+ */
+const scrollToLine = (fileId: string, line: number) =>
+  Effect.gen(function* () {
+    for (let frame = 0; frame < LINE_FRAMES; frame++) {
+      const row = lineRow(fileId, line);
+      if (row) {
+        row.scrollIntoView({ block: 'center', behavior: 'instant' });
+        // From pierre's selection colour back to the row's own.
+        row.animate([{ backgroundColor: 'color-mix(in srgb, var(--diffs-selection-base) 40%, transparent)' }], {
+          duration: 1600,
+          easing: 'ease-out',
+        });
+        return;
+      }
+      yield* nextFrame;
+    }
+  });
+
+/** About a second at 60fps: long enough for a highlighted hunk, short enough not to yank the page later. */
+const LINE_FRAMES = 60;
 
 /** The group and file whose tops last crossed the reading line, and what is on screen at the bottom. */
 function spy(): Spied {

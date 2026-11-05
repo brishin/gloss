@@ -1,4 +1,4 @@
-import type { CallFrame, DiffHunk, Excerpt, FileChange } from '@gloss/protocol';
+import type { CallFrame, DiffHunk, DiffSide, Excerpt, FileChange } from '@gloss/protocol';
 
 /**
  * The lines of `hunk` whose new-side number is in `from`..`to`, with the removed lines that sit
@@ -74,6 +74,38 @@ export function excerptLabel(file: FileChange): { dir: string; base: string; lin
   };
 }
 
+/** Each row's parent: the nearest row before it one level up, or -1 for a root. */
+export function callParents(rows: readonly { depth: number }[]): number[] {
+  return rows.map((row, index) => {
+    for (let at = index - 1; at >= 0; at--) {
+      if (rows[at]!.depth < row.depth) {
+        return at;
+      }
+    }
+    return -1;
+  });
+}
+
+/**
+ * Which row each snippet hangs under: the last row of the first run of rows that point at it,
+ * so a snippet several rows share shows once, after all of them. Row index to snippet index.
+ */
+export function snippetHosts(rows: readonly { snippet?: number }[]): Map<number, number> {
+  const hosts = new Map<number, number>();
+  const placed = new Set<number>();
+  rows.forEach((row, index) => {
+    const snippet = row.snippet;
+    if (snippet === undefined || placed.has(snippet)) {
+      return;
+    }
+    if (rows[index + 1]?.snippet !== snippet) {
+      hosts.set(index, snippet);
+      placed.add(snippet);
+    }
+  });
+  return hosts;
+}
+
 /** The frames a step covers plus their callers, in tree order. */
 export function stepFrames(
   frames: readonly CallFrame[],
@@ -89,18 +121,6 @@ export function stepFrames(
   return frames.map((_, index) => index).filter((index) => keep.has(index));
 }
 
-/** Each frame's caller: the nearest frame before it one level up, or -1 for an entry point. */
-export function callParents(frames: readonly CallFrame[]): number[] {
-  return frames.map((frame, index) => {
-    for (let at = index - 1; at >= 0; at--) {
-      if (frames[at]!.depth < frame.depth) {
-        return at;
-      }
-    }
-    return -1;
-  });
-}
-
 /** Where each frame's definition is: the file only when it differs from the frame above. */
 export function callLocations(frames: readonly CallFrame[]): string[] {
   return frames.map((frame, index) => {
@@ -109,4 +129,14 @@ export function callLocations(frames: readonly CallFrame[]): string[] {
     const line = frame.line === undefined ? '' : `:${frame.line}`;
     return sameFile && line ? line : `${file}${file ? line : ''}`;
   });
+}
+
+/** Whether an excerpt's one hunk shows `line` on `side`, so a comment there can sit in it. */
+export function excerptShows(file: FileChange, side: DiffSide, line: number): boolean {
+  const hunk = file.hunks[0];
+  if (!hunk) {
+    return false;
+  }
+  const [start, count] = side === 'additions' ? [hunk.newStart, hunk.newLines] : [hunk.oldStart, hunk.oldLines];
+  return line >= start && line < start + count;
 }

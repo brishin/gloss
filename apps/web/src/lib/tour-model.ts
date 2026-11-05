@@ -126,7 +126,8 @@ export type Msg =
   | { type: 'RailOpened'; ref: SourceRef; offset: number }
   /** Shift+K/J: opens the next PR up the stack (the one built on this one) or the previous one. */
   | { type: 'StackStepped'; by: Step }
-  | { type: 'FileJumped'; fileId: string }
+  /** `line` (new side) lands the jump on that line of the file's diff, when the diff shows it. */
+  | { type: 'FileJumped'; fileId: string; line?: number }
   | { type: 'FileStepped'; by: Step }
   | { type: 'NoteStepped'; by: Step }
   /** The reader scrolled (or the page moved under them): the position follows the page. */
@@ -165,8 +166,8 @@ export type Msg =
   | { type: 'ReviewSent'; diffId: string; verdict: ReviewVerdict; url: string }
   | { type: 'ReviewFailed'; diffId: string; error: string }
   | { type: 'ReviewNoticeDismissed' }
-  | { type: 'CommentStarted'; anchor: CommentAnchor }
-  | { type: 'CommentEdited'; id: string }
+  | { type: 'CommentStarted'; anchor: CommentAnchor; place?: string }
+  | { type: 'CommentEdited'; id: string; place?: string }
   | { type: 'CommentBodyChanged'; body: string }
   | { type: 'CommentCancelled' }
   | { type: 'CommentSaved' }
@@ -197,8 +198,11 @@ export type Cmd =
   /** Jumps are instant: the reader is going there, not watching the page slide. */
   | { type: 'ScrollToTop' }
   | { type: 'ScrollToGroup'; key: string }
-  /** After the next render, so an expanded file's header lands under the sticky bars. */
-  | { type: 'ScrollToFile'; fileId: string }
+  /**
+   * After the next render, so an expanded file's header lands under the sticky bars; with a
+   * `line` (new side), that line's row lands mid-screen instead, once its hunk has rendered.
+   */
+  | { type: 'ScrollToFile'; fileId: string; line?: number }
   /** Scrolls to the group or file and holds it there while the page above it still grows. */
   | { type: 'RestoreGroup'; key: string }
   | { type: 'RestoreFile'; fileId: string }
@@ -502,7 +506,7 @@ function step(model: Model, msg: Msg): Next {
       return target ? [model, [{ type: 'OpenRef', ref: target }]] : [model, []];
     }
     case 'FileJumped':
-      return jump(model, msg.fileId, true);
+      return jump(model, msg.fileId, true, msg.line);
     case 'FileStepped':
       return stepFile(model, msg.by);
     case 'NoteStepped':
@@ -646,10 +650,10 @@ function stepReview(model: Model, msg: Msg): Next {
     case 'ReviewNoticeDismissed':
       return [set({ sent: undefined }), []];
     case 'CommentStarted':
-      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '' } }), []] : [model, []];
+      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '', place: msg.place } }), []] : [model, []];
     case 'CommentEdited': {
       const draft = review.comments.find((comment) => comment.id === msg.id);
-      return draft ? [set({ composing: { ...draft, editing: draft.id } }), []] : [model, []];
+      return draft ? [set({ composing: { ...draft, editing: draft.id, place: msg.place } }), []] : [model, []];
     }
     case 'CommentBodyChanged':
       return review.composing ? [set({ composing: { ...review.composing, body: msg.body } }), []] : [model, []];
@@ -661,7 +665,7 @@ function stepReview(model: Model, msg: Msg): Next {
       if (!composing || !path || !composing.body.trim()) {
         return [model, []];
       }
-      const { editing, ...anchor } = composing;
+      const { editing, place: _place, ...anchor } = composing;
       const draft = { ...anchor, id: editing ?? `${anchor.fileId}:${anchor.side}:${anchor.line}:${Date.now()}`, path };
       const comments = editing
         ? review.comments.map((comment) => (comment.id === editing ? draft : comment))
@@ -694,8 +698,8 @@ function select(model: Model, key: string): Next {
   ];
 }
 
-/** Jumps to a file, opening it; `push` makes a jump into another group a history entry. */
-function jump(model: Model, fileId: string, push = false): Next {
+/** Jumps to a file (at `line`, if given), opening it; `push` makes a jump into another group a history entry. */
+function jump(model: Model, fileId: string, push = false, line?: number): Next {
   const group = groupOfFile(groupsOf(model), fileId);
   const moved = group !== undefined && group.key !== selectedKey(model);
   const position = moved ? { g: group.key, f: undefined } : model.position;
@@ -709,7 +713,7 @@ function jump(model: Model, fileId: string, push = false): Next {
     },
     [
       ...(moved && push ? [{ type: 'Navigate', position, replace: false } as const] : []),
-      { type: 'ScrollToFile', fileId },
+      line === undefined ? { type: 'ScrollToFile', fileId } : { type: 'ScrollToFile', fileId, line },
     ],
   ];
 }

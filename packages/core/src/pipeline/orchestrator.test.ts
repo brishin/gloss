@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
 import { DecisionRules, type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
-import { DiffSources } from '../sources/index.ts';
+import { DiffSources, EMPTY_REPO_CONFIG, type RepoConfig, RepoConfigs } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
 
 let repo: string;
@@ -51,6 +51,7 @@ async function tour(options: {
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
   rules?: DecisionRuleSet[];
+  repoConfig?: RepoConfig;
 }): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
@@ -60,6 +61,9 @@ async function tour(options: {
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
     options.rules
       ? Layer.succeed(DecisionRules, { get: Effect.succeed(options.rules), save: () => Effect.void })
+      : Layer.empty,
+    options.repoConfig
+      ? Layer.succeed(RepoConfigs, { get: () => Effect.succeed(options.repoConfig ?? EMPTY_REPO_CONFIG) })
       : Layer.empty,
   );
   const trace = new Map<string, TraceStep>();
@@ -112,7 +116,14 @@ const sketch = {
 function fakeModel() {
   return createFakeModelClient({
     answers: {
-      define: (request) => (request.resultName === 'sketch' ? sketchAnswer : groupsAnswer),
+      define: (request) =>
+        request.resultName === 'sketch'
+          ? sketchAnswer
+          : request.resultName === 'walkthrough'
+            ? { decisions: [] }
+            : request.resultName === 'callpath'
+              ? { frames: [], steps: [] }
+              : groupsAnswer,
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -229,8 +240,8 @@ describe('runTour', () => {
 
     const sets = [
       { rules: ['Flag every new environment variable'] },
-      { files: '^src/auth\\.ts$', rules: ['Flag a weaker auth check as urgent'] },
-      { files: '\\.py$', rules: ['Flag a service passed by global'] },
+      { files: 'src/auth.ts', rules: ['Flag a weaker auth check as urgent'] },
+      { files: '*.py', rules: ['Flag a service passed by global'] },
     ];
     const second = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     // A tour cached without rules is not reused once there are rules.
@@ -252,7 +263,23 @@ describe('runTour', () => {
     expect(third.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
   });
 
-  it('writes a walkthrough on every tour, right after the groups are defined', async () => {
+  it("puts the repository's rules before the user's, and keys the tour on them", async () => {
+    const cache = createMemoryCacheStore();
+    const model = fakeModel();
+    const rules = [{ rules: ['Flag every new environment variable'] }];
+    await tour({ model, judge: fakeJudge(), cache, rules });
+    const before = model.calls.length;
+    const repoConfig = { decisionRules: [{ rules: ['Flag a new public endpoint'] }] };
+    const second = await tour({ model, judge: fakeJudge(), cache, rules, repoConfig });
+    expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
+    const define = model.calls.slice(before).find((call) => call.resultName === 'groups')!.prompt;
+    expect(define).toContain('- Flag a new public endpoint\n- Flag every new environment variable');
+    // An empty repository config keys the tour as no config does.
+    const third = await tour({ model, judge: fakeJudge(), cache, rules, repoConfig: EMPTY_REPO_CONFIG });
+    expect(third.events[0]).toMatchObject({ type: 'job.started', cached: true });
+  });
+
+  it('reads the change-wide decisions in code, right after the groups are defined', async () => {
     const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
     const hunkId = (prompt: string) =>
       new RegExp(`### ${authId(prompt)} [^\\n]*\\n@@ hunk (h[0-9a-f]+)`).exec(prompt)![1]!;
@@ -262,15 +289,48 @@ describe('runTour', () => {
         define: (request) => {
           if (request.resultName === 'walkthrough') {
             const fileId = authId(request.prompt);
-            const excerpt = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
+            const at = {
+              fileId,
+              hunkId: hunkId(request.prompt),
+              from: 1,
+              to: 3,
+              focus: 2,
+              caption: 'The check.',
+              note: '',
+            };
+            const call = { receiver: '', args: '', label: '', note: '', fileId: '', line: 0, snippet: -1 };
+            return {
+              decisions: [
+                {
+                  decision: 0,
+                  title: 'Only admins pass',
+                  why: 'Compares the name.',
+                  instead: 'A role table',
+                  check: 'Existing sessions keep access.',
+                  snippets: [at],
+                  tree: 'calls',
+                  nodes: [
+                    { ...call, depth: 0, name: 'route', status: 'same' },
+                    { ...call, depth: 1, name: 'check', args: 'user', fileId, line: 1, status: 'changed', snippet: 0 },
+                  ],
+                  refs: [],
+                  links: [{ to: 1, text: 'The docs say so.' }],
+                },
+              ],
+            };
+          }
+          if (request.resultName === 'callpath') {
+            // A path the decision's tree does not walk: its new function is not on that tree.
+            const fileId = authId(request.prompt);
+            const at = { fileId, hunkId: hunkId(request.prompt), from: 1, to: 3 };
             return {
               frames: [
-                { depth: 0, receiver: '', name: 'route', args: '', fileId: '', line: 0, status: 'same' },
-                { depth: 1, receiver: '', name: 'check', args: 'user', fileId, line: 1, status: 'changed' },
+                { depth: 0, receiver: '', name: 'login', args: '', fileId: '', line: 0, status: 'same' },
+                { depth: 1, receiver: '', name: 'audit', args: 'user', fileId, line: 1, status: 'new' },
               ],
               steps: [
-                { title: 'The route asks', text: 'Calls `check`.', frames: [0], excerpts: [excerpt] },
-                { title: 'Only admins pass', text: 'Compares the name.', frames: [1, 9], excerpts: [excerpt] },
+                { title: 'Login audits', text: 'Calls the audit.', frames: [0], excerpts: [at] },
+                { title: 'The audit', text: 'Logs the user.', frames: [1], excerpts: [at] },
               ],
             };
           }
@@ -285,17 +345,32 @@ describe('runTour', () => {
       },
       judge: fakeJudge(),
     });
-    expect(finished.walkthrough?.frames).toEqual([
-      { depth: 0, name: 'route', status: 'same' },
-      { depth: 1, name: 'check', args: 'user', path: 'src/auth.ts', line: 1, status: 'changed' },
+    const [walk] = finished.walkthrough!.decisions;
+    expect(walk).toMatchObject({ decision: 0, title: 'Only admins pass', instead: 'A role table' });
+    expect(walk!.tree).toEqual([
+      { kind: 'call', depth: 0, name: 'route', status: 'same' },
+      {
+        kind: 'call',
+        depth: 1,
+        name: 'check',
+        args: 'user',
+        path: 'src/auth.ts',
+        line: 1,
+        status: 'changed',
+        snippet: 0,
+      },
     ]);
-    expect(finished.walkthrough?.steps.map((step) => step.frames)).toEqual([[0], [1]]);
-    const walk = model.calls.find((call) => call.resultName === 'walkthrough');
-    expect(walk?.prompt).toContain(groupsAnswer.overallSummary);
+    expect(walk!.snippets).toEqual([expect.objectContaining({ from: 1, to: 3, focus: 2, caption: 'The check.' })]);
+    expect(finished.walkthrough!.frames.map((frame) => frame.name)).toEqual(['login', 'audit']);
+    expect(finished.walkthrough!.steps.map((step) => step.title)).toEqual(['Login audits', 'The audit']);
+    expect(model.calls.some((call) => call.resultName === 'callpath')).toBe(true);
+    // The prompt numbers the decisions it reads, from 0.
+    const call = model.calls.find((call) => call.resultName === 'walkthrough');
+    expect(call?.prompt).toContain(`0. (urgent) ${groupsAnswer.decisions[0]!.text}`);
     expect(events.findIndex((event) => event.type === 'tour.walkthrough')).toBeGreaterThan(0);
     expect(events.reduce(reduceTourEvent, initialTourState()).walkthrough).toEqual(finished.walkthrough);
 
-    // Without a call path the model's answer has no steps, and the tour has no walkthrough.
+    // When no decision shows in code, the tour has no walkthrough.
     const plain = fakeModel();
     const other = await tour({ model: plain, judge: fakeJudge() });
     expect(plain.calls.some((call) => call.resultName === 'walkthrough')).toBe(true);
@@ -321,6 +396,7 @@ describe('runTour', () => {
         'place',
         'sketch',
         'walkthrough',
+        'callpath',
       ].toSorted(),
     );
     for (const step of steps) {
@@ -424,14 +500,15 @@ describe('runTour', () => {
     };
     const { trace } = await tour({ model });
     // A changed file reads from the working tree, any other file from HEAD; nothing outside the repository.
-    expect(outputs).toHaveLength(2);
-    expect(outputs[0]).toEqual(outputs[1]);
+    expect(outputs).toHaveLength(3);
+    expect(new Set(outputs.map((answers) => answers.join('\n'))).size).toBe(1);
     expect(outputs[0]).toEqual([
       '1 export function check(user: string) {\n2   return user === "admin";\n3 }',
       '1 api/*.gen.ts linguist-generated',
       '../outside.txt is not a path inside the repository.',
     ]);
     expect(trace.get('walkthrough')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+    expect(trace.get('callpath')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('notes:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
   });
 

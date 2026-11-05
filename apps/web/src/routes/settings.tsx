@@ -35,15 +35,6 @@ function Settings() {
   );
 }
 
-const badPattern = (pattern: string | undefined) => {
-  try {
-    new RegExp(pattern ?? '');
-    return false;
-  } catch {
-    return true;
-  }
-};
-
 const emptyRow: RuleRow = { text: '' };
 
 /** Rows as typed and as saved compare by the sets they save as. */
@@ -125,7 +116,6 @@ function DecisionRules() {
   const savedRows = rowsFromSets(saved.sets);
   const { sets, refs } = setsFromRows(rows);
   const dirty = savedAs(rows) !== JSON.stringify(saved.sets);
-  const invalid = rows.some((row) => badPattern(row.files?.trim()));
   const waiting = AsyncResult.isWaiting(saving);
   const thinking = asked !== undefined;
   const busy = waiting || thinking;
@@ -152,14 +142,14 @@ function DecisionRules() {
         <h2>Decisions to flag</h2>
       </div>
       <Text color="secondary">
-        Your own rules, added to the ones gloss flags by default. A files pattern keeps a rule to the files whose path
-        it matches.
+        Your own rules, added to the ones gloss flags by default. A files glob, such as *.py or src/**, keeps a rule to
+        the files whose path it matches.
       </Text>
       <form
         className="rules-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!invalid) save(sets);
+          save(sets);
         }}
       >
         <ul className="rules-rows">
@@ -178,14 +168,11 @@ function DecisionRules() {
                 <TextInput
                   label="Files"
                   isLabelHidden
-                  placeholder="All files"
+                  placeholder="All files, or a glob such as *.py"
                   value={row.files ?? ''}
                   isReadOnly={busy}
                   onChange={(files) => update(index, { files })}
                   containerClassName="rules-files"
-                  status={
-                    badPattern(row.files?.trim()) ? { type: 'error', message: 'Not a regular expression' } : undefined
-                  }
                 />
                 <IconButton
                   label="Remove rule"
@@ -205,13 +192,7 @@ function DecisionRules() {
           ))}
         </ul>
         <div className="setup-actions">
-          <Button
-            type="submit"
-            variant="secondary"
-            label="Save"
-            isDisabled={!dirty || invalid || thinking}
-            isLoading={waiting}
-          />
+          <Button type="submit" variant="secondary" label="Save" isDisabled={!dirty || thinking} isLoading={waiting} />
           <Button variant="ghost" label="Add rule" isDisabled={busy} onClick={() => setRows([...rows, emptyRow])} />
           {waiting && (
             <Text color="secondary" size="sm">

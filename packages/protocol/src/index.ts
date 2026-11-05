@@ -7,6 +7,7 @@ export * from './events.ts';
 export * from './login.ts';
 export * from './reducer.ts';
 export * from './review.ts';
+export * from './glob.ts';
 export * from './rules.ts';
 export * from './setup.ts';
 export * from './snapshot.ts';
@@ -18,4 +19,4 @@ export * from './trace.ts';
 export * from './update.ts';
 
 /** Bump when the pipeline's output can differ for the same inputs; it is part of every cache key. */
-export const PIPELINE_VERSION = '2';
+export const PIPELINE_VERSION = '4';

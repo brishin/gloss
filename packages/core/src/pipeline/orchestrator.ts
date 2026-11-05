@@ -29,7 +29,7 @@ import type * as v from 'valibot';
 import { DecisionRules, JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
-import { DiffSources, readRepoFile } from '../sources/index.ts';
+import { DiffSources, EMPTY_REPO_CONFIG, readRepoFile, RepoConfigs } from '../sources/index.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -54,8 +54,11 @@ import {
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
+  buildCallPathPrompt,
   buildSketchPrompt,
   buildWalkthroughPrompt,
+  CALL_PATH_SYSTEM,
+  CallPathResultSchema,
   DEFINE_SYSTEM,
   flaggedRisks,
   DefineSchema,
@@ -132,7 +135,7 @@ export function runTour(options: RunTourOptions): Stream.Stream<TourEventBody, P
   );
 }
 
-/** What a tour needs; a `JudgeClient` and `DecisionRules` are optional and read with `serviceOption`. */
+/** What a tour needs; a `JudgeClient`, `DecisionRules` and `RepoConfigs` are optional and read with `serviceOption`. */
 export type Services = ModelClient | DiffSources | TourCache;
 
 const tourProgram = Effect.fnUntraced(function* (
@@ -144,7 +147,8 @@ const tourProgram = Effect.fnUntraced(function* (
   const judge = Option.getOrUndefined(yield* Effect.serviceOption(JudgeClient));
   const cache = yield* TourCache;
   const rulesService = Option.getOrUndefined(yield* Effect.serviceOption(DecisionRules));
-  const ruleSets: readonly DecisionRuleSet[] = rulesService ? yield* rulesService.get : [];
+  const userRuleSets: readonly DecisionRuleSet[] = rulesService ? yield* rulesService.get : [];
+  const repoConfigs = Option.getOrUndefined(yield* Effect.serviceOption(RepoConfigs));
   const source = (yield* DiffSources).make(ref);
   let state = initialTourState();
   const send = (event: TourEventBody) => {
@@ -192,7 +196,16 @@ const tourProgram = Effect.fnUntraced(function* (
     new PipelineError({ stage: 'fetch', code: 'source', message: messageOf(cause), cause });
 
   // Stage 0: fetch. A finished tour for this exact head and config replays at once.
-  const fingerprint = yield* Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError });
+  // The org's and repository's configs are read beside the fingerprint, so they add no wait. Rule
+  // sets merge broadest first (org, repo, user), so the user's own rules are the last word.
+  const [fingerprint, repoConfig] = yield* Effect.all(
+    [
+      Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError }),
+      repoConfigs ? repoConfigs.get(ref, { revalidate: options.force }) : Effect.succeed(EMPTY_REPO_CONFIG),
+    ],
+    { concurrency: 2 },
+  );
+  const ruleSets = [...repoConfig.decisionRules, ...userRuleSets];
   const tourKey = tourCacheKey(sourceKey, fingerprint, models, ruleSets);
   const cachedTour = options.force ? undefined : cache.get<Tour>(tourKey);
   send({ type: 'job.started', ref, sourceKey, pipelineVersion: PIPELINE_VERSION, models, cached: !!cachedTour });
@@ -481,59 +494,98 @@ const tourProgram = Effect.fnUntraced(function* (
     });
 
   /**
-   * The walkthrough: its own call on the define model once groups are defined, with a numbered
-   * diff so its call tree and excerpts can point at lines. The model returns nothing for a
-   * change with no call path, and the normalizer drops a weak one. A failed call is only a
-   * warning; the tour reads the same without it.
+   * One walkthrough call on the define model, traced and cached, with `read_file`. `end` closes
+   * its trace step once the answer is normalized; a failed call is only a warning (undefined).
    */
-  const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
+  const askWalk = <S extends v.GenericSchema>(
+    kind: 'walkthrough' | 'callpath',
+    system: string,
+    walkPrompt: string,
+    result: S,
+  ) =>
     Effect.suspend(() => {
-      const walkPrompt = buildWalkthroughPrompt(meta, files, overallSummary, decisions);
-      trace.begin('walkthrough', 'walkthrough', {
+      trace.begin(kind, kind, {
         inputs: ['define'],
         model: models.define,
-        system: WALKTHROUGH_SYSTEM,
+        system,
         prompt: walkPrompt,
         sections: promptSections(walkPrompt, { 'The tour so far': 'define' }),
       });
       const reading = reader();
       return cached(
-        'walkthrough',
+        kind,
         { PROMPTS_VERSION, model: models.define, prompt: walkPrompt },
-        prompt('walkthrough', {
-          tier: 'define',
-          system: WALKTHROUGH_SYSTEM,
-          prompt: walkPrompt,
-          result: WalkthroughResultSchema,
-          resultName: 'walkthrough',
-          tools: [reading.tool],
-        }),
+        prompt(kind, { tier: 'define', system, prompt: walkPrompt, result, resultName: kind, tools: [reading.tool] }),
         models.define,
       ).pipe(
-        Effect.map(({ value, hit }) => {
-          const { walkthrough, warnings } = normalizeWalkthrough(value, files);
-          for (const message of warnings) {
-            warn('define', message);
-          }
-          trace.end('walkthrough', {
-            cached: hit,
-            output: value,
-            ...readFields(reading.reads()),
-            summary: walkthrough ? `${walkthrough.steps.length} steps` : 'none',
-            ...(warnings.length ? { warnings } : {}),
-          });
-          if (walkthrough) {
-            send({ type: 'tour.walkthrough', walkthrough });
-          }
-        }),
+        Effect.map(({ value, hit }) => ({
+          value,
+          end: (summary: string, warnings: string[]) =>
+            trace.end(kind, {
+              cached: hit,
+              output: value,
+              ...readFields(reading.reads()),
+              summary,
+              ...(warnings.length ? { warnings } : {}),
+            }),
+        })),
         Effect.catchTag('ModelError', (error) =>
           Effect.sync(() => {
-            warn('define', `Writing the walkthrough failed: ${error.message}`);
-            trace.end('walkthrough', { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
+            warn('define', `Writing the ${kind === 'callpath' ? 'call path' : 'walkthrough'} failed: ${error.message}`);
+            trace.end(kind, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
+            return undefined;
           }),
         ),
       );
     });
+
+  /**
+   * The walkthrough: two calls on the define model once groups are defined, each with a numbered
+   * diff so snippets, trees and excerpts can point at lines. One reads each change-wide decision
+   * in code (none without decisions); the other walks the change's call path, which is dropped
+   * when the decisions' trees already walk it. Asked in one call, the model left the path empty.
+   * The normalizer drops what has no code to show; the overview still lists the decisions.
+   */
+  const writeWalkthrough = (overallSummary: string, decisions: NonNullable<Tour['decisions']>) =>
+    Effect.all(
+      [
+        decisions.length
+          ? askWalk(
+              'walkthrough',
+              WALKTHROUGH_SYSTEM,
+              buildWalkthroughPrompt(meta, files, overallSummary, decisions),
+              WalkthroughResultSchema,
+            )
+          : Effect.succeed(undefined),
+        askWalk(
+          'callpath',
+          CALL_PATH_SYSTEM,
+          buildCallPathPrompt(meta, files, overallSummary, decisions),
+          CallPathResultSchema,
+        ),
+      ],
+      { concurrency: 2 },
+    ).pipe(
+      Effect.map(([walk, path]) => {
+        const { walkthrough, warnings } = normalizeWalkthrough(
+          { ...walk?.value, ...path?.value },
+          files,
+          decisions.length,
+        );
+        for (const message of warnings) {
+          warn('define', message);
+        }
+        const onPath = (message: string) => message.includes('call path');
+        walk?.end(
+          walkthrough ? `${walkthrough.decisions.length} of ${decisions.length} decisions` : 'none',
+          warnings.filter((message) => !onPath(message)),
+        );
+        path?.end(walkthrough?.steps.length ? `${walkthrough.steps.length} steps` : 'none', warnings.filter(onPath));
+        if (walkthrough) {
+          send({ type: 'tour.walkthrough', walkthrough });
+        }
+      }),
+    );
 
   /** Asks Jev about every file; a failed file is a warning, never the end of the tour. */
   const judgeEach = (

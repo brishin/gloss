@@ -7,11 +7,14 @@ const MAX_BUFFER = 512 * 1024 * 1024;
 export class CommandError extends Error {
   readonly stderr: string;
   readonly code: number | string | undefined;
-  constructor(message: string, stderr: string, code: number | string | undefined) {
+  /** What the command printed before it failed; `gh api -i` prints the response's status line here. */
+  readonly stdout: string;
+  constructor(message: string, stderr: string, code: number | string | undefined, stdout = '') {
     super(message);
     this.name = 'CommandError';
     this.stderr = stderr;
     this.code = code;
+    this.stdout = stdout;
   }
 }
 
@@ -42,7 +45,14 @@ export function run(command: string, args: readonly string[], options: RunOption
             return;
           }
           const detail = String(stderr).trim() || error.message;
-          reject(new CommandError(`${command} ${args.slice(0, 3).join(' ')} failed: ${detail}`, String(stderr), code));
+          reject(
+            new CommandError(
+              `${command} ${args.slice(0, 3).join(' ')} failed: ${detail}`,
+              String(stderr),
+              code,
+              String(stdout),
+            ),
+          );
           return;
         }
         resolve(String(stdout));

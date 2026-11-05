@@ -36,19 +36,30 @@ each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-`
 Decisions name a choice and what it costs or risks, so a reviewer can accept or reject it: asked for a choice and its reason, the model restated the author's case. Define judges costs from the diff, not the description, and lists only choices no single file makes. Notes count an omission as a decision (a missing check or limit) and write a risk in a choice as a decision, not a note. Priority is by consequence if the choice is wrong, and the lower of two when unsure. In the 2026-11-02 eval, stricter note wording and wider Jev risk criteria both made notes worse: stricter wording cut insights, and more flags produced reassuring risk notes.
 
 The user's own decision rules (`decisionRules` in `~/.gloss/config.json`, edited on the settings
-page) are sets of rules, each with an optional `files` regex tested against changed paths
+page) are sets of rules, each with an optional `files` glob tested against changed paths (gitignore-style, `glob.ts`: `*.py` matches at any depth, `src/**/*.{ts,tsx}` is anchored, as Copilot, Greptile and CodeRabbit scope rules)
 (`rulesFor`; a set that matches only some of a prompt's files names them after each rule). They go into the define prompt (sets matching any changed file) and each group's
 notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
 system text, so tours without rules keep their prompts and caches. A rule wins over the built-in
 guidance, and its priority is used. All sets join the tour cache key only when there are some. On
-save, Jev checks each rule, read with its files pattern (`decision-rules.ts`, one call per rule,
+save, Jev checks each rule, read with its files glob (`decision-rules.ts`, one call per rule,
 cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RULES`, a short
 summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
 rule. The findings only advise; the save always goes through.
-The settings page shows one row per rule with its own files pattern; rows save as sets (rows that
-share a pattern share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
+The settings page shows one row per rule with its own files glob; rows save as sets (rows that
+share a glob share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
 `editDecisionRules`, define tier) rewrites the whole list from a request in words; the result is an
 unsaved draft that the user saves (and Jev checks) like a hand edit.
+
+A reviewed repository can commit its own rule sets, same shape, at `.gloss/config.json`
+(`repo-config.ts`), and an org can commit the same file in its `.github` repository for all its
+repos (as Probot does). Sets merge broadest first: org, then repo, then the user's, in the prompts
+and the tour key; `rulesFor` drops a repeated rule. Local repos read only their own file. GitHub
+repos read the file from the default branch, never the PR head, so a PR cannot change the rules
+it is reviewed by; local repos read it at HEAD. To keep `gh` calls low, each repo's answer is
+kept in memory for 10 minutes (one entry per repo, shared by a stack), then asked again with its
+ETag: an unchanged file answers 304, which does not count against the rate limit. The request
+runs beside the fingerprint, so it adds no wait. A re-run asks at once. A failed request is never
+kept; the tour uses the last answer, or none. Jev's rule check covers only the user's sets.
 
 Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
 notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define
@@ -72,16 +83,8 @@ A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, ar
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
-Every tour also gets one more define-tier call right after the groups are defined (`WALKTHROUGH_SYSTEM`, a numbered diff). It draws the call path
-as a call tree (flat frames with a depth, each `new`, `changed` or `same`) and writes 2-5
-steps down it, each citing frames and short slices of hunks by file id, hunk id and new-side
-lines. `normalizeWalkthrough` makes the depths a tree, keeps a frame's line only where the
-diff shows it, repairs a wrong hunk id from the line, clamps each slice to its hunk, trims it
-to the changes plus 3 lines (30 at most), and drops steps with no code, a tree with no call or
-nothing new, and any walkthrough under two steps. It runs forked in the stream's scope beside
-placement and notes; the tour joins it before it finishes. A change with no call path gets an
-answer with no steps, so no walkthrough. A Jev `call_path` gate was tried and dropped: on 24 PRs
-it hid most walkthroughs worth showing. No visual candidates means no pick.
+A tour with change-wide decisions also gets one more define-tier call right after the groups are defined (`WALKTHROUGH_SYSTEM`, a numbered diff and the decisions numbered from 0): the walkthrough reads each decision in code, so a reviewer understands it, sees where it lives and reads the few lines that build it (Brian's ask, 2026-11-03, after mocks in the project's mocks/decision-walkthrough/). Per decision: a short claim as title, why, the option not taken, what to check, 1-3 snippets of 2-12 lines with the line that makes the choice as `focus` and an optional note under it, and a tree only when it helps: calls when the decision runs across a call path or many callers reach it, concepts when it is a hierarchy (what counts, which case resolves how). The page hangs each snippet under the tree row that points at it. `normalizeWalkthrough` keeps one entry per listed decision, moves a snippet to the hunk that shows its focus, moves a focus the diff does not show onto the first added line, narrows a snippet to 16 rows around its focus, makes tree depths a tree, keeps a row's line only where the diff shows it, drops a tree with no child or a call path with nothing new, and drops an entry with no code. A second define-tier call beside it, `callpath` (`CALL_PATH_SYSTEM`, the prompt the walkthrough had before decisions), draws the change's key code paths ("Key Code Paths" on the page): a call tree from a known entry point (frames) read in 2-5 steps of short excerpts, or none when there is no path (Brian's ask, 2026-11-03, after 0 of 16 decisions on two PRs got a tree, with or without "most decisions need none"; asked in the decisions call, the model left the path empty). `normalizeWalkthrough` keeps a path with a call and something new on it and at least two steps with code, and drops it when the decisions' call trees already show every new or changed frame. A tour with no change-wide decisions skips the decisions call but still asks for the path. It runs forked in the stream's scope beside placement and notes; the tour joins it before it finishes. A Jev `call_path` gate on the path was tried and dropped, because on 24 PRs it hid most walkthroughs worth showing.
+No visual candidates means no pick.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and
 lanes, keeps only flowchart and state Mermaid without styling or click lines, and drops
 (with a warning) anything it cannot draw legibly. Without Jev the first survivor is
@@ -97,7 +100,7 @@ accurate candidate that is more than a list, with the highest `whole` x `easy`, 
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
-Notes and the walkthrough get one read-only tool, `read_file` (`read-file.ts`): any file at
+Notes, the walkthrough and the call path get one read-only tool, `read_file` (`read-file.ts`): any file at
 the diff's head, numbered, 400 lines or 24k characters a read, 8 reads a call. It is for code
 the prompt cuts off (a truncated or omitted diff, a file too large to show) and for code a
 changed line calls into that the diff does not show; without it, notes said they "could not see"
@@ -107,7 +110,7 @@ Notes still pin only to hunk lines. The per-group cache key is still the prompt,
 answer does not see later edits to files outside the group. The trace lists each call's reads.
 
 Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
-fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, place, followup, and
+fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, callpath, place, followup, and
 `notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
 cached tour replays its trace too. The web app's pipeline view (`d` on a tour) draws it.
 When a prompt gains a `## ` section that reads another step, add it to that call's
