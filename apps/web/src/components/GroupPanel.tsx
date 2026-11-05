@@ -49,7 +49,8 @@ export const GroupPanel = memo(function GroupPanel({
     }
     return byId;
   }, [controls.review.comments]);
-  const composing = controls.review.composing;
+  // A comment written in the walkthrough shows its composer there, not here.
+  const composing = controls.review.composing?.place ? undefined : controls.review.composing;
   const byFile = useMemo(() => {
     const fileNotes = new Map<string, FileNote[]>();
     const lineNotes = new Map<string, LineNote[]>();

@@ -15,6 +15,12 @@ export interface DraftComment extends CommentAnchor {
   body: string;
 }
 
+/**
+ * A line comment being written. `editing` is the draft it replaces; `place` is the walkthrough
+ * diff it is written in (undefined: the file's diff in its group), since a line can show in both.
+ */
+export type Composing = CommentAnchor & { body: string; editing?: string; place?: string };
+
 export interface ReviewDraft {
   /** The review panel is open. */
   open: boolean;
@@ -22,7 +28,7 @@ export interface ReviewDraft {
   body: string;
   comments: readonly DraftComment[];
   /** The line comment being written. `editing` is the draft it replaces. */
-  composing?: CommentAnchor & { body: string; editing?: string };
+  composing?: Composing;
   /** What is on its way to GitHub; words written meanwhile are kept when it lands. */
   sending?: { body: string; ids: readonly string[] };
   /** Why the review can't be sent as written: shown on the summary. */

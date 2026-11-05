@@ -11,8 +11,10 @@ import {
   decisionsInOrder,
   PULL_STATE_LABEL,
   pullStateDetail,
+  REVIEW_DECISION_LABEL,
   REVIEW_STATE_LABEL,
   splitPath,
+  WALKTHROUGH,
 } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
@@ -99,6 +101,8 @@ export const Overview = memo(function Overview({
   const meta = state.meta;
   const description = meta?.description ? githubBodyToMarkdown(meta.description) : '';
   const decisions = decisionsInOrder(state, groups);
+  // A change-wide decision the walkthrough reads in code opens it, instead of pointing at its group.
+  const walked = new Set(state.walkthrough?.decisions.map((walk) => state.decisions?.[walk.decision]));
 
   return (
     <div className="page">
@@ -126,14 +130,31 @@ export const Overview = memo(function Overview({
             <tbody>
               {decisions.map(({ decision, groupKey }, index) => {
                 const path = decision.fileId ? files.get(decision.fileId)?.path : undefined;
+                const inWalk = walked.has(decision);
                 const section =
-                  !decision.fileId && groupKey ? groups.find((group) => group.key === groupKey) : undefined;
+                  !decision.fileId && groupKey && !inWalk ? groups.find((group) => group.key === groupKey) : undefined;
                 return (
                   <tr key={index}>
                     <td className="decision-priority">
                       <FlagIcon level={decisionFlag(decision)} />
                     </td>
-                    <td>{decision.text}</td>
+                    <td>
+                      {inWalk ? (
+                        <a
+                          className="decision-walk"
+                          href={`#group-${WALKTHROUGH}`}
+                          title="Read it in code"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelectGroup(WALKTHROUGH);
+                          }}
+                        >
+                          {decision.text}
+                        </a>
+                      ) : (
+                        decision.text
+                      )}
+                    </td>
                     <td className="stat">
                       {path && groupKey && decision.fileId && (
                         <a
@@ -257,13 +278,33 @@ function ReviewMark({ state }: { state: ReviewState }) {
   );
 }
 
-/** The PR's state in its colour, then who and when in plain text. */
+/**
+ * The PR's state in its colour, then who and when in plain text. An open PR's review
+ * decision follows as a pill, so "Approved" stays in view in the pinned head.
+ */
 function PullStateLine({ pull }: { pull: StackMember }) {
   const detail = pullStateDetail(pull, Date.now());
+  const decision = pull.state === 'open' ? pull.reviewDecision : undefined;
   return (
-    <span className="pull-state" data-state={pull.state}>
+    <span className="pull-state" data-state={pull.state} data-review={decision}>
       <RefIcon kind="github-pr" state={pull.state} />
       <strong>{PULL_STATE_LABEL[pull.state]}</strong>
+      {decision && (
+        <strong className="review-decision">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {REVIEW_MARK[decision]}
+          </svg>
+          {REVIEW_DECISION_LABEL[decision]}
+        </strong>
+      )}
       {detail && <span className="pull-state-detail">{detail}</span>}
     </span>
   );

@@ -112,7 +112,7 @@ function run(steps: readonly Step[], path: string): boolean {
   const inside = done + 1;
   const close = (states: Set<number>) => {
     // Every wildcard step may match nothing, so it can be skipped.
-    for (const state of [...states]) {
+    for (const state of states) {
       for (let next = state; next < done && steps[next]!.kind !== 'char'; next++) {
         states.add(next + 1);
       }
