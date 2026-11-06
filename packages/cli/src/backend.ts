@@ -1,10 +1,14 @@
 import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import process from 'node:process';
 import {
   DecisionRules,
   DiffSources,
   JudgeClient,
   ModelClient,
+  RepoClones,
   RepoConfigs,
   type Services,
   TourCache,
@@ -12,6 +16,7 @@ import {
 import {
   createFlueModelClient,
   createJevClient,
+  glossCacheDir,
   glossPath,
   loadConfig,
   loadProviderPackages,
@@ -46,34 +51,40 @@ export function loadGlossEnv(): void {
  * Config, providers, the Flue model client, Jev and the cache: everything inference needs,
  * local only. Jev is provided only when a TypeSafe (or OpenRouter) key is configured.
  */
-export const BackendLayer: Layer.Layer<Services | DecisionRules | RepoConfigs | BackendInfo> = Layer.unwrap(
-  Effect.promise(async () => {
-    loadGlossEnv();
-    const config = loadConfig();
-    await loadProviderPackages(config.providerPackages);
-    validateModelIds([...Object.values(config.tiers), ...config.ask.models]);
-    const judge = await createJevClient(config.judge);
-    return Layer.mergeAll(
-      TourCache.sqlite(glossPath('cache.sqlite')),
-      Layer.succeed(ModelClient, createFlueModelClient({ config })),
-      DiffSources.layer,
-      RepoConfigs.layer,
-      Layer.succeed(DecisionRules, {
-        get: Effect.sync(() => readDecisionRules()),
-        save: (rules) => Effect.sync(() => saveDecisionRules(rules)),
-      }),
-      judge ? Layer.succeed(JudgeClient, judge) : Layer.empty,
-      Layer.succeed(BackendInfo, {
-        judge: judge?.model,
-        health: async () => ({
-          version: VERSION,
-          pipelineVersion: PIPELINE_VERSION,
-          judge: { available: !!judge, model: judge?.model },
-          models: config.tiers,
-          ask: { models: config.ask.models.map((id) => ({ id, name: modelName(id) })), default: config.ask.default },
-          providers: await providerStatus(),
+export const BackendLayer: Layer.Layer<Services | DecisionRules | RepoConfigs | RepoClones | BackendInfo> =
+  Layer.unwrap(
+    Effect.promise(async () => {
+      // Clones lived in the temp dir before the cache dir; they are not used any more.
+      void rm(join(tmpdir(), `gloss-clones-${process.getuid?.() ?? 'user'}`), { recursive: true, force: true }).catch(
+        () => {},
+      );
+      loadGlossEnv();
+      const config = loadConfig();
+      await loadProviderPackages(config.providerPackages);
+      validateModelIds([...Object.values(config.tiers), ...config.ask.models]);
+      const judge = await createJevClient(config.judge);
+      return Layer.mergeAll(
+        TourCache.sqlite(glossPath('cache.sqlite')),
+        Layer.succeed(ModelClient, createFlueModelClient({ config })),
+        DiffSources.layer,
+        RepoConfigs.layer,
+        Layer.succeed(DecisionRules, {
+          get: Effect.sync(() => readDecisionRules()),
+          save: (rules) => Effect.sync(() => saveDecisionRules(rules)),
         }),
-      }),
-    );
-  }),
-);
+        RepoClones.layer(join(glossCacheDir(), 'clones')),
+        judge ? Layer.succeed(JudgeClient, judge) : Layer.empty,
+        Layer.succeed(BackendInfo, {
+          judge: judge?.model,
+          health: async () => ({
+            version: VERSION,
+            pipelineVersion: PIPELINE_VERSION,
+            judge: { available: !!judge, model: judge?.model },
+            models: config.tiers,
+            ask: { models: config.ask.models.map((id) => ({ id, name: modelName(id) })), default: config.ask.default },
+            providers: await providerStatus(),
+          }),
+        }),
+      );
+    }),
+  );

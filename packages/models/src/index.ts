@@ -20,5 +20,5 @@ export {
 } from './config.ts';
 export { bridgedProviders, createFlueModelClient, ensureFlueRuntime, StageResultError } from './flue-runtime.ts';
 export { createJevClient } from './jev-client.ts';
-export { glossHome, glossPath } from './paths.ts';
+export { glossCacheDir, glossHome, glossPath } from './paths.ts';
 export { getModels, loadProviderPackages, SUBSCRIPTIONS, type Subscription } from './registry.ts';
