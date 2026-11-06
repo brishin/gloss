@@ -30,3 +30,4 @@ export { RepoError, Repos } from './repos.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';
 export type { DiffSource, FetchedDiff } from './types.ts';
+export { type CloneRemote, cloneDir, makeRepoClones, RepoClones, type SearchTree } from './clone.ts';
