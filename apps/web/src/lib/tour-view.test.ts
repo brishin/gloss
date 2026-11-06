@@ -3,7 +3,10 @@ import { describe, expect, test } from 'vitest';
 import {
   ago,
   decisionFlag,
+  decisionsInOrder,
   defaultExpanded,
+  evidenceFile,
+  foldedChecks,
   lfsImageOids,
   lfsLabel,
   pullStateDetail,
@@ -64,6 +67,42 @@ describe('sectionFlagCounts', () => {
       investigate: 0,
       info: 0,
     });
+  });
+});
+
+describe('description check', () => {
+  test('folds medium and low gaps out of the decisions; high and urgent stay', () => {
+    const check = (priority: Decision['priority']) => decision(priority, { source: 'description' });
+    const state = { decisions: [check('low'), decision('medium'), check('high'), check('medium')] } as TourState;
+    expect(decisionsInOrder(state, []).map((entry) => entry.decision)).toEqual([check('high'), decision('medium')]);
+    expect(foldedChecks(state)).toEqual([check('medium'), check('low')]);
+  });
+});
+
+describe('evidenceFile', () => {
+  const files = [
+    { id: 'f1', path: 'web/src/admin/SupportCompose.tsx' },
+    { id: 'f2', path: 'server/support_threads.py' },
+  ];
+  test('finds the changed file a row names, by base name or path', () => {
+    expect(evidenceFile(files, 'SupportCompose.tsx:118')).toEqual({ fileId: 'f1', label: 'SupportCompose.tsx:118' });
+    expect(evidenceFile(files, 'server/support_threads.py:281, :367')).toEqual({
+      fileId: 'f2',
+      label: 'support_threads.py:281',
+    });
+  });
+  test('leaves code the diff does not change unlinked', () => {
+    expect(evidenceFile(files, 'RichTextEditor.tsx')).toBeUndefined();
+    expect(evidenceFile(files, undefined)).toBeUndefined();
+    expect(evidenceFile(files, 'Compose.tsx')).toBeUndefined();
+  });
+  test('prefers an exact path, and leaves a name two files share unlinked', () => {
+    const twins = [
+      { id: 'fx', path: 'fixtures/src/index.ts' },
+      { id: 'f', path: 'src/index.ts' },
+    ];
+    expect(evidenceFile(twins, 'src/index.ts:20')?.fileId).toBe('f');
+    expect(evidenceFile(twins, 'index.ts:20')).toBeUndefined();
   });
 });
 

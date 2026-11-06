@@ -4,6 +4,8 @@ import type { StepKind, Trace, TraceStep } from '@gloss/protocol';
 export const STEP_KINDS: Record<StepKind, { label: string; tag: string; actor: 'code' | 'llm' | 'jev' | 'notes' }> = {
   fetch: { label: 'Diff', tag: 'Diff', actor: 'code' },
   define: { label: 'Define', tag: 'Define', actor: 'llm' },
+  'description-check': { label: 'Description check', tag: 'Check', actor: 'llm' },
+  affected: { label: 'Affected', tag: 'Reach', actor: 'llm' },
   sketch: { label: 'Sketch', tag: 'Sketch', actor: 'llm' },
   walkthrough: { label: 'Walkthrough', tag: 'Walk', actor: 'llm' },
   callpath: { label: 'Key code paths', tag: 'Paths', actor: 'llm' },

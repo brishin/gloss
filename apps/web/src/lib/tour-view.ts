@@ -103,14 +103,52 @@ export function sectionDecisions(state: TourState, groupKey: string): Decision[]
   return (state.decisions ?? []).filter((decision) => decision.groupKey === groupKey);
 }
 
+/**
+ * A medium or low gap the description check found: folded into its own list on the overview,
+ * since clean PRs get some of these. High and urgent ones stay with the decisions.
+ */
+export function isFoldedCheck(decision: Decision): boolean {
+  return decision.source === 'description' && (decision.priority === 'medium' || decision.priority === 'low');
+}
+
+/** The description check's folded gaps, most urgent first. */
+export function foldedChecks(state: TourState): Decision[] {
+  const rank = (decision: Decision) => DECISION_PRIORITIES.indexOf(decision.priority);
+  return (state.decisions ?? []).filter(isFoldedCheck).toSorted((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * The changed file an affected row's evidence names (`SupportCompose.tsx:118`, or a longer
+ * path), so the overview can jump to it; undefined when it names code the diff does not change,
+ * or a name more than one changed file ends with.
+ */
+export function evidenceFile(
+  files: readonly Pick<FileSummary, 'id' | 'path'>[],
+  evidence: string | undefined,
+): { fileId: string; label: string } | undefined {
+  const name = evidence
+    ?.trim()
+    .split(/[\s,]/)[0]
+    ?.replace(/:\d+(-\d+)?$/, '');
+  if (!name) {
+    return undefined;
+  }
+  // An exact path wins; a base name or partial path links only when one changed file has it.
+  const suffixed = files.filter((candidate) => candidate.path.endsWith(`/${name}`));
+  const file = files.find((candidate) => candidate.path === name) ?? (suffixed.length === 1 ? suffixed[0] : undefined);
+  return file && { fileId: file.id, label: evidence!.trim().split(/[\s,]/)[0]!.split('/').at(-1)! };
+}
+
 /** Every decision, most urgent first. Within a priority, change-wide ones lead, then tour order. */
 export function decisionsInOrder(state: TourState, groups: readonly GroupView[]): DecisionEntry[] {
   const keys = new Set(groups.map((group) => group.key));
   const entries: DecisionEntry[] = [
-    ...(state.decisions ?? []).map((decision) => ({
-      decision,
-      groupKey: decision.groupKey && keys.has(decision.groupKey) ? decision.groupKey : undefined,
-    })),
+    ...(state.decisions ?? [])
+      .filter((decision) => !isFoldedCheck(decision))
+      .map((decision) => ({
+        decision,
+        groupKey: decision.groupKey && keys.has(decision.groupKey) ? decision.groupKey : undefined,
+      })),
     ...groups.flatMap((group) => (group.notes?.decisions ?? []).map((decision) => ({ decision, groupKey: group.key }))),
   ];
   const rank = (entry: DecisionEntry) => DECISION_PRIORITIES.indexOf(entry.decision.priority);

@@ -9,6 +9,8 @@ export type CacheKind =
   | 'judge-group'
   | 'judge-visual'
   | 'sketch'
+  | 'description-check'
+  | 'affected'
   | 'walkthrough'
   | 'callpath'
   | 'followup'
