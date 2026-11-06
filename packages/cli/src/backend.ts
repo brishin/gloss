@@ -1,9 +1,13 @@
 import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import process from 'node:process';
-import { DiffSources, JudgeClient, ModelClient, type Services, TourCache } from '@gloss/core';
+import { DiffSources, JudgeClient, ModelClient, RepoClones, type Services, TourCache } from '@gloss/core';
 import {
   createFlueModelClient,
   createJevClient,
+  glossCacheDir,
   glossPath,
   loadConfig,
   loadProviderPackages,
@@ -36,8 +40,12 @@ export function loadGlossEnv(): void {
  * Config, providers, the Flue model client, Jev and the cache: everything inference needs,
  * local only. Jev is provided only when a TypeSafe (or OpenRouter) key is configured.
  */
-export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
+export const BackendLayer: Layer.Layer<Services | RepoClones | BackendInfo> = Layer.unwrap(
   Effect.promise(async () => {
+    // Clones lived in the temp dir before the cache dir; they are not used any more.
+    void rm(join(tmpdir(), `gloss-clones-${process.getuid?.() ?? 'user'}`), { recursive: true, force: true }).catch(
+      () => {},
+    );
     loadGlossEnv();
     const config = loadConfig();
     await loadProviderPackages(config.providerPackages);
@@ -47,6 +55,7 @@ export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
       TourCache.sqlite(glossPath('cache.sqlite')),
       Layer.succeed(ModelClient, createFlueModelClient({ config })),
       DiffSources.layer,
+      RepoClones.layer(join(glossCacheDir(), 'clones')),
       judge ? Layer.succeed(JudgeClient, judge) : Layer.empty,
       Layer.succeed(BackendInfo, {
         judge: judge?.model,
