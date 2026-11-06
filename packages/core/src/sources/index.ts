@@ -24,10 +24,27 @@ export { createGithubSource, type Inbox, type PullSummary, resolveGithubAsset } 
 export { reviewPayload, submitGithubReview } from './github-review.ts';
 export { MAX_STACK, resolveGithubStack, type StackLookup, walkStack } from './github-stack.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';
-export { readFileContents, readRepoFile, repoPath, reverseApply, StaleFileError } from './contents.ts';
+export {
+  findImporters,
+  readFileContents,
+  readRepoFile,
+  readTreeFile,
+  repoPath,
+  reverseApply,
+  searchRepo,
+  StaleFileError,
+} from './contents.ts';
 export { readLfsObject } from './lfs.ts';
 export { RepoError, Repos } from './repos.ts';
 export { createLocalSource, defaultLocalTarget, findRepoRoot, parseLocalTarget } from './local.ts';
 export { assignIds, parseHunks, parsePatch } from './patch-parser.ts';
 export type { DiffSource, FetchedDiff } from './types.ts';
+export {
+  bumpedPackages,
+  fileImportQuery,
+  type ImportQuery,
+  importQueries,
+  isImportLine,
+  packageImportQuery,
+} from './importers.ts';
 export { type CloneRemote, cloneDir, makeRepoClones, RepoClones, type SearchTree } from './clone.ts';

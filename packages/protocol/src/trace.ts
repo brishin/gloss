@@ -4,6 +4,8 @@ import * as v from 'valibot';
 export const StepKindSchema = v.picklist([
   'fetch',
   'define',
+  'description-check',
+  'affected',
   'sketch',
   'walkthrough',
   'callpath',

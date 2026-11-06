@@ -1,6 +1,9 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createFakeModelClient,
   DiffSources,
+  RepoClones,
   ModelClient,
   RepoError,
   Repos,
@@ -82,7 +85,12 @@ function setup(
     model?: ModelClient['Service'];
   } = {},
 ) {
-  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer);
+  const services = Layer.mergeAll(
+    TourCache.memory,
+    Layer.succeed(ModelClient, model),
+    DiffSources.layer,
+    RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
+  );
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
       Layer.provideMerge(services),

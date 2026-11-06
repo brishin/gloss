@@ -579,6 +579,84 @@ Return no frames and no steps only when the change has no key code path to walk:
 
 Call the submit tool once with the frames and the steps.`;
 
+/**
+ * The description check: its own call beside define, so the define prompt and its cache stay
+ * as they are, and the check gets the model's full attention. A reviewer reads the description
+ * first and trusts it; this finds where the diff disagrees with it: a claim the diff does not
+ * do or contradicts, a behavior change it never mentions, or code that reaches past the scope it
+ * states (a change called admin-only that edits code every user runs). Listing every claim and
+ * every area first makes the model look at each one: asked as one more kind of decision in
+ * define, it found nothing.
+ */
+export const DescriptionCheckSchema = v.object({
+  claims: v.pipe(
+    v.array(
+      v.object({
+        claim: short('One thing the title, description or commits say about the change, in a few words.'),
+        status: v.pipe(
+          v.picklist(['done', 'partly', 'missing', 'contradicted']),
+          v.description(
+            'done: the diff does it. partly: only some of it. missing: nothing in the diff does it. contradicted: the diff does something else.',
+          ),
+        ),
+      }),
+    ),
+    v.description('Every claim the description makes. Empty when it makes none.'),
+  ),
+  stated: v.pipe(
+    v.string(),
+    v.description(
+      'The scope the description states, in a few words: an audience, a product area, a platform, a flag that gates it, or a promise such as "no behavior change". Empty when it states none.',
+    ),
+  ),
+  areas: v.pipe(
+    v.array(
+      v.object({
+        area: short('A part of the code the diff changes, e.g. "admin email tools" or "shared rich text editor".'),
+        fileIds: v.pipe(v.array(v.string()), v.description('Ids of the changed files in this area.')),
+        reachedBy: short(
+          'Who or what runs this code once merged: e.g. "staff in the admin app", "every web user who edits a note", "all callers of send_email".',
+        ),
+        described: v.pipe(
+          v.boolean(),
+          v.description(
+            'True when the description describes or clearly implies this change, or it only supports a change it describes.',
+          ),
+        ),
+        inScope: v.pipe(
+          v.boolean(),
+          v.description('False only when a scope is stated and someone or something in reachedBy is outside it.'),
+        ),
+      }),
+    ),
+    v.description('Every area of changed code, tests and docs left out.'),
+  ),
+  decisions: v.pipe(
+    v.array(v.object({ text: decisionText, priority: decisionPriority })),
+    v.description(
+      'One decision per gap between the description and the diff; gaps with one cause share a decision. Empty when they agree.',
+    ),
+  ),
+});
+
+export const DESCRIPTION_CHECK_SYSTEM = `You are a senior engineer checking a code change against what its author says it does, before a reviewer approves it. The reviewer reads the title and description first and trusts them; find where the diff disagrees.
+
+First, the claims. From the title, description and commits, list each thing they say about the change: what it adds, fixes or changes, whom or what it reaches, and what it leaves alone. Skip boilerplate, links, checklists and test plans. Check each claim against the diff: done, partly, missing (nothing in the diff does it) or contradicted (the diff does something else). Also write down the scope they state, if any: an audience (admin or staff only, internal tools, one platform, one customer), a product area, a flag or setting that gates it, or a promise such as "no behavior change" or "refactor only". If the title, description and commits say nothing about the change, list nothing and submit.
+
+Then go through every area of changed code, using the file paths and the diffs. Say who or what runs it once merged, whether the description describes or clearly implies it, and whether it stays inside the stated scope. Edits that only support a described change (types, wiring, a renamed helper, tests) count as described. Code reaches past the stated scope when:
+- users outside the stated audience or area run it: a screen, route, API or job in the product when the change says admin, staff or internal, or another platform or surface;
+- it is shared: a component, editor, client, model, helper, service or function that other screens or code paths call. Shared code reaches all of its callers, not only the new one, even when the description says their behavior is unchanged: that promise is for the reviewer to check;
+- the stated flag or role check does not guard it;
+- it changes behavior in a change that promises none.
+
+Last, write one decision for each gap a reviewer should know before approving:
+- a claim that is missing, partly done or contradicted: what the description says and what the diff does instead;
+- an area past the stated scope: what the description claims, what the diff also changes and who it reaches, e.g. "Described as admin-only, but the shared editor's save path changes for every user who edits a note.";
+- an undescribed area that changes what users or callers see: what changes and who sees it.
+Rate a gap urgent when it exposes data or access or loses stored data; high when users or existing callers get behavior the description does not lead the reviewer to expect, or a claimed fix or guard is not there; medium when shared code changes but every caller behaves as before, or a minor claim is partly done; low for a small unmentioned change. Write only gaps between what the description says and what the diff does: never a risk or limitation the description itself admits, and never a code-quality concern. A promise that shared code behaves as before is not an admitted risk: still write the shared change, for the reviewer to check. Write nothing where they agree, and never write that the code matches the description. The tour already lists the decisions under "Decisions the tour lists": skip any gap one of them already makes, even in other words.
+
+Call the submit tool once with the result.`;
+
 export const FOLLOWUP_SYSTEM = `You are placing the remaining files of a code change into review groups that already exist. Put every listed file into the existing group it fits best. Call the submit tool once with all placements.`;
 
 export const NOTES_SYSTEM = `You are a senior engineer annotating one group of a code change for a reviewer.
@@ -603,6 +681,77 @@ Call the submit tool once with the result.`;
 
 /** Bump when a result schema above changes shape or field descriptions. */
 const SCHEMA_VERSION = 19;
+
+/** The description check's own version, so changing it keeps the other calls' caches. */
+export const DESCRIPTION_CHECK_VERSION = hashOf({
+  DESCRIPTION_CHECK_SYSTEM,
+  TOTAL_BUDGET,
+  FILE_BUDGET,
+  schema: 4,
+}).slice(0, 12);
+
+/**
+ * What a change reaches: the parts of the codebase it touches, then the screens, emails, APIs
+ * and jobs people meet differently, found by following shared code to its callers with
+ * search_code and read_file. Systems come first so the model looks for callers before it names
+ * surfaces; only the surfaces reach the tour.
+ */
+export const AffectedResultSchema = v.object({
+  systems: v.pipe(
+    v.array(
+      v.object({
+        name: short(
+          'A part of the codebase in the team\'s words, e.g. "Admin app", "Web capture editor", "Plain email client".',
+        ),
+        fileIds: v.pipe(v.array(v.string()), v.description('Ids of the changed files in this part.')),
+        change: short('What the change does there, in one sentence.'),
+        usedBy: v.pipe(
+          v.array(v.string()),
+          v.description(
+            'Screens, routes, jobs or other code that import or call the changed code, from search_code or read_file. Empty when nothing else uses it.',
+          ),
+        ),
+      }),
+    ),
+    v.description('Every part of the codebase the diff touches, largest change first. Leave out tests and docs.'),
+  ),
+  surfaces: v.pipe(
+    v.array(
+      v.object({
+        surface: short(
+          'A screen, route, email, notification, API or job a person meets, e.g. "Capture editor (web)", "Outgoing support emails".',
+        ),
+        audience: short(
+          'Who meets it, in a few words, with any flag, role or platform that gates it: e.g. "admins", "web users with the ts-web-editor flag", "email recipients".',
+        ),
+        effect: v.pipe(
+          v.picklist(['changes', 'unchanged']),
+          v.description(
+            'changes: what they see or get differs, or may differ. unchanged: shared code under it changed but it is meant to behave the same.',
+          ),
+        ),
+        what: short('What they see or get differently, or what to check when it should be unchanged. One sentence.'),
+        evidence: short(
+          'The one file and line that ties the change to it, written only as file:line, e.g. "SupportCompose.tsx:118". No other words.',
+        ),
+      }),
+    ),
+    v.description(
+      'Every surface a person meets whose behavior may differ after the change, including ones reached only through shared code. Empty when there is none, such as a change to tests or tooling.',
+    ),
+  ),
+});
+
+export const AFFECTED_SYSTEM = `You are a senior engineer mapping what a code change reaches, so a reviewer sees who will meet it differently once it ships.
+
+First, the systems: group the changed files into the parts of the codebase a team member would name (an app, a service, a shared library, an admin tool, a job). Say what the change does in each, and list who imports or calls the changed code. "Callers found" lists, from the code, who imports the changed files and the packages the change bumps: go through every entry. For a changed file or package it leaves out, call find_importers; for a changed function or component name, call search_code. A caller is often itself shared: follow it up to the screen, route or job that mounts it, with find_importers or read_file, and read where it is mounted to find any flag, role or platform check that gates it.
+
+Then, the surfaces: every screen, route, email, notification, public API or background job a person meets whose behavior may differ after the change, including ones reached only through shared code: a component other screens render, a helper other senders call. Say who meets it, and when a feature flag, role check, setting or platform gates it, name the gate in the audience. Say what they see or get differently. When shared code changes but a surface is meant to behave the same, list it as unchanged and say what to check. Name only surfaces you traced in the diff, a search or a read; never guess one. Skip tests, stories, docs and developer tooling.
+
+Call the submit tool once with the result.`;
+
+/** The affected call's own version, so changing it keeps the other calls' caches. */
+export const AFFECTED_VERSION = hashOf({ AFFECTED_SYSTEM, TOTAL_BUDGET, FILE_BUDGET, schema: 3 }).slice(0, 12);
 
 export const PROMPTS_VERSION = hashOf({
   DEFINE_SYSTEM,
@@ -665,8 +814,8 @@ function budgetRank(file: FileChange): number {
   return file.status === 'removed' ? 2 : 1;
 }
 
-/** The prompt for defining groups: a manifest of every file, then as many diffs as fit the budget. */
-export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
+/** The change as the define-tier calls read it: a manifest of every file, then as many diffs as fit the budget. */
+function changePrompt(meta: DiffMeta, files: readonly FileChange[]): string {
   const parts = [header(meta), '', `## Files (${files.length})`, ...files.map(manifestLine)];
   let remaining = TOTAL_BUDGET;
   const diffs: string[] = [];
@@ -690,13 +839,57 @@ export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], 
   if (omitted.length) {
     parts.push('', `(Diffs omitted for budget: ${omitted.join(', ')}. Judge them by path and line counts.)`);
   }
-  parts.push(
-    '',
-    withFiles
-      ? 'Define the review groups and assign every file id to exactly one group.'
-      : 'Define the review groups. Do not list files; they are placed separately.',
-  );
   return parts.join('\n');
+}
+
+/** The prompt for defining groups. */
+export function buildDefinePrompt(meta: DiffMeta, files: readonly FileChange[], withFiles: boolean): string {
+  const ask = withFiles
+    ? 'Define the review groups and assign every file id to exactly one group.'
+    : 'Define the review groups. Do not list files; they are placed separately.';
+  return `${changePrompt(meta, files)}\n\n${ask}`;
+}
+
+/** The prompt for the description check: the same view of the change as define. */
+export function buildDescriptionCheckPrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  listed: readonly Pick<Decision, 'text'>[] = [],
+): string {
+  const already = listed.length
+    ? `\n\n## Decisions the tour lists\n${listed.map((decision) => `- ${decision.text}`).join('\n')}`
+    : '';
+  return `${changePrompt(meta, files)}${already}\n\nCheck the change against what its title, description and commits say.`;
+}
+
+/** Importers found before the affected call, for one changed file or bumped package. */
+export interface FoundCallers {
+  label: string;
+  lines: readonly string[];
+}
+
+/** Lines shown per file or package (import lines, gates and their importers); find_importers gives the rest. */
+const CALLER_LINES = 40;
+
+/**
+ * The prompt for the affected call: the same view of the change as define, then who imports the
+ * changed shared files and bumped packages, looked up in code so the model need not think to.
+ */
+export function buildAffectedPrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  callers: readonly FoundCallers[] = [],
+): string {
+  const found = callers.length
+    ? `\n\n## Callers found\n${callers
+        .map(({ label, lines }) => {
+          const shown = lines.slice(0, CALLER_LINES);
+          const more = lines.length > shown.length ? `\n... more; call find_importers for all of them` : '';
+          return `### Importers of ${label}\n${shown.length ? shown.join('\n') + more : '(none outside this change)'}`;
+        })
+        .join('\n')}`
+    : '';
+  return `${changePrompt(meta, files)}${found}\n\nMap who meets this change differently.`;
 }
 
 export function buildFollowupPrompt(

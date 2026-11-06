@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DiffPayload } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { readRepoFile, reverseApply, StaleFileError } from './contents.ts';
+import { findImporters, readRepoFile, reverseApply, searchRepo, StaleFileError } from './contents.ts';
+import { fileImportQuery } from './importers.ts';
 import { parseHunks } from './patch-parser.ts';
 
 const hunks = (patch: string) => parseHunks(patch.split('\n'));
@@ -85,6 +86,64 @@ describe('readRepoFile', () => {
       expect(await readRepoFile(diff, 'linked')).toBe('../secret');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('searchRepo', () => {
+  it('finds callers in a working tree, untracked ones too, and nothing that is ignored', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'gloss-search-'));
+    try {
+      execFileSync('git', ['init', '-q', repo]);
+      writeFileSync(join(repo, 'shared.ts'), 'export function sharedThing() {}\n');
+      writeFileSync(join(repo, '.gitignore'), 'build/\n');
+      execFileSync('git', ['-C', repo, 'add', '.']);
+      writeFileSync(join(repo, 'screen.ts'), 'sharedThing();\n');
+      writeFileSync(join(repo, 'écran.ts'), 'sharedThing();\n');
+      execFileSync('mkdir', [join(repo, 'build')]);
+      writeFileSync(join(repo, 'build', 'out.js'), 'sharedThing();\n');
+      const diff: DiffPayload = {
+        id: 'd',
+        ref: { kind: 'local', repo, target: '' },
+        sourceKey: 'k',
+        fingerprint: 'x',
+        meta: { title: 't', baseRef: 'a', headRef: 'b', commits: [] },
+        files: [],
+      };
+      expect(await searchRepo(diff, { cwd: repo }, 'sharedThing', undefined)).toEqual([
+        'screen.ts:1:sharedThing();',
+        'shared.ts:1:export function sharedThing() {}',
+        'écran.ts:1:sharedThing();',
+      ]);
+      expect(await searchRepo(diff, { cwd: repo }, 'notThere', undefined)).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('findImporters', () => {
+  it('finds the real import in a file that also imports a namesake, once per file', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'gloss-importers-'));
+    try {
+      execFileSync('git', ['init', '-q', repo]);
+      writeFileSync(
+        join(repo, 'screen.ts'),
+        "import { A } from './mobile/Button';\nimport { B } from './web/Button';\nexport { C } from './web/Button';\n",
+      );
+      const diff: DiffPayload = {
+        id: 'd',
+        ref: { kind: 'local', repo, target: '' },
+        sourceKey: 'k',
+        fingerprint: 'x',
+        meta: { title: 't', baseRef: 'a', headRef: 'b', commits: [] },
+        files: [],
+      };
+      expect(await findImporters(diff, { cwd: repo }, fileImportQuery('web/Button.ts')!)).toEqual([
+        "screen.ts:2:import { B } from './web/Button';",
+      ]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
     }
   });
 });

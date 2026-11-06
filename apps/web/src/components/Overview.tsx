@@ -2,13 +2,15 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
-import type { GroupView, ReviewState, Reviewer, StackMember, TourState } from '@gloss/protocol';
+import type { Affected, GroupView, ReviewState, Reviewer, StackMember, TourState } from '@gloss/protocol';
 import { UsersIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
 import {
   decisionFlag,
   decisionsInOrder,
+  evidenceFile,
+  foldedChecks,
   PULL_STATE_LABEL,
   pullStateDetail,
   REVIEW_DECISION_LABEL,
@@ -101,6 +103,7 @@ export const Overview = memo(function Overview({
   const meta = state.meta;
   const description = meta?.description ? githubBodyToMarkdown(meta.description) : '';
   const decisions = decisionsInOrder(state, groups);
+  const checks = foldedChecks(state);
   // A change-wide decision the walkthrough reads in code opens it, instead of pointing at its group.
   const walked = new Set(state.walkthrough?.decisions.map((walk) => state.decisions?.[walk.decision]));
 
@@ -191,6 +194,50 @@ export const Overview = memo(function Overview({
         </section>
       )}
 
+      {state.affected && state.affected.length > 0 && (
+        <section className="section">
+          <Heading level={2}>Affected</Heading>
+          <AffectedTable
+            rows={state.affected.filter((row) => row.effect === 'changes')}
+            state={state}
+            onJumpToFile={onJumpToFile}
+          />
+          {state.affected.some((row) => row.effect === 'unchanged') && (
+            <>
+              <div className="affected-part">Should not change</div>
+              <AffectedTable
+                rows={state.affected.filter((row) => row.effect === 'unchanged')}
+                state={state}
+                onJumpToFile={onJumpToFile}
+              />
+            </>
+          )}
+        </section>
+      )}
+
+      {checks.length > 0 && (
+        <section className="section">
+          <details className="description-check">
+            <summary>
+              <Heading level={2}>Description check</Heading>
+              <span className="description-check-count">{checks.length}</span>
+            </summary>
+            <table className="overview-table decisions">
+              <tbody>
+                {checks.map((decision, index) => (
+                  <tr key={index}>
+                    <td className="decision-priority">
+                      <FlagIcon level={decisionFlag(decision)} />
+                    </td>
+                    <td>{decision.text}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </section>
+      )}
+
       {description && (
         <section className="section prose">
           <Heading level={2}>Description</Heading>
@@ -208,6 +255,55 @@ export const Overview = memo(function Overview({
     </div>
   );
 });
+
+/** Surfaces the change reaches: where and who on the left, what changes (or what to check) on the right. */
+function AffectedTable({
+  rows,
+  state,
+  onJumpToFile,
+}: {
+  rows: Affected[];
+  state: TourState;
+  onJumpToFile: (fileId: string) => void;
+}) {
+  if (!rows.length) {
+    return null;
+  }
+  return (
+    <table className="overview-table affected">
+      <tbody>
+        {rows.map((row, index) => {
+          const file = evidenceFile(state.files, row.evidence);
+          return (
+            <tr key={index}>
+              <td className="affected-surface">
+                <div className="affected-name">{row.surface}</div>
+                <div className="affected-audience">{row.audience}</div>
+              </td>
+              <td>
+                {row.what}{' '}
+                {file ? (
+                  <a
+                    className="decision-ref"
+                    href={`#file-${file.fileId}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onJumpToFile(file.fileId);
+                    }}
+                  >
+                    {file.label}
+                  </a>
+                ) : (
+                  row.evidence && <span className="decision-ref">{row.evidence}</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
 
 const plural = (count: number, word: string) => (count === 1 ? word : `${word}s`);
 

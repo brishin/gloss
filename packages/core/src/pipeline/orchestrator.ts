@@ -1,4 +1,6 @@
 import type {
+  Affected,
+  Decision,
   DiffPayload,
   FileChange,
   FileJudgment,
@@ -27,7 +29,16 @@ import type * as v from 'valibot';
 import { JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
-import { DiffSources, readRepoFile } from '../sources/index.ts';
+import {
+  DiffSources,
+  findImporters,
+  importQueries,
+  readRepoFile,
+  RepoClones,
+  readTreeFile,
+  searchRepo,
+} from '../sources/index.ts';
+import { callerTree, countCallers, renderCallerTree } from './callers.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -49,10 +60,15 @@ import {
 } from './normalize.ts';
 import { applyFollowup, placeFiles, type PlaceOutcome, reconcileListedFiles, resolveGroups } from './place.ts';
 import {
+  AFFECTED_SYSTEM,
+  AFFECTED_VERSION,
+  AffectedResultSchema,
+  buildAffectedPrompt,
   buildDefinePrompt,
   buildFollowupPrompt,
   buildNotesPrompt,
   buildCallPathPrompt,
+  buildDescriptionCheckPrompt,
   buildSketchPrompt,
   buildWalkthroughPrompt,
   CALL_PATH_SYSTEM,
@@ -66,12 +82,15 @@ import {
   NOTES_SYSTEM,
   NotesSchema,
   PROMPTS_VERSION,
+  DESCRIPTION_CHECK_SYSTEM,
+  DESCRIPTION_CHECK_VERSION,
+  DescriptionCheckSchema,
   SKETCH_SYSTEM,
   SketchSchema,
   WALKTHROUGH_SYSTEM,
   WalkthroughResultSchema,
 } from './prompts.ts';
-import { fileReader } from './read-file.ts';
+import { codeSearcher, fileReader, importerFinder } from './read-file.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
 
@@ -93,8 +112,28 @@ export class PipelineError extends Data.TaggedError('PipelineError')<{
 }> {}
 
 export function tourCacheKey(sourceKey: string, fingerprint: string, models: ModelConfig): string {
-  return hashOf({ kind: 'tour', PIPELINE_VERSION, PROMPTS_VERSION, QUESTIONS_VERSION, sourceKey, fingerprint, models });
+  return hashOf({
+    kind: 'tour',
+    PIPELINE_VERSION,
+    PROMPTS_VERSION,
+    DESCRIPTION_CHECK_VERSION,
+    AFFECTED_VERSION,
+    QUESTIONS_VERSION,
+    sourceKey,
+    fingerprint,
+    models,
+  });
 }
+
+/**
+ * Importer lookups before the affected call. Grepping a clone or the local repository is cheap,
+ * so each changed file's importers are followed up to where they are mounted; GitHub's code
+ * search (when a PR's head cannot be fetched) allows about 10 searches a minute, so it looks up
+ * fewer and only direct importers.
+ */
+const GREP_LOOKUPS = 10;
+const GREP_TREE = { depth: 3, fanout: 5, budget: 20 };
+const GITHUB_LOOKUPS = 6;
 
 /** The trace of the run that produced a cached tour, so its debug view outlives the job. */
 export function traceCacheKey(tourKey: string): string {
@@ -119,7 +158,7 @@ export function runTour(options: RunTourOptions): Stream.Stream<TourEventBody, P
 }
 
 /** What a tour needs; a `JudgeClient` is optional and read with `serviceOption`. */
-export type Services = ModelClient | DiffSources | TourCache;
+export type Services = ModelClient | DiffSources | TourCache | RepoClones;
 
 const tourProgram = Effect.fnUntraced(function* (
   options: RunTourOptions,
@@ -222,9 +261,12 @@ const tourProgram = Effect.fnUntraced(function* (
    * visual pick and stops with the tour; the tour waits for it before it finishes.
    */
   let walking: Fiber.Fiber<void> | undefined;
-  const finish = Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
-    Effect.andThen(() => complete),
-  );
+  let mapping: Fiber.Fiber<void> | undefined;
+  const finish = Effect.suspend(() =>
+    Effect.all([walking ? Fiber.join(walking) : Effect.void, mapping ? Fiber.join(mapping) : Effect.void], {
+      discard: true,
+    }),
+  ).pipe(Effect.andThen(() => complete));
   const complete = Effect.suspend(() => {
     const tour = tourFromState(state);
     if (!tour) {
@@ -251,6 +293,150 @@ const tourProgram = Effect.fnUntraced(function* (
   }
 
   const judgeConcurrency = options.concurrency?.judge ?? 8;
+
+  /**
+   * The description check runs after define on the same model and adds change-wide decisions
+   * where the diff disagrees with the description, skipping gaps define's decisions already make.
+   * A failed call is a warning.
+   */
+  const checkDescription = (listed: readonly Decision[]) =>
+    Effect.suspend(() => {
+      const checkPrompt = buildDescriptionCheckPrompt(meta, files, listed);
+      trace.begin('description-check', 'description-check', {
+        inputs: ['fetch', 'define'],
+        model: models.define,
+        system: DESCRIPTION_CHECK_SYSTEM,
+        prompt: checkPrompt,
+        sections: promptSections(checkPrompt, { 'Decisions the tour lists': 'define' }),
+      });
+      return cached(
+        'description-check',
+        { DESCRIPTION_CHECK_VERSION, model: models.define, prompt: checkPrompt },
+        prompt('description-check', {
+          tier: 'define',
+          system: DESCRIPTION_CHECK_SYSTEM,
+          prompt: checkPrompt,
+          result: DescriptionCheckSchema,
+          resultName: 'descriptionCheck',
+        }),
+        models.define,
+      ).pipe(
+        Effect.map(({ value, hit }): Decision[] => {
+          const decisions = value.claims.length ? value.decisions : [];
+          trace.end('description-check', {
+            cached: hit,
+            output: value,
+            summary: decisions.length ? `${decisions.length} gaps` : 'agrees',
+          });
+          return decisions.map(({ text, priority }) => ({ text, priority, source: 'description' as const }));
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync((): Decision[] => {
+            warn('define', `Checking the description failed: ${error.message}`);
+            trace.end('description-check', { warnings: [error.message] }, 'failed');
+            return [];
+          }),
+        ),
+      );
+    });
+
+  /**
+   * Who meets the change differently: one call on the define model beside define, given who
+   * imports the changed shared code, with find_importers, search_code and read_file to follow it
+   * further. A failed call is a warning.
+   */
+  const mapAffected = Effect.gen(function* () {
+    // Who imports the changed shared files and bumped packages, looked up before the call. A PR's
+    // head is fetched into a shallow clone first (seconds), beside define.
+    const tree = yield* (yield* RepoClones).tree(tourDiff);
+    const seen = new Set(files.map((file) => file.path));
+    const found = yield* Effect.forEach(
+      importQueries(files, tree ? GREP_LOOKUPS : GITHUB_LOOKUPS),
+      (query) =>
+        (tree
+          ? callerTree(
+              {
+                importers: (next) => Effect.tryPromise((signal) => findImporters(tourDiff, tree, next, signal)),
+                read: (path) => Effect.tryPromise((signal) => readTreeFile(tree, path, signal)),
+              },
+              query,
+              GREP_TREE,
+              seen,
+            ).pipe(
+              Effect.map((nodes) => [
+                { label: query.label, lines: renderCallerTree(nodes), count: countCallers(nodes) },
+              ]),
+            )
+          : Effect.tryPromise((signal) => findImporters(tourDiff, tree, query, signal)).pipe(
+              Effect.map((lines) => [{ label: query.label, lines, count: lines.length }]),
+            )
+        ).pipe(Effect.orElseSucceed(() => [])),
+      // One at a time, so a file reached from two changed files shows under the first.
+      { concurrency: 1 },
+    ).pipe(Effect.map((all) => all.flat()));
+    const affectedPrompt = buildAffectedPrompt(meta, files, found);
+    trace.begin('affected', 'affected', {
+      inputs: ['fetch'],
+      model: models.define,
+      system: AFFECTED_SYSTEM,
+      prompt: affectedPrompt,
+      sections: promptSections(affectedPrompt),
+    });
+    const reading = reader();
+    const searching = codeSearcher(tourDiff, (text, path) =>
+      runRead(Effect.tryPromise((signal) => searchRepo(tourDiff, tree, text, path, signal))),
+    );
+    const finding = importerFinder((query) =>
+      runRead(Effect.tryPromise((signal) => findImporters(tourDiff, tree, query, signal))),
+    );
+    const reads = () =>
+      readFields([
+        ...found.map(({ label, count }) => `found ${count} importers of ${label}`),
+        ...finding.reads(),
+        ...searching.reads(),
+        ...reading.reads(),
+      ]);
+    return yield* cached(
+      'affected',
+      // Its tools read the repository, so the same prompt on another tree is another request.
+      { AFFECTED_VERSION, model: models.define, prompt: affectedPrompt, sourceKey, fingerprint },
+      prompt('affected', {
+        tier: 'define',
+        system: AFFECTED_SYSTEM,
+        prompt: affectedPrompt,
+        result: AffectedResultSchema,
+        resultName: 'affected',
+        tools: [finding.tool, searching.tool, reading.tool],
+      }),
+      models.define,
+    ).pipe(
+      Effect.map(({ value, hit }) => {
+        // What changes first; what should not change after it.
+        const affected: Affected[] = value.surfaces
+          .map(({ surface, audience, effect, what, evidence }) => ({
+            surface,
+            audience,
+            effect,
+            what,
+            ...(evidence.trim() ? { evidence: evidence.trim() } : {}),
+          }))
+          .toSorted((a, b) => Number(a.effect === 'unchanged') - Number(b.effect === 'unchanged'));
+        send({ type: 'tour.affected', affected });
+        trace.end('affected', {
+          cached: hit,
+          output: value,
+          ...reads(),
+          summary: `${affected.length} surfaces`,
+        });
+      }),
+      Effect.catchTag('ModelError', (error) =>
+        Effect.sync(() => {
+          warn('define', `Mapping what the change affects failed: ${error.message}`);
+          trace.end('affected', { ...reads(), warnings: [error.message] }, 'failed');
+        }),
+      ),
+    );
+  });
 
   const defineGroups = Effect.gen(function* () {
     const listFiles = !judge;
@@ -297,10 +483,12 @@ const tourProgram = Effect.fnUntraced(function* (
     for (const message of warnings) {
       warn('define', message);
     }
-    const decisions = normalizeDecisionGroups(
+    const defined = normalizeDecisionGroups(
       definition.decisions,
       definition.groups.map((group) => group.key),
     );
+    // Check decisions go last, so the walkthrough's decision numbers still point at define's.
+    const decisions = [...defined, ...(yield* checkDescription(defined))];
     // With Jev, the picture waits for its pick; without, the first data visual shows until the sketch lands.
     send({
       type: 'tour.summary',
@@ -781,11 +969,18 @@ const tourProgram = Effect.fnUntraced(function* (
   }
   /** Starts the walkthrough beside everything after define; `finish` joins it. */
   const startWalkthrough = (defined: { overallSummary: string; decisions: NonNullable<Tour['decisions']> }) =>
-    Effect.forkScoped(writeWalkthrough(defined.overallSummary, defined.decisions)).pipe(
+    // The walkthrough reads define's decisions only: a gap with the description has no code path to walk.
+    Effect.forkScoped(
+      writeWalkthrough(
+        defined.overallSummary,
+        defined.decisions.filter((decision) => decision.source !== 'description'),
+      ),
+    ).pipe(
       Effect.map((fiber) => {
         walking = fiber;
       }),
     );
+  mapping = yield* Effect.forkScoped(mapAffected);
   const [definition] = yield* Effect.all(
     [
       defineGroups.pipe(
