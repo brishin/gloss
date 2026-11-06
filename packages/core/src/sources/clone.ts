@@ -153,9 +153,12 @@ export function makeRepoClones(root: string, remote: CloneRemote = githubRemote(
         const tree: SearchTree = { cwd: dir, rev: sha };
         // A fetched head may be gone since (another process's prune, the OS emptying its cache):
         // checked in a few ms, and fetched again when it is.
+        // Under the clone's lock, so a prune never drops the head between the check and the touch.
         const reuse = ready.has(key)
-          ? hasCommit(dir, sha).pipe(
-              Effect.tap((has) => (has ? touch(dir, sha) : Effect.sync(() => ready.delete(key)))),
+          ? lock(dir).withPermit(
+              hasCommit(dir, sha).pipe(
+                Effect.tap((has) => (has ? touch(dir, sha) : Effect.sync(() => ready.delete(key)))),
+              ),
             )
           : Effect.succeed(false);
         const fetched = Effect.suspend(() =>
