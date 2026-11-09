@@ -8,6 +8,25 @@ import { routeTree } from '../routeTree.gen.ts';
 import { inflateJson } from './gzip.ts';
 import css from '../styles.css?inline';
 
+/**
+ * The page's own colors, outside the app's `@layer`. A host that wraps the file (the claude.ai
+ * artifact viewer does) sets an unlayered `body` background, text color and font and a light
+ * `color-scheme`, which beat every layered rule: the page showed white behind the app, and
+ * white-on-white text in dark mode.
+ */
+const PAGE = `
+:root { color-scheme: light dark; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-body);
+  font-size: 13px;
+  line-height: 20px;
+}
+`;
+
 /** The tour's route (mirrors the CLI's `webPath`). */
 function tourPath(ref: SourceRef): string {
   return ref.kind === 'github-pr'
@@ -22,7 +41,7 @@ async function start() {
   window.__GLOSS__ = { snapshot };
 
   const style = document.createElement('style');
-  style.textContent = css;
+  style.textContent = css + PAGE;
   document.head.append(style);
 
   // The app's root route renders the whole document for TanStack Start; here it mounts in a div.

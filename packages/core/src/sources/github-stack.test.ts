@@ -1,6 +1,14 @@
 import type { PullState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { isOpen, MAX_STACK, type StackLookup, type StackPull, walkStack, reviewersOf } from './github-stack.ts';
+import {
+  isOpen,
+  MAX_STACK,
+  type StackLookup,
+  type StackPull,
+  walkStack,
+  reviewDecisionOf,
+  reviewersOf,
+} from './github-stack.ts';
 import { pullState } from './github.ts';
 
 const pr = (
@@ -73,12 +81,13 @@ describe('walkStack', () => {
     ]);
   });
 
-  test('only the PR asked about keeps since, mergedBy, queuePosition and reviewers', async () => {
+  test('only the PR asked about keeps since, mergedBy, queuePosition, reviewers and reviewDecision', async () => {
     const detail = {
       since: '2026-11-02T00:00:00Z',
       mergedBy: 'a',
       queuePosition: 2,
       reviewers: [{ login: 'r', state: 'approved' as const }],
+      reviewDecision: 'approved' as const,
     };
     const pulls = [
       { ...pr(1, 'main', 'a', 'merged'), ...detail },
@@ -155,5 +164,30 @@ describe('pullState', () => {
   test('a queued PR below is preferred over a merged one, like an open one', async () => {
     const pulls = [pr(1, 'main', 'a', 'queued'), pr(2, 'main', 'a', 'merged'), pr(3, 'a', 'b')];
     expect(await numbers(3, pulls)).toEqual([1, 3]);
+  });
+});
+
+describe('reviewDecisionOf', () => {
+  const approved = { login: 'a', state: 'approved' as const };
+  const changes = { login: 'b', state: 'changes' as const };
+  const pending = { login: 'c', state: 'pending' as const };
+
+  test.each([
+    ['GitHub approved', 'APPROVED', [], 'approved'],
+    ['GitHub wants changes', 'CHANGES_REQUESTED', [approved], 'changes'],
+    ['GitHub still requires review, whatever the reviews say', 'REVIEW_REQUIRED', [approved], undefined],
+    ['no rules: a change request wins', null, [approved, changes], 'changes'],
+    ['no rules: an approval', null, [approved, pending], 'approved'],
+    ['no rules, no reviews', null, [pending], undefined],
+  ] as const)('%s', (_, decision, reviewers, expected) => {
+    expect(reviewDecisionOf(decision, reviewers)).toBe(expected);
+  });
+
+  test('asking for a review again keeps the change request', () => {
+    const reviews = [
+      { author: { login: 'a' }, state: 'CHANGES_REQUESTED' as const },
+      { author: { login: 'b' }, state: 'APPROVED' as const },
+    ];
+    expect(reviewDecisionOf(null, reviewersOf(reviews, []))).toBe('changes');
   });
 });

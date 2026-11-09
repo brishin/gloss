@@ -11,6 +11,7 @@ export type CacheKind =
   | 'judge-rules'
   | 'sketch'
   | 'walkthrough'
+  | 'callpath'
   | 'followup'
   | 'notes'
   | 'stack-name'

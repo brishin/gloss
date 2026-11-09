@@ -6,8 +6,9 @@ import type { CommentAnchor, DraftComment } from '../lib/review-draft.ts';
 
 /** What a file's diff needs to take line comments; absent when the tour cannot be reviewed (a local diff). */
 export interface Reviewer {
-  start: (anchor: CommentAnchor) => void;
-  edit: (id: string) => void;
+  /** `place` names the walkthrough diff the comment is written in; none for the file's own diff. */
+  start: (anchor: CommentAnchor, place?: string) => void;
+  edit: (id: string, place?: string) => void;
   change: (body: string) => void;
   cancel: () => void;
   save: () => void;

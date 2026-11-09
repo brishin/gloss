@@ -58,7 +58,10 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const next = stops[at + 1];
   const running = isRunning(model);
   const select = (key: string) => dispatch({ type: 'GroupSelected', key });
-  const jumpToFile = useCallback((fileId: string) => dispatch({ type: 'FileJumped', fileId }), [dispatch]);
+  const jumpToFile = useCallback(
+    (fileId: string, line?: number) => dispatch({ type: 'FileJumped', fileId, line }),
+    [dispatch],
+  );
   const reviewable = canReview(model);
   const askable = canAsk(model);
   const { review } = model;
@@ -66,8 +69,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     () =>
       reviewable
         ? {
-            start: (anchor) => dispatch({ type: 'CommentStarted', anchor }),
-            edit: (id) => dispatch({ type: 'CommentEdited', id }),
+            start: (anchor, place) => dispatch({ type: 'CommentStarted', anchor, place }),
+            edit: (id, place) => dispatch({ type: 'CommentEdited', id, place }),
             change: (body) => dispatch({ type: 'CommentBodyChanged', body }),
             cancel: () => dispatch({ type: 'CommentCancelled' }),
             save: () => dispatch({ type: 'CommentSaved' }),
@@ -285,7 +288,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             </section>
             {state.walkthrough && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
-                <Walkthrough walkthrough={state.walkthrough} diff={diff} onJumpToFile={jumpToFile} />
+                <Walkthrough
+                  walkthrough={state.walkthrough}
+                  decisions={state.decisions ?? []}
+                  diff={diff}
+                  onJumpToFile={jumpToFile}
+                  comments={review.comments}
+                  composing={review.composing?.place ? review.composing : undefined}
+                  reviewer={reviewer}
+                />
               </section>
             )}
             {groups.map((group) => (
