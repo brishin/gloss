@@ -8,6 +8,7 @@ export type CacheKind =
   | 'judge-file'
   | 'judge-group'
   | 'judge-visual'
+  | 'judge-rules'
   | 'sketch'
   | 'walkthrough'
   | 'callpath'

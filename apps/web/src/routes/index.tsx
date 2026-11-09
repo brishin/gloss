@@ -45,9 +45,14 @@ function Home() {
           </h1>
           <Text color="secondary">A guided, annotated review tour of a pull request or local diff.</Text>
         </div>
-        <Link to="/setup" className="home-setup">
-          Setup
-        </Link>
+        <div className="home-links">
+          <Link to="/settings" className="home-setup">
+            Settings
+          </Link>
+          <Link to="/setup" className="home-setup">
+            Setup
+          </Link>
+        </div>
       </div>
       <form className="target-form" onSubmit={submit}>
         <input

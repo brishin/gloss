@@ -1785,6 +1785,11 @@
     gap: var(--spacing-3);
   }
 
+  .home-links {
+    display: flex;
+    gap: var(--spacing-3);
+  }
+
   .home-setup {
     color: var(--color-text-secondary);
     text-decoration: none;
@@ -1894,6 +1899,56 @@
   .setup-key {
     flex: 1;
     min-width: 200px;
+  }
+
+  /* Settings: decision rules, a files pattern above each set of rules. */
+
+  .rules,
+  .rules-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .rules-form {
+    gap: var(--spacing-4);
+  }
+
+  .rules-rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .rules-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+  }
+
+  .rules-row-inputs {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+  }
+
+  .rules-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rules-files {
+    width: 160px;
+    flex: none;
+  }
+
+  .rules-chat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
   }
 
   .setup-path,

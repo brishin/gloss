@@ -1,13 +1,16 @@
 import {
+  createFakeJudgeClient,
   createFakeModelClient,
+  DecisionRules,
   DiffSources,
+  JudgeClient,
   ModelClient,
   RepoError,
   Repos,
   StaleFileError,
   TourCache,
 } from '@gloss/core';
-import type { AskEvent, DiffPayload, Tour, TourEvent, TourEventBody } from '@gloss/protocol';
+import type { AskEvent, DecisionRuleSet, DiffPayload, Tour, TourEvent, TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient } from '@gloss/protocol';
 import { Effect, Layer, ManagedRuntime, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -76,13 +79,16 @@ function setup(
   {
     repos,
     model = createFakeModelClient({ answers: {} }),
+    extra = Layer.empty,
     ...options
   }: Partial<Parameters<typeof createApp>[0]> & {
     repos?: Partial<Repos['Service']>;
     model?: ModelClient['Service'];
+    /** Optional services the pipeline reads with `serviceOption`. */
+    extra?: Layer.Layer<DecisionRules | JudgeClient> | Layer.Layer<never>;
   } = {},
 ) {
-  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer);
+  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer, extra);
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
       Layer.provideMerge(services),
@@ -524,6 +530,87 @@ describe('setup API', () => {
     });
     expect(empty.status).toBe(400);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('decision rules API', () => {
+  function rulesLayer(judge = true) {
+    let saved: readonly DecisionRuleSet[] = [{ rules: ['Flag A'] }];
+    const layer = Layer.mergeAll(
+      Layer.succeed(DecisionRules, {
+        get: Effect.sync(() => saved),
+        save: (sets) => Effect.sync(() => void (saved = sets)),
+      }),
+      judge
+        ? Layer.succeed(
+            JudgeClient,
+            createFakeJudgeClient((_, id) =>
+              id === 'overlaps_r2' ? { type: 'bool', probability: 0.9 } : { type: 'bool', probability: 0.1 },
+            ),
+          )
+        : Layer.empty,
+    );
+    return { layer, saved: () => saved };
+  }
+
+  it('reads and saves the rule sets, with what Jev finds in them', async () => {
+    const rules = rulesLayer();
+    const { client } = setup(scripted().run, { extra: rules.layer });
+    expect(await client.decisionRules()).toEqual({ sets: [{ rules: ['Flag A'] }], findings: [], checked: true });
+    const sets = [{ rules: ['Flag A'] }, { files: '\\.py$', rules: [' Flag a too '] }];
+    expect(await client.saveDecisionRules(sets)).toEqual({
+      sets: [{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }],
+      findings: [{ set: 0, rule: 0, kind: 'overlap', other: { set: 1, rule: 0 } }],
+      checked: true,
+    });
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }]);
+  });
+
+  it('saves unchecked without Jev', async () => {
+    const { client } = setup(scripted().run, { extra: rulesLayer(false).layer });
+    expect(await client.saveDecisionRules([{ rules: ['Flag B'] }])).toEqual({
+      sets: [{ rules: ['Flag B'] }],
+      findings: [],
+      checked: false,
+    });
+  });
+
+  it('takes rules only as JSON from the app, with a valid files pattern', async () => {
+    const rules = rulesLayer();
+    const { app } = setup(scripted().run, { extra: rules.layer });
+    const put = (contentType: string, body: unknown) =>
+      app.request('/api/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: JSON.stringify(body),
+      });
+    expect((await put('text/plain', { sets: [] })).status).toBe(403);
+    expect((await put('application/json', { sets: [{ files: '(', rules: ['Flag A'] }] })).status).toBe(400);
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
+  });
+
+  it('has the model rewrite the rules without saving them', async () => {
+    const rules = rulesLayer();
+    const model = createFakeModelClient({
+      answers: { define: { rules: [{ text: 'Flag B', files: '' }], reply: 'Swapped A for B.' } },
+    });
+    const { client, app } = setup(scripted().run, { extra: rules.layer, model });
+    expect(await client.editDecisionRules({ rules: [{ text: 'Flag A' }], instruction: 'replace A with B' })).toEqual({
+      rules: [{ text: 'Flag B' }],
+      reply: 'Swapped A for B.',
+    });
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
+    const form = await app.request('/api/rules/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ rules: [], instruction: 'x' }),
+    });
+    expect(form.status).toBe(403);
+  });
+
+  it('has no rules when the backend keeps none', async () => {
+    const { app } = setup(scripted().run);
+    expect((await app.request('/api/rules')).status).toBe(404);
   });
 });
 

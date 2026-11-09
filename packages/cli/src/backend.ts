@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import process from 'node:process';
-import { DiffSources, JudgeClient, ModelClient, type Services, TourCache } from '@gloss/core';
+import { DecisionRules, DiffSources, JudgeClient, ModelClient, type Services, TourCache } from '@gloss/core';
 import {
   createFlueModelClient,
   createJevClient,
@@ -9,6 +9,8 @@ import {
   loadProviderPackages,
   modelName,
   providerStatus,
+  readDecisionRules,
+  saveDecisionRules,
   validateModelIds,
 } from '@gloss/models';
 import type { Health } from '@gloss/protocol';
@@ -36,7 +38,7 @@ export function loadGlossEnv(): void {
  * Config, providers, the Flue model client, Jev and the cache: everything inference needs,
  * local only. Jev is provided only when a TypeSafe (or OpenRouter) key is configured.
  */
-export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
+export const BackendLayer: Layer.Layer<Services | DecisionRules | BackendInfo> = Layer.unwrap(
   Effect.promise(async () => {
     loadGlossEnv();
     const config = loadConfig();
@@ -47,6 +49,10 @@ export const BackendLayer: Layer.Layer<Services | BackendInfo> = Layer.unwrap(
       TourCache.sqlite(glossPath('cache.sqlite')),
       Layer.succeed(ModelClient, createFlueModelClient({ config })),
       DiffSources.layer,
+      Layer.succeed(DecisionRules, {
+        get: Effect.sync(() => readDecisionRules()),
+        save: (rules) => Effect.sync(() => saveDecisionRules(rules)),
+      }),
       judge ? Layer.succeed(JudgeClient, judge) : Layer.empty,
       Layer.succeed(BackendInfo, {
         judge: judge?.model,

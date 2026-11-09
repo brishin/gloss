@@ -13,6 +13,14 @@ import {
   type Subscription,
 } from './login.ts';
 import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
+import {
+  type DecisionRuleSet,
+  type DecisionRulesState,
+  DecisionRulesStateSchema,
+  type EditRulesRequest,
+  type EditRulesResponse,
+  EditRulesResponseSchema,
+} from './rules.ts';
 import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
@@ -117,6 +125,12 @@ export interface GlossClient {
   installNativeHost(): Promise<void>;
   /** Saves a TypeSafe key for Jev in the backend's `~/.gloss/.env`, then the backend restarts to use it. */
   saveJudgeKey(key: string): Promise<void>;
+  /** The user's rule sets for which decisions to flag, with what Jev found when it checked them. */
+  decisionRules(): Promise<DecisionRulesState>;
+  /** Saves the rule sets in the backend's `~/.gloss/config.json`; later tours use them. Jev checks them on the way. */
+  saveDecisionRules(sets: readonly DecisionRuleSet[]): Promise<DecisionRulesState>;
+  /** Has the backend's model rewrite the rules from an instruction; nothing is saved. */
+  editDecisionRules(request: EditRulesRequest): Promise<EditRulesResponse>;
   /** Whether the backend's checkout has newer code (fetches its upstream at most every few minutes). */
   updateStatus(): Promise<UpdateStatus>;
   /** Pulls, installs and builds on the backend, then restarts it; resolves before the restart. */
@@ -291,6 +305,19 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         body: JSON.stringify({ key }),
       });
     },
+    decisionRules: () => json(DecisionRulesStateSchema, '/api/rules'),
+    saveDecisionRules: (sets) =>
+      json(DecisionRulesStateSchema, '/api/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sets }),
+      }),
+    editDecisionRules: (request) =>
+      json(EditRulesResponseSchema, '/api/rules/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      }),
     updateStatus: () => json(UpdateStatusSchema, '/api/update'),
     async update() {
       await request('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

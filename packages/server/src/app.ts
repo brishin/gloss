@@ -1,5 +1,16 @@
-import { ModelClient, nameStack, type PullSummary, Repos, runAsk, TourCache } from '@gloss/core';
+import {
+  checkDecisionRules,
+  DecisionRules,
+  editDecisionRules,
+  ModelClient,
+  nameStack,
+  type PullSummary,
+  Repos,
+  runAsk,
+  TourCache,
+} from '@gloss/core';
 import type {
+  DecisionRuleSet,
   DiffPayload,
   GithubLogin,
   Health,
@@ -20,6 +31,8 @@ import {
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
+  EditRulesRequestSchema,
+  SaveDecisionRulesSchema,
   serializeRef,
   SourceRefSchema,
   StackSchema,
@@ -457,6 +470,53 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     return (await withLogins((logins) => logins.cancel(id)))
       ? c.body(null, 204)
       : c.json({ error: 'Unknown or expired login' }, 404);
+  });
+
+  // The user's decision rule sets: read with what Jev finds in them (cached), saved the same way.
+  const rulesState = (save?: readonly DecisionRuleSet[]) =>
+    Effect.gen(function* () {
+      const service = yield* Effect.serviceOption(DecisionRules);
+      if (service._tag === 'None') {
+        return undefined;
+      }
+      if (save) {
+        yield* service.value.save(save);
+      }
+      const sets = save ?? (yield* service.value.get);
+      return { sets: [...sets], ...(yield* checkDecisionRules(sets)) };
+    });
+
+  app.get('/api/rules', async (c) => {
+    const state = await run(rulesState());
+    return state ? c.json(state) : c.json({ error: 'This backend keeps no decision rules' }, 404);
+  });
+
+  // It writes the backend's config, so like setup it takes JSON from the app only.
+  app.put('/api/rules', async (c) => {
+    if (!fromApp(c)) return c.json({ error: 'Rules are accepted only as JSON from the gloss app' }, 403);
+    const parsed = v.safeParse(SaveDecisionRulesSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
+    try {
+      const state = await run(rulesState(parsed.output.sets));
+      return state ? c.json(state) : c.json({ error: 'This backend keeps no decision rules' }, 404);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  // Rewrites the rules from a request in words; spends model tokens, so only the app may ask.
+  app.post('/api/rules/edit', async (c) => {
+    if (!fromApp(c)) return c.json({ error: 'Edits are accepted only as JSON from the gloss app' }, 403);
+    const parsed = v.safeParse(EditRulesRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
+    const edited = await run(
+      editDecisionRules(parsed.output).pipe(
+        Effect.map((result) => ({ ok: true as const, result })),
+        Effect.catchTag('ModelError', (error) => Effect.succeed({ ok: false as const, message: error.message })),
+      ),
+      c.req.raw.signal,
+    );
+    return edited.ok ? c.json(edited.result) : c.json({ error: edited.message }, 502);
   });
 
   if (setup) {
