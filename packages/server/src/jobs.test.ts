@@ -1,5 +1,7 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { it } from '@effect/vitest';
-import { createFakeModelClient, DiffSources, ModelClient, TourCache } from '@gloss/core';
+import { createFakeModelClient, DiffSources, ModelClient, RepoClones, TourCache } from '@gloss/core';
 import type { TourEventBody } from '@gloss/protocol';
 import { Effect, Fiber, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
@@ -33,6 +35,7 @@ const jobsLayer = (run: RunTour) =>
         TourCache.memory,
         Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
         DiffSources.layer,
+        RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
       ),
     ),
   );

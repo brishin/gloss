@@ -640,6 +640,45 @@
     gap: var(--spacing-2);
   }
 
+  /* The description check's medium and low gaps, folded under the decisions. */
+  /* What the change affects: where and who, then what changes or what to check. */
+  .affected-surface {
+    width: 34%;
+  }
+
+  .affected-name {
+    font-weight: 600;
+  }
+
+  .affected-audience,
+  .affected-part {
+    color: var(--color-text-secondary);
+  }
+
+  .affected-part {
+    margin: var(--spacing-3) 0 var(--spacing-1);
+    font-size: 13px;
+  }
+
+  .description-check summary {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-2);
+    cursor: pointer;
+  }
+
+  .description-check summary h2 {
+    display: inline;
+  }
+
+  .description-check-count {
+    color: var(--color-text-secondary);
+  }
+
+  .description-check[open] summary {
+    margin-bottom: var(--spacing-2);
+  }
+
   /* The update notice (UpdatePrompt), above the page in a corner. */
   .update-prompt {
     position: fixed;
@@ -2176,6 +2215,24 @@
 
     .decisions tr:first-child {
       border-top: 1px solid var(--color-border);
+    }
+
+    /* An affected row stacks: where and who, then what. */
+    .overview-table.affected tr {
+      display: grid;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .overview-table.affected td {
+      border-bottom: none;
+    }
+
+    .overview-table.affected td + td {
+      padding-top: 0;
+    }
+
+    .affected-surface {
+      width: auto;
     }
 
     .overview-table.decisions td,

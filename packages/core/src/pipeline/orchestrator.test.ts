@@ -5,11 +5,19 @@ import { dirname, join } from 'node:path';
 import type { DecisionRuleSet, SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
 import { Effect, Exit, Layer, Stream } from 'effect';
+import type * as v from 'valibot';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
-import { DecisionRules, type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
+import {
+  DecisionRules,
+  type JudgeAnswer,
+  JudgeClient,
+  JudgeError,
+  ModelClient,
+  type ModelRequest,
+} from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
-import { DiffSources, EMPTY_REPO_CONFIG, type RepoConfig, RepoConfigs } from '../sources/index.ts';
+import { DiffSources, EMPTY_REPO_CONFIG, RepoClones, type RepoConfig, RepoConfigs } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
 
 let repo: string;
@@ -35,6 +43,8 @@ beforeAll(() => {
   git('init', '-q', '-b', 'main');
   write('src/auth.ts', 'export function check() {\n  return true;\n}\n');
   write('.gitattributes', 'api/*.gen.ts linguist-generated\n');
+  write('src/login.ts', "import { check } from './auth';\n");
+  write('src/screen.ts', "import { login } from './login';\nif (useFlag('new-auth')) login();\n");
   git('add', '.');
   git('commit', '-qm', 'init');
   write('src/auth.ts', 'export function check(user: string) {\n  return user === "admin";\n}\n');
@@ -58,6 +68,7 @@ async function tour(options: {
     Layer.succeed(ModelClient, options.model),
     Layer.succeed(TourCache, options.cache ?? createMemoryCacheStore()),
     DiffSources.layer,
+    RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
     options.rules
       ? Layer.succeed(DecisionRules, { get: Effect.succeed(options.rules), save: () => Effect.void })
@@ -113,10 +124,32 @@ const sketch = {
   svg: sketchAnswer.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '),
 };
 
+/** What the description check finds: nothing, unless a test says otherwise. */
+const checkAnswer = { claims: [], stated: '', areas: [], decisions: [] };
+type DefineAnswer = (request: ModelRequest<v.GenericSchema>) => unknown;
+/** What the affected call maps: one surface that changes and one that should not. */
+const affectedAnswer = {
+  systems: [{ name: 'Auth', fileIds: [], change: 'Adds a check.', usedBy: ['Login page'] }],
+  surfaces: [
+    {
+      surface: 'Login page',
+      audience: 'everyone',
+      effect: 'unchanged',
+      what: 'Check sign-in still works.',
+      evidence: '',
+    },
+    { surface: 'Admin login', audience: 'admins', effect: 'changes', what: 'Asks for a code.', evidence: 'auth.ts:3' },
+  ],
+};
+const withCheck =
+  (answer: DefineAnswer, check: unknown = checkAnswer, affected: unknown = affectedAnswer): DefineAnswer =>
+  (request) =>
+    request.resultName === 'descriptionCheck' ? check : request.resultName === 'affected' ? affected : answer(request);
+
 function fakeModel() {
   return createFakeModelClient({
     answers: {
-      define: (request) =>
+      define: withCheck((request) =>
         request.resultName === 'sketch'
           ? sketchAnswer
           : request.resultName === 'walkthrough'
@@ -124,6 +157,7 @@ function fakeModel() {
             : request.resultName === 'callpath'
               ? { frames: [], steps: [] }
               : groupsAnswer,
+      ),
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
           fileId: match[1],
@@ -279,6 +313,61 @@ describe('runTour', () => {
     expect(third.events[0]).toMatchObject({ type: 'job.started', cached: true });
   });
 
+  it('adds what the description check finds to the change-wide decisions, only when the description makes claims', async () => {
+    const outside = { text: 'Described as admin-only, but every user runs the new check.', priority: 'medium' };
+    // A gap must quote what it breaks; one whose quote the title, description and commits lack is dropped.
+    const unquoted = {
+      quote: 'admins only, behind a flag',
+      text: 'Not behind a flag.',
+      priority: 'low',
+      admittedBy: '',
+    };
+    // A gap the description already admits is dropped too.
+    const admitted = {
+      quote: 'Working tree changes',
+      text: 'Also changes the CLI.',
+      priority: 'low',
+      admittedBy: 'Working tree changes',
+    };
+    const withFinding = (claims: { claim: string; status: string }[]) => {
+      const base = fakeModel();
+      return createFakeModelClient({
+        answers: {
+          define: withCheck((request) => base.prompt(request).pipe(Effect.runSync).data, {
+            claims,
+            stated: 'Admin only',
+            areas: [{ area: 'Auth', fileIds: [], reachedBy: 'every user', described: true, inScope: false }],
+            decisions: [
+              { ...outside, quote: 'Working tree changes', admittedBy: '', groupKey: 'auth' },
+              unquoted,
+              admitted,
+            ],
+          }),
+          followup: (request) => base.prompt(request).pipe(Effect.runSync).data,
+          notes: (request) => base.prompt(request).pipe(Effect.runSync).data,
+        },
+      });
+    };
+    const model = withFinding([{ claim: 'Admin only', status: 'contradicted' }]);
+    const { tour: finished } = await tour({ model, judge: fakeJudge() });
+    expect(finished.decisions).toEqual([
+      groupsAnswer.decisions[0],
+      { text: 'Ship docs with the check.', priority: 'low' },
+      { ...outside, source: 'description' },
+    ]);
+    // It reads the same change as define, on the define model.
+    const checkCall = model.calls.find((call) => call.resultName === 'descriptionCheck')!;
+    expect(checkCall.tier).toBe('define');
+    expect(checkCall.prompt).toContain('## Diffs');
+    // It sees define's decisions so it can skip gaps they already make; the walkthrough does not walk its gaps.
+    expect(checkCall.prompt).toContain(groupsAnswer.decisions[0]!.text);
+    const walkCall = model.calls.find((call) => call.resultName === 'walkthrough')!;
+    expect(walkCall.prompt).not.toContain(outside.text);
+
+    const unstated = await tour({ model: withFinding([]), judge: fakeJudge() });
+    expect(unstated.tour.decisions).toHaveLength(2);
+  });
+
   it('reads the change-wide decisions in code, right after the groups are defined', async () => {
     const authId = (prompt: string) => /^### (f[0-9a-f]+) src\/auth\.ts/m.exec(prompt)![1]!;
     const hunkId = (prompt: string) =>
@@ -286,7 +375,7 @@ describe('runTour', () => {
     const base = fakeModel();
     const model = createFakeModelClient({
       answers: {
-        define: (request) => {
+        define: withCheck((request) => {
           if (request.resultName === 'walkthrough') {
             const fileId = authId(request.prompt);
             const at = {
@@ -335,7 +424,7 @@ describe('runTour', () => {
             };
           }
           return request.resultName === 'sketch' ? sketchAnswer : groupsAnswer;
-        },
+        }),
       },
     });
     const { events, tour: finished } = await tour({
@@ -394,6 +483,8 @@ describe('runTour', () => {
         'notes:docs',
         'notes:tests',
         'place',
+        'description-check',
+        'affected',
         'sketch',
         'walkthrough',
         'callpath',
@@ -427,13 +518,13 @@ describe('runTour', () => {
   it('without a judge, the LLM lists files and nothing is dropped', async () => {
     const model = createFakeModelClient({
       answers: {
-        define: (request) => {
+        define: withCheck((request) => {
           if (request.resultName === 'sketch') {
             return sketchAnswer;
           }
           const ids = [...request.prompt.matchAll(/^(f[0-9a-f]+) /gm)].map((match) => match[1]!);
           return { ...groupsAnswer, groups: [{ ...groupsAnswer.groups[0], fileIds: [ids[0], 'f-hallucinated'] }] };
-        },
+        }),
         followup: { placements: [] },
         notes: { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] },
       },
@@ -480,13 +571,26 @@ describe('runTour', () => {
     expect(finished.groups.flatMap((group) => group.fileIds)).toHaveLength(finished.files.length);
   });
 
-  it('lets notes and the walkthrough read files at the head, and traces what they read', async () => {
+  it('lets notes, the walkthrough and the affected map read files at the head, and traces what they read', async () => {
     const base = fakeModel();
     const outputs: string[][] = [];
+    const searched: string[] = [];
     const model: ModelClient['Service'] = {
       ...base,
       prompt: (request) =>
         Effect.gen(function* () {
+          const find = request.tools?.find((tool) => tool.name === 'find_importers');
+          if (find) {
+            for (const input of [{ path: 'src/auth.ts' }, { path: 'README.md' }]) {
+              searched.push(yield* Effect.promise(() => find.run(input)));
+            }
+          }
+          const search = request.tools?.find((tool) => tool.name === 'search_code');
+          if (search) {
+            for (const input of [{ text: 'user ===' }, { text: 'nowhere to be found' }, { text: 'x' }]) {
+              searched.push(yield* Effect.promise(() => search.run(input)));
+            }
+          }
           const read = request.tools?.find((tool) => tool.name === 'read_file');
           if (read && (request.tier === 'notes' ? request.prompt.includes('src/auth.ts') : true)) {
             const answers: string[] = [];
@@ -500,7 +604,7 @@ describe('runTour', () => {
     };
     const { trace } = await tour({ model });
     // A changed file reads from the working tree, any other file from HEAD; nothing outside the repository.
-    expect(outputs).toHaveLength(3);
+    expect(outputs).toHaveLength(4);
     expect(new Set(outputs.map((answers) => answers.join('\n'))).size).toBe(1);
     expect(outputs[0]).toEqual([
       '1 export function check(user: string) {\n2   return user === "admin";\n3 }',
@@ -510,6 +614,50 @@ describe('runTour', () => {
     expect(trace.get('walkthrough')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('callpath')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('notes:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+    // Only the affected map looks up importers and searches, through git grep in a local repository.
+    expect(searched).toEqual([
+      "src/login.ts:1:import { check } from './auth';",
+      'README.md is not imported by its path (only script and Python files are). Call search_code with a type or function name it defines.',
+      'src/auth.ts:2:  return user === "admin";',
+      'No matches.',
+      'Give a string of at least 3 characters to find.',
+    ]);
+    expect(trace.get('affected')?.prompt).toContain(
+      [
+        '## Callers found',
+        '### Importers of src/auth.ts',
+        "src/login.ts:1:import { check } from './auth';",
+        "  src/screen.ts:1:import { login } from './login';",
+        "    gate src/screen.ts:2: if (useFlag('new-auth')) login();",
+      ].join('\n'),
+    );
+    expect(trace.get('affected')?.reads).toEqual([
+      'found 2 importers of src/auth.ts',
+      'importers of src/auth.ts',
+      'search "user ==="',
+      'search "nowhere to be found"',
+      'src/auth.ts lines 1-3',
+      '.gitattributes lines 1-1',
+    ]);
+  });
+
+  it('streams what the change affects, changes first, and keeps it in the finished tour', async () => {
+    const { events, tour: finished } = await tour({ model: fakeModel() });
+    const event = events.find((event) => event.type === 'tour.affected');
+    expect(event && 'affected' in event ? event.affected.map((row) => row.surface) : []).toEqual([
+      'Admin login',
+      'Login page',
+    ]);
+    expect(finished.affected).toEqual([
+      {
+        surface: 'Admin login',
+        audience: 'admins',
+        effect: 'changes',
+        what: 'Asks for a code.',
+        evidence: 'auth.ts:3',
+      },
+      { surface: 'Login page', audience: 'everyone', effect: 'unchanged', what: 'Check sign-in still works.' },
+    ]);
   });
 
   it('ends with a pipeline error when the model cannot define groups, and traces the failed step', async () => {
@@ -522,6 +670,7 @@ describe('runTour', () => {
             Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
             TourCache.memory,
             DiffSources.layer,
+            RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
           ),
         ),
       ),

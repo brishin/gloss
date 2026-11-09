@@ -2,6 +2,7 @@ import * as v from 'valibot';
 import { DiffMetaSchema, FileSummarySchema } from './diff.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import {
+  AffectedSchema,
   DecisionSchema,
   FileJudgmentSchema,
   GroupDefinitionSchema,
@@ -58,6 +59,7 @@ export const TourEventBodySchema = v.variant('type', [
     visuals: v.optional(v.array(VisualSchema)),
   }),
   event('tour.walkthrough', { walkthrough: WalkthroughSchema }),
+  event('tour.affected', { affected: v.array(AffectedSchema) }),
   event('file.judged', {
     fileId: v.string(),
     judgment: FileJudgmentSchema,

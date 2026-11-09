@@ -10,6 +10,8 @@ export type CacheKind =
   | 'judge-visual'
   | 'judge-rules'
   | 'sketch'
+  | 'description-check'
+  | 'affected'
   | 'walkthrough'
   | 'callpath'
   | 'followup'
