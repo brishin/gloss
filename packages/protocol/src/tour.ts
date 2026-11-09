@@ -182,8 +182,27 @@ export const DecisionSchema = v.object({
   side: v.optional(DiffSideSchema),
   line: v.optional(v.number()),
   groupKey: v.optional(v.string()),
+  /** `description`: a gap between the PR's description and its diff, from the description check. */
+  source: v.optional(v.picklist(['description'])),
 });
 export type Decision = v.InferOutput<typeof DecisionSchema>;
+
+/**
+ * A screen, email, API or job that people meet differently after the change, found by following
+ * the changed code to where it is used. `unchanged`: shared code under it changed but it is meant
+ * to behave the same, so the reviewer checks that it does.
+ */
+export const AffectedSchema = v.object({
+  surface: v.string(),
+  /** Who meets it, with any flag, role or platform that gates it. */
+  audience: v.string(),
+  effect: v.picklist(['changes', 'unchanged']),
+  /** What they see or get differently, or what to check when it should be unchanged. */
+  what: v.string(),
+  /** The file and line that tie the change to it, e.g. `SupportCompose.tsx:118`. */
+  evidence: v.optional(v.string()),
+});
+export type Affected = v.InferOutput<typeof AffectedSchema>;
 
 /** Where something sits on a timeline: 0 is its left edge, 100 its right. */
 const position = v.pipe(v.number(), v.minValue(0), v.maxValue(100));
@@ -373,6 +392,8 @@ export const TourSchema = v.object({
   visual: v.optional(VisualSchema),
   /** The change-wide decisions read in code, and the call paths they do not walk, when there are any. */
   walkthrough: v.optional(WalkthroughSchema),
+  /** What people meet differently after the change. Absent in tours written before it, or when the call failed. */
+  affected: v.optional(v.array(AffectedSchema)),
   groups: v.array(ResolvedGroupSchema),
   placements: v.record(v.string(), PlacementSchema),
   judgments: v.record(v.string(), FileJudgmentSchema),

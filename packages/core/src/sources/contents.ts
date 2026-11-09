@@ -1,9 +1,11 @@
-import { lstat, readlink, realpath } from 'node:fs/promises';
+import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import type { DiffHunk, DiffPayload, FileChange, FileContents } from '@gloss/protocol';
 import { Data } from 'effect';
+import type { SearchTree } from './clone.ts';
 import { git } from './exec.ts';
 import { gh } from './github.ts';
+import { type ImportQuery, importsQueryPath, isImportLine } from './importers.ts';
 
 /** The file no longer reads as the diff says (an edited working tree). */
 export class StaleFileError extends Data.TaggedError('StaleFileError') {
@@ -156,4 +158,181 @@ export async function readFileContents(
   }
   const newContents = await readHead(diff, file.path, signal);
   return { oldContents: reverseApply(newContents, file.hunks), newContents };
+}
+
+/** Lines one search returns; the model narrows the pattern or the path for more. */
+const SEARCH_LINES = 40;
+
+interface CodeSearchItem {
+  path: string;
+  text_matches?: { fragment: string }[];
+}
+
+/** Lines of `git grep` output in `tree`, with the commit prefix dropped; none when nothing matches. */
+async function grepTree(tree: SearchTree, args: readonly string[], paths: readonly string[], signal?: AbortSignal) {
+  let out: string;
+  try {
+    out = await git(
+      tree.cwd,
+      // Unquoted paths: `src/écran.ts`, not `"src/\303\251cran.ts"`.
+      [
+        '-c',
+        'core.quotePath=false',
+        'grep',
+        '-n',
+        '-I',
+        ...args,
+        ...(tree.rev ? [tree.rev] : ['--untracked']),
+        '--',
+        ...paths,
+      ],
+      {
+        signal,
+      },
+    );
+  } catch (error) {
+    // git grep exits 1 when nothing matches.
+    if ((error as { code?: unknown }).code === 1) {
+      return [];
+    }
+    throw error;
+  }
+  const prefix = tree.rev ? `${tree.rev}:` : '';
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => (prefix && line.startsWith(prefix) ? line.slice(prefix.length) : line));
+}
+
+/** GitHub's code search for a fixed string, as `path: text`; it indexes the default branch only. */
+async function githubSearch(
+  ref: { owner: string; repo: string },
+  pattern: string,
+  path: string | undefined,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const terms = [
+    `"${pattern.replaceAll('"', ' ')}"`,
+    `repo:${ref.owner}/${ref.repo}`,
+    ...(path ? [`path:${path}`] : []),
+  ];
+  const result = JSON.parse(
+    await gh(
+      [
+        '-X',
+        'GET',
+        'search/code',
+        '-H',
+        'Accept: application/vnd.github.text-match+json',
+        '-f',
+        `q=${terms.join(' ')}`,
+        '-f',
+        'per_page=30',
+      ],
+      signal,
+    ),
+  ) as { items?: CodeSearchItem[] };
+  const lines: string[] = [];
+  for (const item of result.items ?? []) {
+    const hits = (item.text_matches ?? [])
+      .flatMap((match) => match.fragment.split('\n'))
+      .filter((line) => line.includes(pattern));
+    lines.push(...(hits.length ? hits.slice(0, 3).map((line) => `${item.path}: ${line.trim()}`) : [item.path]));
+  }
+  return lines;
+}
+
+/**
+ * Where a fixed string appears in the repository at the diff's head, as `path:line: text`. A local
+ * diff greps its head (or its working tree, untracked files too); a PR greps a shallow clone of its
+ * head (`RepoClones`), or asks GitHub's code search (`path: text`, default branch only) when the
+ * clone cannot be fetched (`tree` undefined). `path` limits it to a directory, already a `repoPath`.
+ */
+export async function searchRepo(
+  diff: DiffPayload,
+  tree: SearchTree | undefined,
+  pattern: string,
+  path: string | undefined,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  if (!tree) {
+    if (diff.ref.kind !== 'github-pr') {
+      return [];
+    }
+    return (await githubSearch(diff.ref, pattern, path, signal)).slice(0, SEARCH_LINES);
+  }
+  return (await grepTree(tree, ['-F', '--max-count=5', '-e', pattern], path ? [path] : [], signal)).slice(
+    0,
+    SEARCH_LINES,
+  );
+}
+
+/**
+ * The files that import what `query` names, as `path:line: text`, outside the files the diff
+ * changes. Grepped like `searchRepo`; without a tree, GitHub's code search for the bare name, keeping
+ * the import lines (it matches any file of that name, so it is a guess).
+ */
+export async function findImporters(
+  diff: DiffPayload,
+  tree: SearchTree | undefined,
+  query: ImportQuery,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const changed = new Set(diff.files.map((file) => file.path));
+  const outside = (line: string) => !changed.has(line.slice(0, line.indexOf(':')));
+  // Same-named files elsewhere (another app's RichTextEditor) are not importers of this one.
+  const pointsAt = (line: string) => importsQueryPath(line.slice(0, line.indexOf(':')), line, query);
+  if (!tree) {
+    if (diff.ref.kind !== 'github-pr') {
+      return [];
+    }
+    const lines = await githubSearch(diff.ref, query.term, undefined, signal);
+    return onePerFile(lines.filter((line) => isImportLine(line, query) && outside(line) && pointsAt(line))).slice(
+      0,
+      SEARCH_LINES,
+    );
+  }
+  const words = ['import', 'from', 'require', 'export'].flatMap((word) => ['-e', word]);
+  const args = [
+    // Every matching line, not one per file: a file may import a namesake before the real one.
+    '-F',
+    '(',
+    ...query.needles.flatMap((needle) => ['-e', needle]),
+    ')',
+    '--and',
+    '(',
+    ...words,
+    ')',
+  ];
+  return onePerFile((await grepTree(tree, args, [], signal)).filter((line) => outside(line) && pointsAt(line))).slice(
+    0,
+    SEARCH_LINES,
+  );
+}
+
+/** The first line of each file, in order. */
+function onePerFile(lines: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    const path = line.slice(0, line.indexOf(':'));
+    return !seen.has(path) && seen.add(path);
+  });
+}
+
+/** A file as it reads in the tour's search tree; undefined when there is no tree or no such file. */
+export async function readTreeFile(
+  tree: SearchTree | undefined,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  if (!tree) {
+    return undefined;
+  }
+  try {
+    return tree.rev
+      ? await git(tree.cwd, ['show', `${tree.rev}:${path}`], { signal })
+      : await readFile(join(tree.cwd, path), 'utf8');
+  } catch {
+    return undefined;
+  }
 }

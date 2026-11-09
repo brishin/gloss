@@ -1,9 +1,12 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createFakeJudgeClient,
   createFakeModelClient,
   DecisionRules,
   DiffSources,
   JudgeClient,
+  RepoClones,
   ModelClient,
   RepoError,
   Repos,
@@ -88,7 +91,13 @@ function setup(
     extra?: Layer.Layer<DecisionRules | JudgeClient> | Layer.Layer<never>;
   } = {},
 ) {
-  const services = Layer.mergeAll(TourCache.memory, Layer.succeed(ModelClient, model), DiffSources.layer, extra);
+  const services = Layer.mergeAll(
+    TourCache.memory,
+    Layer.succeed(ModelClient, model),
+    DiffSources.layer,
+    RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
+    extra,
+  );
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Jobs.layer({ run }), Logins.layer(), Layer.succeed(Repos, { ...unscripted(), ...repos })).pipe(
       Layer.provideMerge(services),
