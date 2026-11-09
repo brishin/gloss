@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeJudgeClient, createFakeModelClient } from '../adapters/fake.ts';
 import { DecisionRules, type JudgeAnswer, JudgeClient, JudgeError, ModelClient } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
-import { DiffSources } from '../sources/index.ts';
+import { DiffSources, EMPTY_REPO_CONFIG, type RepoConfig, RepoConfigs } from '../sources/index.ts';
 import { runTour } from './orchestrator.ts';
 
 let repo: string;
@@ -51,6 +51,7 @@ async function tour(options: {
   judge?: JudgeClient['Service'];
   cache?: CacheStore;
   rules?: DecisionRuleSet[];
+  repoConfig?: RepoConfig;
 }): Promise<{ events: TourEventBody[]; tour: Tour; trace: Map<string, TraceStep> }> {
   const ref: SourceRef = { kind: 'local', repo, target: '' };
   const layer = Layer.mergeAll(
@@ -60,6 +61,9 @@ async function tour(options: {
     options.judge ? Layer.succeed(JudgeClient, options.judge) : Layer.empty,
     options.rules
       ? Layer.succeed(DecisionRules, { get: Effect.succeed(options.rules), save: () => Effect.void })
+      : Layer.empty,
+    options.repoConfig
+      ? Layer.succeed(RepoConfigs, { get: () => Effect.succeed(options.repoConfig ?? EMPTY_REPO_CONFIG) })
       : Layer.empty,
   );
   const trace = new Map<string, TraceStep>();
@@ -236,8 +240,8 @@ describe('runTour', () => {
 
     const sets = [
       { rules: ['Flag every new environment variable'] },
-      { files: '^src/auth\\.ts$', rules: ['Flag a weaker auth check as urgent'] },
-      { files: '\\.py$', rules: ['Flag a service passed by global'] },
+      { files: 'src/auth.ts', rules: ['Flag a weaker auth check as urgent'] },
+      { files: '*.py', rules: ['Flag a service passed by global'] },
     ];
     const second = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     // A tour cached without rules is not reused once there are rules.
@@ -257,6 +261,22 @@ describe('runTour', () => {
     // Same rules again: the finished tour replays.
     const third = await tour({ model, judge: fakeJudge(), cache, rules: sets });
     expect(third.events.map((event) => event.type)).toEqual(['job.started', 'tour.complete']);
+  });
+
+  it("puts the repository's rules before the user's, and keys the tour on them", async () => {
+    const cache = createMemoryCacheStore();
+    const model = fakeModel();
+    const rules = [{ rules: ['Flag every new environment variable'] }];
+    await tour({ model, judge: fakeJudge(), cache, rules });
+    const before = model.calls.length;
+    const repoConfig = { decisionRules: [{ rules: ['Flag a new public endpoint'] }] };
+    const second = await tour({ model, judge: fakeJudge(), cache, rules, repoConfig });
+    expect(second.events[0]).toMatchObject({ type: 'job.started', cached: false });
+    const define = model.calls.slice(before).find((call) => call.resultName === 'groups')!.prompt;
+    expect(define).toContain('- Flag a new public endpoint\n- Flag every new environment variable');
+    // An empty repository config keys the tour as no config does.
+    const third = await tour({ model, judge: fakeJudge(), cache, rules, repoConfig: EMPTY_REPO_CONFIG });
+    expect(third.events[0]).toMatchObject({ type: 'job.started', cached: true });
   });
 
   it('reads the change-wide decisions in code, right after the groups are defined', async () => {

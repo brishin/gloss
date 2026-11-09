@@ -138,7 +138,7 @@ export function flattenRules(sets: readonly DecisionRuleSet[]): { ref: RuleRef; 
   return sets.flatMap((set, setIndex) =>
     set.rules.map((rule, ruleIndex) => ({
       ref: { set: setIndex, rule: ruleIndex },
-      text: set.files ? `${rule} (only in files whose path matches the regular expression /${set.files}/)` : rule,
+      text: set.files ? `${rule} (only in files whose path matches the glob ${set.files})` : rule,
     })),
   );
 }
@@ -200,7 +200,7 @@ const RuleRowsResultSchema = v.object({
         files: v.pipe(
           v.string(),
           v.description(
-            'A JavaScript regular expression tested against each changed file\'s path, e.g. "\\\\.py$" or "^apps/web/"; "" for all files.',
+            'A gitignore-style glob tested against each changed file\'s path, e.g. "*.py" (any depth), "apps/web/**" or "src/**/*.{ts,tsx}"; "" for all files.',
           ),
         ),
       }),
@@ -219,7 +219,7 @@ const RuleRowsResultSchema = v.object({
 
 export const EDIT_RULES_SYSTEM = `You edit a code reviewer's own rules for which decisions gloss flags in a pull request review. gloss already flags decisions by its built-in rules; the reviewer's rules add to them, win where they disagree, and can name a priority (low, medium, high, urgent).
 
-Apply the reviewer's request to the current rules: add, remove, reword, split, merge or scope rules as asked, and nothing else. Keep each rule one short imperative sentence that names a kind of code, behavior or choice, so it is clear whether a change falls under it. Do not add a rule a built-in rule already covers, unless the reviewer asks for it, for example to raise its priority. Scope a rule to some files only when the request says which files (a language, a directory, a kind of file), with a regular expression on the path.
+Apply the reviewer's request to the current rules: add, remove, reword, split, merge or scope rules as asked, and nothing else. Keep each rule one short imperative sentence that names a kind of code, behavior or choice, so it is clear whether a change falls under it. Do not add a rule a built-in rule already covers, unless the reviewer asks for it, for example to raise its priority. Scope a rule to some files only when the request says which files (a language, a directory, a kind of file), with a gitignore-style glob on the path, such as *.py or apps/web/**.
 
 To undo an earlier turn, go back to the rules as they were before it, listed under "Earlier in this edit".
 
@@ -260,8 +260,8 @@ export function buildEditRulesPrompt(request: {
 
 /**
  * The model rewrites the rules from a request in words; nothing is saved, the settings page
- * shows the result as a draft. Model output is untrusted: blank rules go, a pattern that does
- * not compile is dropped (the rule then applies to all files), and the list is capped.
+ * shows the result as a draft. Model output is untrusted: blank rules go, repeats go, and the
+ * list is capped. A glob that cannot be read matches nothing (`globMatcher`).
  */
 export const editDecisionRules = Effect.fnUntraced(function* (request: {
   rules: readonly RuleRow[];
@@ -283,14 +283,7 @@ export function normalizeRuleRows(rows: readonly { text: string; files?: string 
   const out: RuleRow[] = [];
   for (const row of rows) {
     const text = row.text.trim().replace(/\s+/g, ' ').slice(0, RULE_MAX);
-    let files = row.files?.trim().slice(0, RULE_MAX) || undefined;
-    if (files) {
-      try {
-        new RegExp(files);
-      } catch {
-        files = undefined;
-      }
-    }
+    const files = row.files?.trim().slice(0, RULE_MAX) || undefined;
     if (text && !out.some((seen) => seen.text === text && seen.files === files)) {
       out.push(files ? { text, files } : { text });
     }

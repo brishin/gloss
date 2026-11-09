@@ -29,7 +29,7 @@ import type * as v from 'valibot';
 import { DecisionRules, JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
-import { DiffSources, readRepoFile } from '../sources/index.ts';
+import { DiffSources, EMPTY_REPO_CONFIG, readRepoFile, RepoConfigs } from '../sources/index.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -135,7 +135,7 @@ export function runTour(options: RunTourOptions): Stream.Stream<TourEventBody, P
   );
 }
 
-/** What a tour needs; a `JudgeClient` and `DecisionRules` are optional and read with `serviceOption`. */
+/** What a tour needs; a `JudgeClient`, `DecisionRules` and `RepoConfigs` are optional and read with `serviceOption`. */
 export type Services = ModelClient | DiffSources | TourCache;
 
 const tourProgram = Effect.fnUntraced(function* (
@@ -147,7 +147,8 @@ const tourProgram = Effect.fnUntraced(function* (
   const judge = Option.getOrUndefined(yield* Effect.serviceOption(JudgeClient));
   const cache = yield* TourCache;
   const rulesService = Option.getOrUndefined(yield* Effect.serviceOption(DecisionRules));
-  const ruleSets: readonly DecisionRuleSet[] = rulesService ? yield* rulesService.get : [];
+  const userRuleSets: readonly DecisionRuleSet[] = rulesService ? yield* rulesService.get : [];
+  const repoConfigs = Option.getOrUndefined(yield* Effect.serviceOption(RepoConfigs));
   const source = (yield* DiffSources).make(ref);
   let state = initialTourState();
   const send = (event: TourEventBody) => {
@@ -195,7 +196,16 @@ const tourProgram = Effect.fnUntraced(function* (
     new PipelineError({ stage: 'fetch', code: 'source', message: messageOf(cause), cause });
 
   // Stage 0: fetch. A finished tour for this exact head and config replays at once.
-  const fingerprint = yield* Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError });
+  // The org's and repository's configs are read beside the fingerprint, so they add no wait. Rule
+  // sets merge broadest first (org, repo, user), so the user's own rules are the last word.
+  const [fingerprint, repoConfig] = yield* Effect.all(
+    [
+      Effect.tryPromise({ try: (signal) => source.fingerprint(signal), catch: sourceError }),
+      repoConfigs ? repoConfigs.get(ref, { revalidate: options.force }) : Effect.succeed(EMPTY_REPO_CONFIG),
+    ],
+    { concurrency: 2 },
+  );
+  const ruleSets = [...repoConfig.decisionRules, ...userRuleSets];
   const tourKey = tourCacheKey(sourceKey, fingerprint, models, ruleSets);
   const cachedTour = options.force ? undefined : cache.get<Tour>(tourKey);
   send({ type: 'job.started', ref, sourceKey, pipelineVersion: PIPELINE_VERSION, models, cached: !!cachedTour });

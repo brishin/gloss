@@ -557,13 +557,13 @@ describe('decision rules API', () => {
     const rules = rulesLayer();
     const { client } = setup(scripted().run, { extra: rules.layer });
     expect(await client.decisionRules()).toEqual({ sets: [{ rules: ['Flag A'] }], findings: [], checked: true });
-    const sets = [{ rules: ['Flag A'] }, { files: '\\.py$', rules: [' Flag a too '] }];
+    const sets = [{ rules: ['Flag A'] }, { files: '*.py', rules: [' Flag a too '] }];
     expect(await client.saveDecisionRules(sets)).toEqual({
-      sets: [{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }],
+      sets: [{ rules: ['Flag A'] }, { files: '*.py', rules: ['Flag a too'] }],
       findings: [{ set: 0, rule: 0, kind: 'overlap', other: { set: 1, rule: 0 } }],
       checked: true,
     });
-    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }, { files: '\\.py$', rules: ['Flag a too'] }]);
+    expect(rules.saved()).toEqual([{ rules: ['Flag A'] }, { files: '*.py', rules: ['Flag a too'] }]);
   });
 
   it('saves unchecked without Jev', async () => {
@@ -575,7 +575,7 @@ describe('decision rules API', () => {
     });
   });
 
-  it('takes rules only as JSON from the app, with a valid files pattern', async () => {
+  it('takes rules only as JSON from the app, with a files glob that fits', async () => {
     const rules = rulesLayer();
     const { app } = setup(scripted().run, { extra: rules.layer });
     const put = (contentType: string, body: unknown) =>
@@ -585,7 +585,7 @@ describe('decision rules API', () => {
         body: JSON.stringify(body),
       });
     expect((await put('text/plain', { sets: [] })).status).toBe(403);
-    expect((await put('application/json', { sets: [{ files: '(', rules: ['Flag A'] }] })).status).toBe(400);
+    expect((await put('application/json', { sets: [{ files: 'x'.repeat(401), rules: ['Flag A'] }] })).status).toBe(400);
     expect(rules.saved()).toEqual([{ rules: ['Flag A'] }]);
   });
 

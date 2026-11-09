@@ -36,19 +36,30 @@ each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-`
 Decisions name a choice and what it costs or risks, so a reviewer can accept or reject it: asked for a choice and its reason, the model restated the author's case. Define judges costs from the diff, not the description, and lists only choices no single file makes. Notes count an omission as a decision (a missing check or limit) and write a risk in a choice as a decision, not a note. Priority is by consequence if the choice is wrong, and the lower of two when unsure. In the 2026-11-02 eval, stricter note wording and wider Jev risk criteria both made notes worse: stricter wording cut insights, and more flags produced reassuring risk notes.
 
 The user's own decision rules (`decisionRules` in `~/.gloss/config.json`, edited on the settings
-page) are sets of rules, each with an optional `files` regex tested against changed paths
+page) are sets of rules, each with an optional `files` glob tested against changed paths (gitignore-style, `glob.ts`: `*.py` matches at any depth, `src/**/*.{ts,tsx}` is anchored, as Copilot, Greptile and CodeRabbit scope rules)
 (`rulesFor`; a set that matches only some of a prompt's files names them after each rule). They go into the define prompt (sets matching any changed file) and each group's
 notes prompt (sets matching one of its files) as a `## Reviewer's decision rules` section, not the
 system text, so tours without rules keep their prompts and caches. A rule wins over the built-in
 guidance, and its priority is used. All sets join the tour cache key only when there are some. On
-save, Jev checks each rule, read with its files pattern (`decision-rules.ts`, one call per rule,
+save, Jev checks each rule, read with its files glob (`decision-rules.ts`, one call per rule,
 cached): is it covered by or at odds with a built-in rule (`BUILT_IN_DECISION_RULES`, a short
 summary of the prompts' rules; keep it in step), too vague, or a repeat of or at odds with a later
 rule. The findings only advise; the save always goes through.
-The settings page shows one row per rule with its own files pattern; rows save as sets (rows that
-share a pattern share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
+The settings page shows one row per rule with its own files glob; rows save as sets (rows that
+share a glob share a set, `setsFromRows`). A chat under the rows (`POST /api/rules/edit`,
 `editDecisionRules`, define tier) rewrites the whole list from a request in words; the result is an
 unsaved draft that the user saves (and Jev checks) like a hand edit.
+
+A reviewed repository can commit its own rule sets, same shape, at `.gloss/config.json`
+(`repo-config.ts`), and an org can commit the same file in its `.github` repository for all its
+repos (as Probot does). Sets merge broadest first: org, then repo, then the user's, in the prompts
+and the tour key; `rulesFor` drops a repeated rule. Local repos read only their own file. GitHub
+repos read the file from the default branch, never the PR head, so a PR cannot change the rules
+it is reviewed by; local repos read it at HEAD. To keep `gh` calls low, each repo's answer is
+kept in memory for 10 minutes (one entry per repo, shared by a stack), then asked again with its
+ETag: an unchanged file answers 304, which does not count against the rate limit. The request
+runs beside the fingerprint, so it adds no wait. A re-run asks at once. A failed request is never
+kept; the tour uses the last answer, or none. Jev's rule check covers only the user's sets.
 
 Both decision passes look first for one-way doors. Each SQL migration file gets exactly one
 notes decision pinned in the file (urgent if it drops or rewrites data, else high), and define

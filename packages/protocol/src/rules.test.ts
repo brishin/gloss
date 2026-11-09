@@ -21,9 +21,9 @@ describe('parseRules', () => {
 describe('rulesFor', () => {
   const sets = [
     { rules: ['Everywhere'] },
-    { files: '\\.py$', rules: ['Python only', 'Everywhere'] },
-    { files: '^apps/web/', rules: ['Web only'] },
-    { files: '(', rules: ['Broken pattern'] },
+    { files: '*.py', rules: ['Python only', 'Everywhere'] },
+    { files: 'apps/web/**', rules: ['Web only'] },
+    { files: '[z-a]', rules: ['Broken glob'] },
   ];
   it.each([
     ['no files: only unscoped rules', [], ['Everywhere']],
@@ -33,24 +33,24 @@ describe('rulesFor', () => {
       ['Everywhere', 'Python only (only in api/views.py)'],
     ],
     ['a set matching every path needs no scope', ['api/views.py'], ['Everywhere', 'Python only']],
-    ['matched against the whole path', ['apps/web/src/x.tsx'], ['Everywhere', 'Web only']],
-    ['no match', ['apps/api/web.ts'], ['Everywhere']],
+    ['a glob with a slash anchored at the root', ['apps/web/src/x.tsx'], ['Everywhere', 'Web only']],
+    ['no match', ['lib/apps/web/x.ts'], ['Everywhere']],
   ])('%s', (_, paths, rules) => {
     expect(rulesFor(sets, paths)).toEqual(rules);
   });
 
   it('counts the matching paths past six', () => {
     const paths = ['README.md', ...Array.from({ length: 8 }, (_, i) => `m${i}.py`)];
-    expect(rulesFor([{ files: '\\.py$', rules: ['Python only'] }], paths)).toEqual([
-      'Python only (only in m0.py, m1.py, m2.py, m3.py, m4.py, m5.py and 2 more files matching /\\.py$/)',
+    expect(rulesFor([{ files: '*.py', rules: ['Python only'] }], paths)).toEqual([
+      'Python only (only in m0.py, m1.py, m2.py, m3.py, m4.py, m5.py and 2 more files matching *.py)',
     ]);
   });
 });
 
 describe('DecisionRuleSetsSchema', () => {
-  it('refuses a pattern that does not compile, an empty set and too many rules', () => {
-    expect(v.is(DecisionRuleSetsSchema, [{ files: '\\.py$', rules: ['A'] }])).toBe(true);
-    expect(v.is(DecisionRuleSetsSchema, [{ files: '(', rules: ['A'] }])).toBe(false);
+  it('refuses a long files glob, an empty set and too many rules', () => {
+    expect(v.is(DecisionRuleSetsSchema, [{ files: '*.py', rules: ['A'] }])).toBe(true);
+    expect(v.is(DecisionRuleSetsSchema, [{ files: 'x'.repeat(401), rules: ['A'] }])).toBe(false);
     expect(v.is(DecisionRuleSetsSchema, [{ rules: [] }])).toBe(false);
     const many = Array.from({ length: 21 }, (_, i) => `Flag ${i}`);
     expect(v.is(DecisionRuleSetsSchema, [{ rules: many.slice(0, 11) }, { rules: many.slice(11) }])).toBe(false);
@@ -61,14 +61,14 @@ describe('rule rows', () => {
   it('save as sets by pattern, in first-seen order, and read back as the same rows', () => {
     const rows = [
       { text: 'A' },
-      { text: 'B', files: '\\.py$' },
+      { text: 'B', files: '*.py' },
       { text: ' ' },
       { text: 'C', files: '  ' },
       { text: 'A' },
-      { text: 'D', files: '\\.py$' },
+      { text: 'D', files: '*.py' },
     ];
     const { sets, refs } = setsFromRows(rows);
-    expect(sets).toEqual([{ rules: ['A', 'C'] }, { files: '\\.py$', rules: ['B', 'D'] }]);
+    expect(sets).toEqual([{ rules: ['A', 'C'] }, { files: '*.py', rules: ['B', 'D'] }]);
     expect(refs).toEqual([
       { set: 0, rule: 0 },
       { set: 1, rule: 0 },
@@ -80,8 +80,8 @@ describe('rule rows', () => {
     expect(rowsFromSets(sets)).toEqual([
       { text: 'A' },
       { text: 'C' },
-      { text: 'B', files: '\\.py$' },
-      { text: 'D', files: '\\.py$' },
+      { text: 'B', files: '*.py' },
+      { text: 'D', files: '*.py' },
     ]);
   });
 });

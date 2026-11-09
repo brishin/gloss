@@ -41,10 +41,7 @@ describe('decision rules', () => {
     process.env.GLOSS_HOME = home;
     try {
       writeFileSync(join(home, 'config.json'), JSON.stringify({ profile: 'openai', judge: null }));
-      const sets = [
-        { rules: ['Flag every new environment variable'] },
-        { files: '\\.py$', rules: ['Flag N+1 queries'] },
-      ];
+      const sets = [{ rules: ['Flag every new environment variable'] }, { files: '*.py', rules: ['Flag N+1 queries'] }];
       saveDecisionRules(sets);
       expect(readDecisionRules()).toEqual(sets);
       expect(loadConfig({}).decisionRules).toEqual(sets);
@@ -66,7 +63,7 @@ describe('decision rules', () => {
       { rules: ['Flag A', 'Flag B'] },
     ]);
     expect(
-      readDecisionRules({ decisionRules: [{ files: '(', rules: ['Bad'] }, { rules: ['Good'] }, 'stray'] } as never),
+      readDecisionRules({ decisionRules: [{ files: 7, rules: ['Bad'] }, { rules: ['Good'] }, 'stray'] } as never),
     ).toEqual([{ rules: ['Good'] }]);
   });
 
