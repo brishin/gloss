@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { runTour, TourCache } from '@gloss/core';
+import { RepoClones, runTour, TourCache } from '@gloss/core';
 import { configPath, glossPath, login, logout, providerStatus, SUBSCRIPTIONS, type Subscription } from '@gloss/models';
 import type { TourEventBody } from '@gloss/protocol';
 import { createHttpGlossClient, describeRef, RISK_LABELS, RISK_KEYS } from '@gloss/protocol';
@@ -230,7 +230,10 @@ async function main() {
       const removed = await runtime.runPromise(
         TourCache.use((cache) => Effect.sync(() => cache.prune(days * 86_400_000))),
       );
-      console.log(`Removed ${removed} cache entries.`);
+      const pruned = await runtime.runPromise(RepoClones.use((clones) => clones.prune()));
+      console.log(
+        `Removed ${removed} cache entries, and ${pruned.heads} PR heads (${pruned.clones} clones) unused for 2 days.`,
+      );
       await runtime.dispose();
       return;
     }
