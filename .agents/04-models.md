@@ -11,8 +11,9 @@
   conversation on the model the reader picked from `config.ask` (thinking from the `define` tier).
   `ask.models` defaults to the notes tier's provider profile, fast to strong, starting on the mid
   model (Claude Sonnet, GPT Sol); `~/.gloss/config.json` can set `ask: { models, default }`. Its tools
-  come from the request by id (`askTools`), like stage schemas; today only `read_file`
-  (`runAsk` in `packages/core/src/pipeline/ask.ts`, through `Repos.contents`). Text and tool
+  come from the request by id (`askTools`), like stage schemas: `read_file` (a whole changed file
+  through `Repos.contents`, or any other file a window at a time) and `search_code`, both reading the
+  PR's clone (`RepoClones`) when it has one (`runAsk` in `packages/core/src/pipeline/ask.ts`). Text and tool
   calls stream to `onEvent` from Flue's `message-delta` / `tool-input` / `tool-output` chunks.
 - **Auth**: gloss owns a pi-ai `Models` registry (`registry.ts`) with a
   `FileCredentialStore` at `~/.gloss/auth.json`. `gloss login claude|chatgpt` runs

@@ -3,8 +3,11 @@ import { parseAskRef } from '@gloss/protocol';
 import { Effect, FiberSet, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { type ChatTool, ModelClient } from '../adapters/types.ts';
+import { RepoClones, type SearchTree } from '../sources/clone.ts';
+import { readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
 import { Repos } from '../sources/repos.ts';
 import { ASK_SYSTEM, buildAskPrompt } from './prompts.ts';
+import { codeSearcher, fileReader } from './read-file.ts';
 
 /** The most characters of a whole file `read_file` hands the model. */
 const READ_BUDGET = 40_000;
@@ -86,39 +89,73 @@ export function citedRefs(text: string, diff: DiffPayload, read: ReadonlyMap<str
 }
 
 const ReadFileInput = v.object({
-  fileId: v.pipe(v.string(), v.description('The id of a changed file, e.g. f1a2b3, from the file list.')),
+  path: v.pipe(
+    v.string(),
+    v.description('The id of a changed file from the file list (e.g. f1a2b3), or any other repository path.'),
+  ),
   side: v.optional(
     v.pipe(
       v.picklist(['new', 'old']),
-      v.description('Read the file after the change (new, the default) or before it.'),
+      v.description('For a changed file: read it after the change (new, the default) or before it.'),
+    ),
+  ),
+  from: v.optional(
+    v.pipe(
+      v.number(),
+      v.description(
+        'For a file outside the change: the first line to read, from 1. Read on from where a read stopped.',
+      ),
     ),
   ),
 });
+
+/** A file outside the change, from the PR's clone when it has one, else as `readRepoFile` reads it. */
+async function readOutside(diff: DiffPayload, tree: SearchTree | undefined, path: string, signal: AbortSignal) {
+  // A working-tree diff has no commit to read from the tree; `readRepoFile` reads its HEAD.
+  const text = tree?.rev ? await readTreeFile(tree, path, signal) : undefined;
+  return text ?? readRepoFile(diff, path, signal);
+}
 
 /**
  * Answers one question about a finished tour with the model the reader picked. Streams the answer as it
  * is written, the files the model reads, then `ask.done` with the citations that check out. Never
  * fails: a model error ends the stream with `ask.failed`. Interrupting it stops the model.
  */
-export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, ModelClient | Repos> {
+export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, ModelClient | Repos | RepoClones> {
   const { tour, diff } = options;
-  return Stream.callback<AskEvent, never, ModelClient | Repos>((queue) =>
+  return Stream.callback<AskEvent, never, ModelClient | Repos | RepoClones>((queue) =>
     Effect.gen(function* () {
       const model = yield* ModelClient;
       const repos = yield* Repos;
+      // The PR's clone (the tour fetched it already, most often), looked up on the first search or read outside the change.
+      const tree = yield* Effect.cached((yield* RepoClones).tree(diff));
       // Lines the model has read whole, by `fileId:side`: up to this line number.
       const read = new Map<string, number>();
       // Tool calls run as fibers of this stream's scope, so stopping the answer stops their git/gh reads too.
       const runPromise = yield* FiberSet.makeRuntimePromise<never>();
+      const outside = fileReader(diff, (path) =>
+        runPromise(tree.pipe(Effect.flatMap((t) => Effect.tryPromise((signal) => readOutside(diff, t, path, signal))))),
+      );
+      const search = codeSearcher(diff, (text, path) =>
+        runPromise(
+          tree.pipe(Effect.flatMap((t) => Effect.tryPromise((signal) => searchRepo(diff, t, text, path, signal)))),
+        ),
+      );
       const readFile: ChatTool = {
         name: 'read_file',
-        description: 'Read a whole changed file, with line numbers, when the diff does not show enough of it.',
+        description:
+          'Read a file with line numbers: a whole changed file, when the diff does not show enough of it, or any other file of the repository at the head of the change, 400 lines at a time.',
         input: ReadFileInput,
         run: async (input) => {
-          const { fileId, side = 'new' } = v.parse(ReadFileInput, input);
-          const file = diff.files.find((candidate) => candidate.id === fileId);
+          const parsed = v.safeParse(ReadFileInput, input);
+          if (!parsed.success) {
+            return 'Give a file id or a repository path.';
+          }
+          const { side = 'new', from } = parsed.output;
+          const named = parsed.output.path.trim();
+          const file = diff.files.find((candidate) => candidate.id === named || candidate.path === repoPath(named));
           if (!file) {
-            return `No changed file has the id ${fileId}.`;
+            return outside.tool.run({ path: named, ...(from === undefined ? {} : { from }) });
           }
           const text =
             wholeSideText(file, side) ??
@@ -149,9 +186,13 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
             : lines.join('\n');
         },
       };
-      const pathOf = (input: unknown) => {
-        const fileId = (input as { fileId?: unknown } | undefined)?.fileId;
-        return diff.files.find((file) => file.id === fileId)?.path;
+      /** What a tool call is about, for the page: the file read, or the text searched for. */
+      const targetOf = (name: string, input: unknown) => {
+        const { path, text } = (input ?? {}) as { path?: unknown; text?: unknown };
+        if (name === 'search_code') {
+          return typeof text === 'string' ? text : undefined;
+        }
+        return typeof path === 'string' ? (diff.files.find((file) => file.id === path)?.path ?? path) : undefined;
       };
       const history = (options.history ?? []).map((turn) => ({
         question: turn.question,
@@ -171,13 +212,19 @@ export function runAsk(options: RunAskOptions): Stream.Stream<AskEvent, never, M
           model: options.model ?? model.config().ask.default,
           system: ASK_SYSTEM,
           prompt,
-          tools: [readFile],
+          tools: [readFile, search.tool],
           onEvent: (event) =>
             Queue.offerUnsafe(
               queue,
               event.type === 'text'
                 ? { type: 'ask.delta', text: event.text }
-                : { type: 'ask.tool', id: event.id, name: event.name, target: pathOf(event.input), state: event.state },
+                : {
+                    type: 'ask.tool',
+                    id: event.id,
+                    name: event.name,
+                    target: targetOf(event.name, event.input),
+                    state: event.state,
+                  },
             ),
         })
         .pipe(Effect.result);

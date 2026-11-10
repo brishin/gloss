@@ -1150,11 +1150,11 @@ export function buildNotesPrompt(
   return parts.join('\n');
 }
 
-export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the whole files (call read_file).
+export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the repository at the head of the change: call read_file for a whole changed file or any other file, and search_code to find where a name is defined or used outside the diff.
 
 Answer the question first, in a few short paragraphs or a short list. Say what the code does, not what it might do; if the diff does not show something, say so instead of guessing. Do not repeat the tour back.
 
-Cite the lines you rely on as Markdown links whose target is the file id and line number from the numbered diff: [repos.ts:121](f1a2b3:121) for a line on the new side, [repos.ts:40](f1a2b3:-40) for a removed line. Cite only lines shown in the diff below or returned by read_file.`;
+Cite the lines you rely on as Markdown links whose target is the file id and line number from the numbered diff: [repos.ts:121](f1a2b3:121) for a line on the new side, [repos.ts:40](f1a2b3:-40) for a removed line. Cite only lines of changed files, shown in the diff below or returned by read_file. Name a file outside the change by its path and line in backticks, such as \`src/app/session.ts:42\`, not as a link.`;
 
 /** The context of one question: the tour, the numbered diff, the thread so far, then the question. */
 export function buildAskPrompt(input: {
