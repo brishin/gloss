@@ -38,6 +38,9 @@ export function linkRefs(answer: AskAnswer): string {
   });
 }
 
+/** The verbs the page shows for the backend's tool names. */
+const TOOL_NAMES: Record<string, string> = { read_file: 'Read', search_code: 'Search' };
+
 const Answer = memo(function Answer({
   answer,
   onJump,
@@ -66,7 +69,7 @@ const Answer = memo(function Answer({
           <ChatToolCalls
             calls={answer.tools.map((tool) => ({
               key: tool.id,
-              name: tool.name === 'read_file' ? 'Read' : tool.name,
+              name: TOOL_NAMES[tool.name] ?? tool.name,
               target: tool.target,
               status: tool.state === 'done' ? 'complete' : tool.state === 'failed' ? 'error' : 'running',
             }))}

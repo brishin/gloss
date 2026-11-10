@@ -1,8 +1,13 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AskEvent, DiffPayload, Tour } from '@gloss/protocol';
 import { Effect, Fiber, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { createFakeModelClient } from '../adapters/fake.ts';
 import { ModelClient } from '../adapters/types.ts';
+import { RepoClones, type SearchTree } from '../sources/clone.ts';
 import { RepoError, Repos } from '../sources/repos.ts';
 import { citedRefs, describeContext, runAsk } from './ask.ts';
 
@@ -66,7 +71,17 @@ const tour: Tour = {
   models: { define: 'p/define', followup: 'p/followup', notes: 'p/notes' },
 };
 
-const repos = (contents: Repos['Service']['contents']) =>
+/** Repos with these contents, and a clone tree (none by default). */
+const repos = (contents: Repos['Service']['contents'], tree?: SearchTree) =>
+  Layer.merge(
+    Layer.succeed(RepoClones, {
+      tree: () => Effect.succeed(tree),
+      prune: () => Effect.succeed({ heads: 0, clones: 0 }),
+    }),
+    reposOnly(contents),
+  );
+
+const reposOnly = (contents: Repos['Service']['contents']) =>
   Layer.succeed(Repos, {
     pulls: () => Effect.succeed(new Map()),
     viewer: Effect.succeed(undefined),
@@ -126,7 +141,7 @@ describe('runAsk', () => {
     });
     const request = model.chats[0]!;
     expect(request.model).toBe('fake/mid');
-    expect(request.tools.map((tool) => tool.name)).toEqual(['read_file']);
+    expect(request.tools.map((tool) => tool.name)).toEqual(['read_file', 'search_code']);
     expect(request.prompt).toContain('+ 12 d');
     expect(request.prompt).toContain('- f1:11: Renamed into place.');
     expect(request.prompt).toContain('Reviewer: Who reads it?');
@@ -157,7 +172,7 @@ describe('runAsk', () => {
     const model: ModelClient['Service'] = {
       ...base,
       chat: (request) =>
-        Effect.promise(() => request.tools[0]!.run({ fileId: 'f1' })).pipe(
+        Effect.promise(() => request.tools[0]!.run({ path: 'f1' })).pipe(
           Effect.tap((text) => Effect.sync(() => (output = text))),
           Effect.andThen(base.chat(request)),
         ),
@@ -189,7 +204,7 @@ describe('read_file', () => {
     const model: ModelClient['Service'] = {
       ...base,
       chat: (request) =>
-        Effect.promise(() => request.tools[0]!.run({ fileId, side })).pipe(
+        Effect.promise(() => request.tools[0]!.run({ path: fileId, side })).pipe(
           Effect.tap((text) => Effect.sync(() => (output = text))),
           Effect.andThen(base.chat(request)),
         ),
@@ -233,7 +248,7 @@ describe('read_file', () => {
     const hang: ModelClient['Service'] = {
       ...model,
       chat: (request) =>
-        Effect.promise(() => request.tools[0]!.run({ fileId: 'f1' })).pipe(Effect.as({ text: '', model: 'm' })),
+        Effect.promise(() => request.tools[0]!.run({ path: 'f1' })).pipe(Effect.as({ text: '', model: 'm' })),
     };
     const fiber = Effect.runFork(
       Stream.runCollect(runAsk({ tour, diff, question: 'q' })).pipe(
@@ -248,5 +263,71 @@ describe('read_file', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await Effect.runPromise(Fiber.interrupt(fiber));
     expect(interrupted).toBe(true);
+  });
+});
+
+describe('beyond the diff', () => {
+  it('reads and searches files outside the change in the clone, and names them on the page', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'gloss-ask-'));
+    try {
+      execFileSync('git', ['init', '-q', repo]);
+      execFileSync('mkdir', ['-p', join(repo, 'src')]);
+      writeFileSync(join(repo, 'src', 'session.ts'), 'import { keep } from "./repos";\nkeep();\n');
+      execFileSync('git', ['-C', repo, 'add', '.']);
+      execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'c']);
+      const sha = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      // The working tree moved on: reads and searches see the commit, not the disk.
+      writeFileSync(join(repo, 'src', 'session.ts'), 'edited\n');
+      const outputs: string[] = [];
+      const base = createFakeModelClient({ answers: {}, chat: () => 'See `src/session.ts:2`.' });
+      const calls = [
+        { name: 'read_file', input: { path: 'src/session.ts', from: 2 } },
+        { name: 'search_code', input: { text: 'keep()' } },
+        { name: 'read_file', input: { path: '../etc/passwd' } },
+      ];
+      const model: ModelClient['Service'] = {
+        ...base,
+        chat: (request) =>
+          Effect.gen(function* () {
+            for (const [index, call] of calls.entries()) {
+              const tool = request.tools.find((candidate) => candidate.name === call.name)!;
+              request.onEvent?.({
+                type: 'tool',
+                id: `t${index}`,
+                name: call.name,
+                input: call.input,
+                state: 'running',
+              });
+              outputs.push(yield* Effect.promise(() => tool.run(call.input)));
+            }
+            return yield* base.chat(request);
+          }),
+      };
+      const events = await Effect.runPromise(
+        Stream.runCollect(
+          runAsk({ tour, diff: { ...diff, meta: { ...meta, headSha: sha } }, question: 'Who calls it?' }),
+        ).pipe(
+          Effect.provide(
+            Layer.merge(
+              Layer.succeed(ModelClient, model),
+              repos(() => Effect.succeed(undefined), { cwd: repo, rev: sha }),
+            ),
+          ),
+        ),
+      );
+      expect(outputs).toEqual([
+        '2 keep();',
+        'src/session.ts:2:keep();',
+        '../etc/passwd is not a path inside the repository.',
+      ]);
+      expect(events.filter((event) => event.type === 'ask.tool').map((event) => event.target)).toEqual([
+        'src/session.ts',
+        'keep()',
+        '../etc/passwd',
+      ]);
+      expect(events.at(-1)).toEqual({ type: 'ask.done', model: 'fake/mid', refs: [] });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

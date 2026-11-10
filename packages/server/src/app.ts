@@ -5,6 +5,7 @@ import {
   ModelClient,
   nameStack,
   type PullSummary,
+  type RepoClones,
   Repos,
   runAsk,
   TourCache,
@@ -52,7 +53,7 @@ const RECENT_LIMIT = 20;
 
 export interface AppOptions {
   /** Runs handlers' effects: the jobs, the cache and repository access, with the pipeline's services behind them. */
-  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins | Repos | ModelClient, never>;
+  runtime: ManagedRuntime.ManagedRuntime<Jobs | TourCache | Logins | Repos | ModelClient | RepoClones, never>;
   health: () => Promise<Health>;
   /** When set, every `/api` request needs `Authorization: Bearer <token>` (remote backends). */
   token?: string;
@@ -114,7 +115,7 @@ export function withPullStates(tour: RecentTour, pulls: ReadonlyMap<string, Pull
 export function createApp({ runtime, health, token, corsOrigins = [], setup, update }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(
-    effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos | ModelClient>,
+    effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos | ModelClient | RepoClones>,
     signal?: AbortSignal,
   ) => runtime.runPromise(effect, { signal });
   if (corsOrigins.length) {
