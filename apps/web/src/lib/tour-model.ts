@@ -511,7 +511,11 @@ function step(model: Model, msg: Msg): Next {
     case 'RerunClicked':
       return [
         { ...model, connection: 'connecting', connectionError: undefined },
-        [{ type: 'StartTour', ref: model.ref, force: true }],
+        [
+          { type: 'StartTour', ref: model.ref, force: true },
+          // The fresh diff may have moved lines: anchor threads against GitHub's view of it.
+          ...(model.ref.kind === 'github-pr' ? [{ type: 'FetchThreads' as const, ref: model.ref }] : []),
+        ],
       ];
     case 'StopClicked':
       return [model, model.jobId ? [{ type: 'AbortTour', jobId: model.jobId }] : []];

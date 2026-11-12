@@ -286,6 +286,7 @@ describe('data', () => {
     const [next, cmds] = run(model({ jobId: 'j1', connection: 'error' }), { type: 'RerunClicked' });
     expect(next.connection).toBe('connecting');
     expect(cmds).toContainEqual({ type: 'StartTour', ref: REF, force: true });
+    expect(cmds).toContainEqual({ type: 'FetchThreads', ref: REF });
     expect(run(model({ jobId: 'j1' }), { type: 'StopClicked' })[1]).toContainEqual({ type: 'AbortTour', jobId: 'j1' });
     expect(run(model(), { type: 'StopClicked' })[1]).toEqual([]);
   });
