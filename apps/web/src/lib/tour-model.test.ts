@@ -637,3 +637,40 @@ describe('review', () => {
     expect(run(reviewable(), { type: 'ReviewLoaded', diffId: 'old', saved })[0].review.body).toBe('');
   });
 });
+
+describe('comment threads', () => {
+  const thread = {
+    id: 't1',
+    path: 'src/f1.ts',
+    side: 'additions' as const,
+    line: 1,
+    resolved: false,
+    outdated: false,
+    comments: [{ id: 'c', author: 'a', body: 'b', createdAt: '2026-11-10T00:00:00Z', url: 'u' }],
+  };
+
+  test('a PR fetches its threads when the page opens; a local diff does not', () => {
+    expect(init(REF, {})[1]).toContainEqual({ type: 'FetchThreads', ref: REF });
+    const local = { kind: 'local', repo: '/r', target: 'HEAD' } as const;
+    expect(init(local, {})[1].some((cmd) => cmd.type === 'FetchThreads')).toBe(false);
+  });
+
+  test('c opens Comments once there are threads, and Comments and Ask take turns at the right edge', () => {
+    expect(keyToMsg(model(), 'c')).toBeUndefined();
+    const [loaded] = run(model(), { type: 'ThreadsLoaded', threads: [thread] });
+    expect(keyToMsg(loaded, 'c')).toEqual({ type: 'CommentsToggled' });
+    const [asking] = run(loaded, { type: 'CommentsToggled' }, { type: 'AskToggled' });
+    expect([asking.ask.open, asking.threads.open]).toEqual([true, false]);
+    const [back] = run(asking, { type: 'CommentsToggled' });
+    expect([back.ask.open, back.threads.open]).toEqual([false, true]);
+    expect(keyToMsg(back, 'Escape')).toEqual({ type: 'CommentsClosed' });
+  });
+
+  test('a sent review fetches the threads again, its comments among them', () => {
+    const sending = model({
+      review: { ...model().review, sending: { body: '', ids: [], verdict: 'COMMENT' } },
+    } as Partial<Model>);
+    const [, cmds] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'COMMENT', url: 'u' });
+    expect(cmds).toContainEqual({ type: 'FetchThreads', ref: REF });
+  });
+});

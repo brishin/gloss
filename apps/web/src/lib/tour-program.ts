@@ -234,6 +234,55 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           }),
         ),
       );
+    case 'FetchThreads':
+      // No threads (the lookup failed) just means none shown.
+      return once(
+        request((client) => client.threads(cmd.ref)).pipe(
+          Effect.map((threads): Msg => ({ type: 'ThreadsLoaded', threads })),
+        ),
+      );
+    case 'ReplyToThread':
+      return Stream.fromEffect(
+        request((client) =>
+          client.replyToThread({
+            owner: cmd.ref.owner,
+            repo: cmd.ref.repo,
+            number: cmd.ref.number,
+            threadId: cmd.threadId,
+            body: cmd.body,
+          }),
+        ).pipe(
+          Effect.match({
+            onSuccess: (comment): Msg => ({ type: 'ReplySent', threadId: cmd.threadId, comment }),
+            onFailure: ({ cause }): Msg => ({
+              type: 'ThreadActionFailed',
+              threadId: cmd.threadId,
+              error: reviewError(cause),
+            }),
+          }),
+        ),
+      );
+    case 'ResolveThread':
+      return Stream.fromEffect(
+        request((client) =>
+          client.resolveThread({
+            owner: cmd.ref.owner,
+            repo: cmd.ref.repo,
+            number: cmd.ref.number,
+            threadId: cmd.threadId,
+            resolved: cmd.resolved,
+          }),
+        ).pipe(
+          Effect.match({
+            onSuccess: (): Msg => ({ type: 'ThreadResolved', threadId: cmd.threadId, resolved: cmd.resolved }),
+            onFailure: ({ cause }): Msg => ({
+              type: 'ThreadActionFailed',
+              threadId: cmd.threadId,
+              error: reviewError(cause),
+            }),
+          }),
+        ),
+      );
     case 'OpenRef':
       return once(Effect.sync(() => void navigateToRef(router, cmd.ref)));
     case 'OpenPipeline':

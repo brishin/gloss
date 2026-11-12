@@ -12,7 +12,17 @@ import {
   ProviderLoginSchema,
   type Subscription,
 } from './login.ts';
-import { type ReviewRequest, type ReviewResult, ReviewResultSchema } from './review.ts';
+import {
+  type ReviewRequest,
+  type ReviewResult,
+  ReviewResultSchema,
+  type ReviewThread,
+  ReviewThreadSchema,
+  type ThreadComment,
+  ThreadCommentSchema,
+  type ThreadReplyRequest,
+  type ThreadResolveRequest,
+} from './review.ts';
 import {
   type DecisionRuleSet,
   type DecisionRulesState,
@@ -110,6 +120,11 @@ export interface GlossClient {
   stackName(stack: Stack): Promise<string>;
   /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
   review(review: ReviewRequest): Promise<ReviewResult>;
+  /** The PR's line comment threads already on GitHub, resolved ones too. */
+  threads(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<ReviewThread[]>;
+  /** Replies to a thread as the backend's `gh` login; resolves with the new comment. */
+  replyToThread(reply: ThreadReplyRequest): Promise<ThreadComment>;
+  resolveThread(request: ThreadResolveRequest): Promise<void>;
   /** Starts signing a provider in on the backend (replacing any login already running for it). */
   startLogin(subscription: Subscription, method: LoginMethod): Promise<LoginSession>;
   /** The login's current state: the page to open, the question it waits on, or how it ended. */
@@ -265,6 +280,24 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(review),
       }),
+    threads: (ref) =>
+      json(
+        v.array(ReviewThreadSchema),
+        `/api/threads?${new URLSearchParams({ owner: ref.owner, repo: ref.repo, number: String(ref.number) })}`,
+      ),
+    replyToThread: (reply) =>
+      json(ThreadCommentSchema, '/api/threads/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reply),
+      }),
+    async resolveThread(body) {
+      await request('/api/threads/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
     startLogin: (subscription, method) =>
       json(LoginSessionSchema, '/api/logins', {
         method: 'POST',

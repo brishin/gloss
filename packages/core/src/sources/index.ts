@@ -22,6 +22,7 @@ export class DiffSources extends Context.Service<DiffSources, { make(ref: Source
 
 export { createGithubSource, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
 export { reviewPayload, submitGithubReview } from './github-review.ts';
+export { fetchReviewThreads, threadFromJson } from './github-threads.ts';
 export { MAX_STACK, resolveGithubStack, type StackLookup, walkStack } from './github-stack.ts';
 export { isGenerated, parseGitattributes } from './gitattributes.ts';
 export {

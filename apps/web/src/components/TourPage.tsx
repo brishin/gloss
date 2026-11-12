@@ -14,13 +14,24 @@ import {
   ChevronRightIcon,
   KeyboardIcon,
   MessageCircleQuestionIcon,
+  MessagesSquareIcon,
   RotateCwIcon,
   SquareIcon,
   WorkflowIcon,
 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
-import { canAsk, canReview, currentGroup, currentPull, isRunning, selectedKey, tourStops } from '../lib/tour-model.ts';
+import { openThreads } from '../lib/threads-model.ts';
+import {
+  canAsk,
+  canReview,
+  currentGroup,
+  currentPull,
+  fileOrder,
+  isRunning,
+  selectedKey,
+  tourStops,
+} from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
 import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
 import { AskPanel } from './AskPanel.tsx';
@@ -31,6 +42,7 @@ import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
+import { CommentsPanel, type ThreadControls } from './Threads.tsx';
 import { Walkthrough } from './Walkthrough.tsx';
 
 /**
@@ -80,6 +92,23 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         : undefined,
     [reviewable, askable, dispatch],
   );
+  const { threads } = model;
+  const threadControls = useMemo<ThreadControls | undefined>(
+    () =>
+      threads.list
+        ? {
+            threads,
+            act: !model.exported,
+            toggleFold: (threadId) => dispatch({ type: 'ThreadFoldToggled', threadId }),
+            startReply: (threadId) => dispatch({ type: 'ReplyStarted', threadId }),
+            changeReply: (body) => dispatch({ type: 'ReplyChanged', body }),
+            cancelReply: () => dispatch({ type: 'ReplyCancelled' }),
+            submitReply: () => dispatch({ type: 'ReplySubmitted' }),
+            resolve: (threadId) => dispatch({ type: 'ThreadResolveClicked', threadId }),
+          }
+        : undefined,
+    [threads, model.exported, dispatch],
+  );
   const controls: FileControls = useMemo(
     () => ({
       expanded,
@@ -88,8 +117,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       onToggleViewed: (fileId) => dispatch({ type: 'ViewedToggled', fileId }),
       review,
       reviewer,
+      threads: threadControls,
     }),
-    [expanded, viewed, dispatch, review, reviewer],
+    [expanded, viewed, dispatch, review, reviewer, threadControls],
   );
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
@@ -141,6 +171,16 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   tooltip="Re-run"
                   icon={<Icon icon={RotateCwIcon} />}
                   onClick={() => dispatch({ type: 'RerunClicked' })}
+                />
+              )}
+              {threads.list && threads.list.length > 0 && (
+                <IconButton
+                  size="sm"
+                  variant={threads.open ? 'secondary' : 'ghost'}
+                  label={`Comments, ${openThreads(threads)} open`}
+                  tooltip="Comments (c)"
+                  icon={<Icon icon={MessagesSquareIcon} />}
+                  onClick={() => dispatch({ type: 'CommentsToggled' })}
                 />
               )}
               <IconButton
@@ -307,6 +347,16 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </div>
         </main>
       </div>
+      {threads.open && (
+        <CommentsPanel
+          threads={threads}
+          files={state.files}
+          fileOrder={fileOrder(groups)}
+          onJump={jumpToFile}
+          onToggleResolved={() => dispatch({ type: 'ResolvedShownToggled' })}
+          onClose={() => dispatch({ type: 'CommentsClosed' })}
+        />
+      )}
       {model.ask.open && <AskPanel ask={model.ask} files={state.files} enabled={askable} dispatch={dispatch} />}
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
