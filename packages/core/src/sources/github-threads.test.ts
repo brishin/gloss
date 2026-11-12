@@ -51,6 +51,18 @@ describe('threadFromJson', () => {
     expect(outdated).not.toHaveProperty('line');
   });
 
+  test('a long thread keeps its opener ahead of its latest comments, once', () => {
+    const opener = comment('a', 'opener');
+    expect(
+      threadFromJson(
+        thread({ opener: { nodes: [opener] }, comments: { nodes: [comment('b', 'late')] } }),
+      )!.comments.map((c) => c.body),
+    ).toEqual(['opener', 'late']);
+    expect(
+      threadFromJson(thread({ opener: { nodes: [opener] }, comments: { nodes: [opener] } }))!.comments,
+    ).toHaveLength(1);
+  });
+
   test('a one-line startLine is dropped, and a thread with no comments left is too', () => {
     expect(threadFromJson(thread({ startLine: 12 }))).not.toHaveProperty('startLine');
     expect(threadFromJson(thread({ comments: { nodes: [] } }))).toBeUndefined();

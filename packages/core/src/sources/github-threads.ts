@@ -13,7 +13,8 @@ const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $af
         pageInfo { hasNextPage endCursor }
         nodes {
           id isResolved isOutdated path line startLine diffSide
-          comments(first: 100) { nodes { ${COMMENT_FIELDS} diffHunk } }
+          opener: comments(first: 1) { nodes { ${COMMENT_FIELDS} diffHunk } }
+          comments(last: 99) { nodes { ${COMMENT_FIELDS} diffHunk } }
         }
       }
     }
@@ -37,6 +38,9 @@ export interface ThreadJson {
   line: number | null;
   startLine: number | null;
   diffSide: 'LEFT' | 'RIGHT';
+  /** The first comment, which a thread past 100 comments would otherwise lose. */
+  opener?: { nodes: CommentJson[] };
+  /** The latest 99 comments: a long thread keeps its opener and its newest replies. */
   comments: { nodes: CommentJson[] };
 }
 
@@ -70,7 +74,9 @@ const hunkLine = (hunk: string | undefined): string | undefined => {
 
 /** A thread as the page shows it; one with no comments left (all deleted) is dropped. */
 export function threadFromJson(json: ThreadJson): ReviewThread | undefined {
-  const comments = json.comments.nodes;
+  const latest = json.comments.nodes;
+  const opener = json.opener?.nodes[0];
+  const comments = opener && !latest.some((c) => c.id === opener.id) ? [opener, ...latest] : latest;
   if (!comments.length) {
     return undefined;
   }

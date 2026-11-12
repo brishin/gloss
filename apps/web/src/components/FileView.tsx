@@ -141,7 +141,12 @@ export const FileView = memo(function FileView({
   );
   // Stable per notes array: pierre re-measures line heights when annotations change identity.
   // A thread whose line the diff does not show (outdated, or outside the hunks) goes with the file.
-  const placed = useMemo(() => placeThreads(threads, change), [threads, change]);
+  // A diff that is not drawn (too large, binary) shows every thread with the file.
+  const drawn = !summary.truncated && !summary.isBinary;
+  const placed = useMemo(
+    () => (drawn ? placeThreads(threads, change) : { onLines: [], onFile: change ? [...threads] : [] }),
+    [threads, change, drawn],
+  );
   const annotations = useMemo<DiffLineAnnotation<LineAnnotation>[]>(
     () => [
       ...placed.onLines.map((thread) => ({
