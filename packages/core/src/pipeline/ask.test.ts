@@ -89,6 +89,9 @@ const reposOnly = (contents: Repos['Service']['contents']) =>
     asset: () => Effect.succeed(undefined),
     stack: () => Effect.fail(new RepoError({ message: 'no' })),
     review: () => Effect.fail(new RepoError({ message: 'no' })),
+    threads: () => Effect.fail(new RepoError({ message: 'no' })),
+    replyToThread: () => Effect.fail(new RepoError({ message: 'no' })),
+    resolveThread: () => Effect.fail(new RepoError({ message: 'no' })),
     contents,
     lfs: () => Effect.fail(new RepoError({ message: 'no' })),
   });

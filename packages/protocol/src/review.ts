@@ -42,3 +42,55 @@ export function reviewProblem(review: Pick<ReviewRequest, 'verdict' | 'body' | '
   }
   return undefined;
 }
+
+/** A comment already on GitHub, in a review thread. */
+export const ThreadCommentSchema = v.object({
+  id: v.string(),
+  /** The login, or "ghost" for a deleted account; a bot's login has no `[bot]` suffix. */
+  author: v.string(),
+  /** The author's avatar as GitHub serves it (bots and apps included). */
+  avatar: v.optional(v.string()),
+  body: v.string(),
+  createdAt: v.string(),
+  url: v.string(),
+});
+export type ThreadComment = v.InferOutput<typeof ThreadCommentSchema>;
+
+/**
+ * A line comment thread already on the PR. `line` is where it sits in the PR's head now; an
+ * outdated thread has none (its line changed since), and `quote` is the line it was left on.
+ */
+export const ReviewThreadSchema = v.object({
+  id: v.string(),
+  path: v.string(),
+  side: DiffSideSchema,
+  line: v.optional(v.number()),
+  startLine: v.optional(v.number()),
+  resolved: v.boolean(),
+  outdated: v.boolean(),
+  quote: v.optional(v.string()),
+  comments: v.array(ThreadCommentSchema),
+});
+export type ReviewThread = v.InferOutput<typeof ReviewThreadSchema>;
+
+const PullFields = {
+  owner: v.string(),
+  repo: v.string(),
+  number: v.pipe(v.number(), v.integer(), v.minValue(1)),
+};
+
+/** A reply to a thread, posted as the backend's `gh` login. */
+export const ThreadReplyRequestSchema = v.object({
+  ...PullFields,
+  threadId: v.string(),
+  body: v.pipe(v.string(), v.trim(), v.minLength(1)),
+});
+export type ThreadReplyRequest = v.InferOutput<typeof ThreadReplyRequestSchema>;
+
+/** Resolves a thread, or unresolves it. */
+export const ThreadResolveRequestSchema = v.object({
+  ...PullFields,
+  threadId: v.string(),
+  resolved: v.boolean(),
+});
+export type ThreadResolveRequest = v.InferOutput<typeof ThreadResolveRequestSchema>;

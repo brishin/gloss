@@ -9,6 +9,7 @@ import {
   type FileSummary,
   type LineNote,
   lfsPointer,
+  type ReviewThread,
   type RiskNote,
 } from '@gloss/protocol';
 import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from '@pierre/diffs';
@@ -19,10 +20,12 @@ import { AtomRegistry } from 'effect/reactivity';
 import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
+import { placeThreads } from '../lib/threads-model.ts';
 import { decisionFlag, type FlagLevel, isLfsImage, lfsLabel, noteFlag, splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
 import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
+import { type ThreadControls, ThreadCard } from './Threads.tsx';
 
 export function unifiedText(file: FileChange): string {
   const oldPath = file.previousPath ?? file.path;
@@ -73,6 +76,7 @@ type LineAnnotation =
   | { kind: 'note'; note: LineNote }
   | { kind: 'decision'; decision: Decision }
   | { kind: 'draft'; comment: DraftComment }
+  | { kind: 'thread'; thread: ReviewThread }
   | { kind: 'composer' };
 
 function Chevron() {
@@ -99,6 +103,8 @@ export const FileView = memo(function FileView({
   drafts,
   composing,
   reviewer,
+  threads,
+  threadControls,
 }: {
   /** The diff this file is in; unchanged lines can be expanded once it is known. */
   diffId: string | undefined;
@@ -120,6 +126,9 @@ export const FileView = memo(function FileView({
   /** The comment being written, when it is on this file. */
   composing: (CommentAnchor & { body: string; editing?: string }) | undefined;
   reviewer: Reviewer | undefined;
+  /** This file's comment threads already on GitHub. */
+  threads: readonly ReviewThread[];
+  threadControls: ThreadControls | undefined;
 }) {
   const registry = useContext(RegistryContext);
   const composingDraft = composing?.editing;
@@ -131,8 +140,20 @@ export const FileView = memo(function FileView({
     [change],
   );
   // Stable per notes array: pierre re-measures line heights when annotations change identity.
+  // A thread whose line the diff does not show (outdated, or outside the hunks) goes with the file.
+  // A diff that is not drawn (too large, binary) shows every thread with the file.
+  const drawn = !summary.truncated && !summary.isBinary;
+  const placed = useMemo(
+    () => (drawn ? placeThreads(threads, change) : { onLines: [], onFile: change ? [...threads] : [] }),
+    [threads, change, drawn],
+  );
   const annotations = useMemo<DiffLineAnnotation<LineAnnotation>[]>(
     () => [
+      ...placed.onLines.map((thread) => ({
+        side: thread.side,
+        lineNumber: thread.line!,
+        metadata: { kind: 'thread' as const, thread },
+      })),
       ...decisions.flatMap((decision) =>
         decision.side && decision.line !== undefined
           ? [{ side: decision.side, lineNumber: decision.line, metadata: { kind: 'decision' as const, decision } }]
@@ -156,7 +177,7 @@ export const FileView = memo(function FileView({
         : []),
     ],
     // Not the composer's text: the annotations keep their identity while the reviewer types.
-    [decisions, lineNotes, drafts, composingDraft, composingSide, composingLine],
+    [placed, decisions, lineNotes, drafts, composingDraft, composingSide, composingLine],
   );
   // Controlled, so the lines stay marked only while their comment is written. Left to pierre, the
   // selection outlives the comment and pins the gutter's "+" to it: every later comment lands there.
@@ -226,6 +247,13 @@ export const FileView = memo(function FileView({
           Viewed
         </label>
       </header>
+      {expanded && threadControls && change && placed.onFile.length > 0 && (
+        <div className="file-notes">
+          {placed.onFile.map((thread) => (
+            <ThreadCard key={thread.id} thread={thread} controls={threadControls} />
+          ))}
+        </div>
+      )}
       {expanded && risks.length + fileNotes.length + fileDecisions.length > 0 && (
         <div className="file-notes">
           {/* A confirmed risk is a warning flag on its file, read before the file's other flags. */}
@@ -271,6 +299,8 @@ export const FileView = memo(function FileView({
               annotation.metadata?.kind === 'composer' ? (
                 composing &&
                 reviewer && <CommentComposer anchor={composing} body={composing.body} reviewer={reviewer} />
+              ) : annotation.metadata?.kind === 'thread' ? (
+                threadControls && <ThreadCard thread={annotation.metadata.thread} controls={threadControls} />
               ) : annotation.metadata?.kind === 'draft' ? (
                 reviewer && <DraftCommentCard comment={annotation.metadata.comment} reviewer={reviewer} />
               ) : annotation.metadata?.kind === 'decision' ? (

@@ -21,6 +21,7 @@ export const SHORTCUTS: readonly (readonly [keys: string, action: string])[] = [
   ['r c', 'Comment'],
   ['mod+enter', 'Send the comment or review'],
   ['q', 'Ask about the change'],
+  ['c', 'Comments already on the PR'],
   ['d', 'Pipeline debug view'],
   ['?', 'Show these shortcuts'],
 ];

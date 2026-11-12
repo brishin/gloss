@@ -2,7 +2,16 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
-import type { Decision, DiffPayload, FileChange, FileNote, GroupView, LineNote, TourState } from '@gloss/protocol';
+import type {
+  Decision,
+  DiffPayload,
+  FileChange,
+  FileNote,
+  GroupView,
+  LineNote,
+  ReviewThread,
+  TourState,
+} from '@gloss/protocol';
 import { memo, useMemo } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
@@ -10,12 +19,14 @@ import { isGeneratedFile, orderedFileIds, risksByFile, sectionDecisions, section
 import { DecisionCard, FileView } from './FileView.tsx';
 import { FlagCounts } from './icons.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
+import type { ThreadControls } from './Threads.tsx';
 
 const NO_FILE_NOTES: FileNote[] = [];
 const NO_LINE_NOTES: LineNote[] = [];
 const NO_DECISIONS: Decision[] = [];
 const NO_RISKS: never[] = [];
 const NO_DRAFTS: DraftComment[] = [];
+const NO_THREADS: ReviewThread[] = [];
 
 export interface FileControls {
   expanded: Readonly<Record<string, boolean>>;
@@ -24,6 +35,8 @@ export interface FileControls {
   onToggleViewed: (fileId: string) => void;
   review: ReviewDraft;
   reviewer: Reviewer | undefined;
+  /** The PR's comment threads on GitHub; undefined on a local diff. */
+  threads: ThreadControls | undefined;
 }
 
 export const GroupPanel = memo(function GroupPanel({
@@ -49,6 +62,14 @@ export const GroupPanel = memo(function GroupPanel({
     }
     return byId;
   }, [controls.review.comments]);
+  const threadList = controls.threads?.threads.list;
+  const threads = useMemo(() => {
+    const byPath = new Map<string, ReviewThread[]>();
+    for (const thread of threadList ?? []) {
+      byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
+    }
+    return byPath;
+  }, [threadList]);
   // A comment written in the walkthrough shows its composer there, not here.
   const composing = controls.review.composing?.place ? undefined : controls.review.composing;
   const byFile = useMemo(() => {
@@ -136,6 +157,8 @@ export const GroupPanel = memo(function GroupPanel({
               drafts={drafts.get(fileId) ?? NO_DRAFTS}
               composing={composing?.fileId === fileId ? composing : undefined}
               reviewer={controls.reviewer}
+              threads={threads.get(summary.path) ?? NO_THREADS}
+              threadControls={controls.threads}
             />
           );
         })}

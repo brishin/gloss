@@ -73,6 +73,9 @@ const unscripted = (): Repos['Service'] => ({
   asset: () => Effect.succeed(undefined),
   stack: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   review: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  threads: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  replyToThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  resolveThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   contents: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   lfs: () => Effect.fail(new RepoError({ message: 'unscripted' })),
 });
@@ -461,6 +464,53 @@ describe('review API', () => {
     });
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'Can not approve your own pull request (HTTP 422)' });
+  });
+});
+
+describe('comment threads API', () => {
+  const thread = {
+    id: 't',
+    path: 'a.ts',
+    side: 'additions' as const,
+    line: 3,
+    resolved: false,
+    outdated: false,
+    comments: [],
+  };
+
+  it('lists the threads uncached', async () => {
+    const { app } = setup(scripted().run, { repos: { threads: () => Effect.succeed([thread]) } });
+    const response = await app.request('/api/threads?owner=o&repo=r&number=1');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(await response.json()).toEqual([thread]);
+  });
+
+  it('refuses a request without a PR', async () => {
+    const { app } = setup(scripted().run);
+    expect((await app.request('/api/threads?owner=o&repo=r')).status).toBe(400);
+  });
+
+  it('posts a reply and resolves, only as JSON from the app', async () => {
+    const sent: unknown[] = [];
+    const reply = { id: 'c', author: 'me', body: 'done', createdAt: 'now', url: 'u' };
+    const { app } = setup(scripted().run, {
+      repos: {
+        replyToThread: (request) => (sent.push(request), Effect.succeed(reply)),
+        resolveThread: (request) => (sent.push(request), Effect.void),
+      },
+    });
+    const post = (path: string, body: unknown, type = 'application/json') =>
+      app.request(path, { method: 'POST', headers: { 'Content-Type': type }, body: JSON.stringify(body) });
+    const target = { owner: 'o', repo: 'r', number: 1, threadId: 't' };
+    expect(await (await post('/api/threads/reply', { ...target, body: ' done ' })).json()).toEqual(reply);
+    expect((await post('/api/threads/reply', { ...target, body: '  ' })).status).toBe(400);
+    expect((await post('/api/threads/resolve', { ...target, resolved: true }, 'text/plain')).status).toBe(403);
+    expect((await post('/api/threads/resolve', { ...target, resolved: true })).status).toBe(200);
+    expect(sent).toEqual([
+      { ...target, body: 'done' },
+      { ...target, resolved: true },
+    ]);
   });
 });
 

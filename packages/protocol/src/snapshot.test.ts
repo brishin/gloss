@@ -64,6 +64,16 @@ const contents: Record<string, FileContents> = {
   f2: { oldContents: 'cccc', newContents: 'dddd' },
 };
 
+const thread = {
+  id: 't',
+  path: 'a.ts',
+  side: 'additions',
+  line: 1,
+  resolved: false,
+  outdated: false,
+  comments: [{ id: 'c', author: 'a', body: 'b', createdAt: '2026-11-03T00:00:00Z', url: 'u' }],
+} as const;
+
 const backend = (log: TourEvent[]) =>
   ({
     startTour: async () => ({ jobId: 'j', state: 'complete', lastSeq: log.length }),
@@ -74,6 +84,7 @@ const backend = (log: TourEvent[]) =>
     fileContents: async (_diffId: string, fileId: string) => contents[fileId]!,
     trace: async () => ({ steps: [], done: true }),
     stack: async () => ({ owner: 'o', repo: 'r', base: 'main', members: [] }),
+    threads: async () => [thread],
     asset: async (url: string) => ({ url: `${url}?signed`, contentType: 'image/png' }),
   }) as unknown as GlossClient;
 const png = (async () => new Response(new Uint8Array([1, 2, 3]))) as unknown as typeof fetch;
@@ -91,6 +102,7 @@ describe('tour snapshots', () => {
     expect(state.meta).toEqual(tour.meta);
     expect(await client.diff('d')).toEqual(diff);
     expect(await client.fileContents('d', 'f2')).toEqual(contents.f2);
+    expect(await client.threads(ref)).toEqual([thread]);
     expect(await client.asset('https://github.com/user-attachments/assets/abc-1')).toEqual({
       url: 'data:image/png;base64,AQID',
       contentType: 'image/png',

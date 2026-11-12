@@ -32,6 +32,8 @@ import {
   LoginAnswerSchema,
   ReviewRequestSchema,
   reviewProblem,
+  ThreadReplyRequestSchema,
+  ThreadResolveRequestSchema,
   EditRulesRequestSchema,
   SaveDecisionRulesSchema,
   serializeRef,
@@ -412,6 +414,67 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       Repos.use((repos) => repos.review(parsed.output)).pipe(
         Effect.match({
           onSuccess: (result) => c.json(result),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
+  });
+
+  app.get('/api/threads', async (c) => {
+    const parsed = v.safeParse(SourceRefSchema, {
+      kind: 'github-pr',
+      owner: c.req.query('owner'),
+      repo: c.req.query('repo'),
+      number: Number(c.req.query('number')),
+    });
+    if (!parsed.success || parsed.output.kind !== 'github-pr') {
+      return c.json({ error: 'Expected owner, repo and number' }, 400);
+    }
+    const ref = parsed.output;
+    // Comments come and go between page loads, so neither side may cache them.
+    c.header('Cache-Control', 'no-store');
+    return run(
+      Repos.use((repos) => repos.threads(ref)).pipe(
+        Effect.match({
+          onSuccess: (threads) => c.json(threads),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
+
+  // Like a review, a reply or a resolve acts as the user on GitHub: only the app may send one.
+  app.post('/api/threads/reply', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Replies are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(ThreadReplyRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid reply', issues: v.flatten(parsed.issues) }, 400);
+    }
+    return run(
+      Repos.use((repos) => repos.replyToThread(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: (comment) => c.json(comment),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
+  });
+
+  app.post('/api/threads/resolve', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Resolves are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(ThreadResolveRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', issues: v.flatten(parsed.issues) }, 400);
+    }
+    return run(
+      Repos.use((repos) => repos.resolveThread(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: () => c.json({ ok: true }),
           onFailure: (error) => c.json({ error: error.message }, 502),
         }),
       ),

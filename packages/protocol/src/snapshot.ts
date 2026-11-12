@@ -3,6 +3,7 @@ import { isGithubAssetUrl } from './asset.ts';
 import type { GlossClient } from './client.ts';
 import { DiffPayloadSchema, FileContentsSchema } from './diff.ts';
 import { isTerminal, type TourEvent, TourEventSchema } from './events.ts';
+import { ReviewThreadSchema } from './review.ts';
 import { type SourceRef, SourceRefSchema, serializeRef } from './source-ref.ts';
 import { StackSchema } from './stack.ts';
 import { TraceSchema } from './trace.ts';
@@ -24,6 +25,8 @@ export const TourSnapshotSchema = v.object({
   trace: v.optional(TraceSchema),
   stack: v.optional(StackSchema),
   stackName: v.optional(v.string()),
+  /** The PR's comment threads on GitHub when it was exported. */
+  threads: v.optional(v.array(ReviewThreadSchema)),
   /** PR body images as `data:` URLs, keyed by the URL the description uses. */
   assets: v.record(v.string(), v.string()),
   /** Git LFS images the diff shows, as `data:` URLs, keyed by oid. */
@@ -108,6 +111,7 @@ export async function captureTourSnapshot(
   const stack = ref.kind === 'github-pr' ? await client.stack(ref).catch(() => undefined) : undefined;
   const stackName =
     stack && stack.members.length > 1 ? await client.stackName(stack).catch(() => undefined) : undefined;
+  const threads = ref.kind === 'github-pr' ? await client.threads(ref).catch(() => undefined) : undefined;
 
   const assets: TourSnapshot['assets'] = {};
   const load = options.fetch ?? fetch;
@@ -152,6 +156,7 @@ export async function captureTourSnapshot(
     trace,
     stack,
     stackName,
+    threads,
     assets,
     lfs,
   };
@@ -218,6 +223,9 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     stack: (ref) => found(serializeRef(ref) === serializeRef(snapshot.ref) ? snapshot.stack : undefined, 'That stack'),
     stackName: () => found(snapshot.stackName, 'The stack name'),
     review: missing('Review'),
+    threads: (ref) => Promise.resolve(serializeRef(ref) === serializeRef(snapshot.ref) ? (snapshot.threads ?? []) : []),
+    replyToThread: missing('Reply'),
+    resolveThread: missing('Resolve'),
     startLogin: missing('Sign-in'),
     login: missing('Sign-in'),
     answerLogin: missing('Sign-in'),

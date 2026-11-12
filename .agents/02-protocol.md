@@ -19,6 +19,12 @@
   with a `Stack` of two or more PRs → `{name}`: the side rail's name for it, from the `small`
   tier (Haiku by default) reading titles, head branches and description blurbs, never diffs. Cached
   under the exact prompt, which leaves out states and authors, so a merge keeps the name.
+- `GET /api/threads?owner&repo&number` → `ReviewThread[]` (`review.ts`): the PR's line comment
+  threads on GitHub, never cached (one GraphQL query, `github-threads.ts`). An outdated thread has no
+  `line`, only the `quote` it was left on. `POST /api/threads/reply` and `/api/threads/resolve` act as
+  the `gh` login, JSON from the app only, like `POST /api/reviews`. The tour page shows a thread under
+  its line when the diff shows that line, else at the top of its file, and lists them all in the
+  Comments panel (`c`).
 
 Events (`events.ts`), in the order a fresh tour emits them: `job.started`,
 `stage.status`, `diff.ready`, `groups.provisional`, then `group.defined` (one per

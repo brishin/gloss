@@ -38,6 +38,7 @@ import {
   STACK_NODE,
   toggleNode,
 } from './sidebar-tree.ts';
+import { emptyThreads, type ThreadsCmd, type ThreadsModel, type ThreadsMsg, updateThreads } from './threads-model.ts';
 import { defaultExpanded, isGeneratedFile, lfsImageOids, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
 
 /**
@@ -100,6 +101,8 @@ export interface Model {
   stack?: Stack;
   /** Questions about the finished tour, answered by the model that wrote it. */
   ask: AskModel;
+  /** The PR's comment threads already on GitHub (PRs only). */
+  threads: ThreadsModel;
   /** The page is a static export (`gloss export`): no backend, so nothing can run, ask or review. */
   exported: boolean;
 }
@@ -174,7 +177,8 @@ export type Msg =
   | { type: 'CommentRemoved'; id: string }
   /** The comment box's Ask: its lines become the question's context, and its text the question. */
   | { type: 'CommentAsked' }
-  | AskMsg;
+  | AskMsg
+  | ThreadsMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
@@ -226,7 +230,8 @@ export type Cmd =
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
-  | AskCmd;
+  | AskCmd
+  | ThreadsCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -245,6 +250,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
     sidebar: initialSidebar,
     review: emptyReview,
     ask: emptyAsk,
+    threads: emptyThreads,
     exported,
   };
 }
@@ -255,7 +261,13 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
  */
 export function init(ref: SourceRef, position: Position, stack?: Stack, exported = false): Next {
   const model = initialModel(ref, position, stack, exported);
-  const fetchStack: Cmd[] = ref.kind === 'github-pr' ? [{ type: 'FetchStack', ref }] : [];
+  const fetchStack: Cmd[] =
+    ref.kind === 'github-pr'
+      ? [
+          { type: 'FetchStack', ref },
+          { type: 'FetchThreads', ref },
+        ]
+      : [];
   return settle(undefined, model, [
     { type: 'StartTour', ref, force: false },
     ...fetchStack,
@@ -397,8 +409,16 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'PipelineOpened' };
     case 'q':
       return canAsk(model) || model.ask.open ? { type: 'AskToggled' } : undefined;
+    case 'c':
+      return model.threads.list?.length || model.threads.open ? { type: 'CommentsToggled' } : undefined;
     case 'Escape':
-      return model.ask.open ? { type: 'AskClosed' } : model.navOpen ? { type: 'NavClosed' } : undefined;
+      return model.ask.open
+        ? { type: 'AskClosed' }
+        : model.threads.open
+          ? { type: 'CommentsClosed' }
+          : model.navOpen
+            ? { type: 'NavClosed' }
+            : undefined;
     default:
       return undefined;
   }
@@ -423,7 +443,31 @@ function step(model: Model, msg: Msg): Next {
     case 'AskModelPicked':
     case 'AskLoaded': {
       const [ask, cmds] = updateAsk(model.ask, msg, canAsk(model) ? tourFromState(model.tour) : undefined);
-      return [ask === model.ask ? model : { ...model, ask }, cmds];
+      if (ask === model.ask) {
+        return [model, cmds];
+      }
+      // Ask and Comments share the right edge: one opening closes the other.
+      return [{ ...model, ask, threads: ask.open ? { ...model.threads, open: false } : model.threads }, cmds];
+    }
+    case 'ThreadsLoaded':
+    case 'CommentsToggled':
+    case 'CommentsClosed':
+    case 'ResolvedShownToggled':
+    case 'ThreadFoldToggled':
+    case 'ReplyStarted':
+    case 'ReplyChanged':
+    case 'ReplyCancelled':
+    case 'ReplySubmitted':
+    case 'ReplySent':
+    case 'ThreadResolveClicked':
+    case 'ThreadResolved':
+    case 'ThreadActionFailed': {
+      const ref = model.ref.kind === 'github-pr' && !model.exported ? model.ref : undefined;
+      const [threads, cmds] = updateThreads(model.threads, msg, ref);
+      if (threads === model.threads) {
+        return [model, cmds];
+      }
+      return [{ ...model, threads, ask: threads.open ? { ...model.ask, open: false } : model.ask }, cmds];
     }
     case 'CommentAsked': {
       const composing = model.review.composing;
@@ -439,6 +483,7 @@ function step(model: Model, msg: Msg): Next {
       const opened: Model = {
         ...model,
         review: { ...model.review, composing: undefined },
+        threads: { ...model.threads, open: false },
         ask: { ...model.ask, open: true, context, draft: composing.body.trim() || model.ask.draft },
       };
       if (!composing.body.trim()) {
@@ -466,7 +511,11 @@ function step(model: Model, msg: Msg): Next {
     case 'RerunClicked':
       return [
         { ...model, connection: 'connecting', connectionError: undefined },
-        [{ type: 'StartTour', ref: model.ref, force: true }],
+        [
+          { type: 'StartTour', ref: model.ref, force: true },
+          // The fresh diff may have moved lines: anchor threads against GitHub's view of it.
+          ...(model.ref.kind === 'github-pr' ? [{ type: 'FetchThreads' as const, ref: model.ref }] : []),
+        ],
       ];
     case 'StopClicked':
       return [model, model.jobId ? [{ type: 'AbortTour', jobId: model.jobId }] : []];
@@ -640,6 +689,8 @@ function stepReview(model: Model, msg: Msg): Next {
           comments: review.comments.filter((comment) => !sent?.ids.includes(comment.id)),
           sent: { verdict: msg.verdict, url: msg.url },
         }),
+        // The review's line comments are threads on GitHub now.
+        model.ref.kind === 'github-pr' ? [{ type: 'FetchThreads', ref: model.ref }] : [],
       );
     }
     case 'ReviewFailed':
@@ -680,10 +731,10 @@ function stepReview(model: Model, msg: Msg): Next {
 }
 
 /** Keeps the review's words in this browser, per diff, so a reload does not lose them. */
-function save(model: Model): Next {
+function save(model: Model, also: readonly Cmd[] = []): Next {
   const diffId = model.tour.diffId;
   const { body, comments } = model.review;
-  return [model, diffId ? [{ type: 'SaveReview', diffId, saved: { body, comments } }] : []];
+  return [model, [...(diffId ? [{ type: 'SaveReview' as const, diffId, saved: { body, comments } }] : []), ...also]];
 }
 
 /** Jumps to a group (or the overview) on the page. */

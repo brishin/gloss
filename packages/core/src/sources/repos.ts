@@ -10,13 +10,18 @@ import type {
   ResolvedAsset,
   ReviewRequest,
   ReviewResult,
+  ReviewThread,
   SourceRef,
   Stack,
+  ThreadComment,
+  ThreadReplyRequest,
+  ThreadResolveRequest,
 } from '@gloss/protocol';
 import { Context, Data, Deferred, Effect, Exit, Layer, Semaphore } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
 import { submitGithubReview } from './github-review.ts';
 import { resolveGithubStack } from './github-stack.ts';
+import { fetchReviewThreads, replyToGithubThread, resolveGithubThread } from './github-threads.ts';
 import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
 import { readLfsObject } from './lfs.ts';
 
@@ -45,6 +50,11 @@ export class Repos extends Context.Service<
     stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Effect.Effect<Stack, RepoError>;
     /** Posts a review as the `gh` login; GitHub's refusal is the error. */
     review(review: ReviewRequest): Effect.Effect<ReviewResult, RepoError>;
+    /** The PR's line comment threads already on GitHub. */
+    threads(ref: Extract<SourceRef, { kind: 'github-pr' }>): Effect.Effect<ReviewThread[], RepoError>;
+    /** Replies to a thread as the `gh` login. */
+    replyToThread(reply: ThreadReplyRequest): Effect.Effect<ThreadComment, RepoError>;
+    resolveThread(request: ThreadResolveRequest): Effect.Effect<void, RepoError>;
     /** A changed file in full, for expanding unchanged lines; undefined when there are none to show. */
     contents(diff: DiffPayload, file: FileChange): Effect.Effect<FileContents | undefined, RepoError | StaleFileError>;
     /** A Git LFS object named in the diff, kept in memory once fetched. */
@@ -74,6 +84,11 @@ export class Repos extends Context.Service<
         stack: (ref) => Effect.tryPromise({ try: (signal) => resolveGithubStack(ref, signal), catch: repoError }),
         review: (review) =>
           Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
+        threads: (ref) => Effect.tryPromise({ try: (signal) => fetchReviewThreads(ref, signal), catch: repoError }),
+        replyToThread: (reply) =>
+          Effect.tryPromise({ try: (signal) => replyToGithubThread(reply, signal), catch: repoError }),
+        resolveThread: (request) =>
+          Effect.tryPromise({ try: (signal) => resolveGithubThread(request, signal), catch: repoError }),
         contents: (diff, file) =>
           Effect.tryPromise({
             try: (signal) => readFileContents(diff, file, signal),
