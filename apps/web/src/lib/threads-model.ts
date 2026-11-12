@@ -18,7 +18,7 @@ export interface ThreadsModel {
   /** Folded threads the reader opened, and open ones they folded: resolved and outdated start folded. */
   toggled: ReadonlySet<string>;
   /** The reply being written. */
-  replying?: { threadId: string; body: string };
+  replying?: { threadId: string; body: string; sent?: string };
   /** Threads waiting on GitHub (a reply or a resolve on its way). */
   busy: ReadonlySet<string>;
   /** The last thread action GitHub refused, shown on that thread. */
@@ -96,7 +96,12 @@ export function updateThreads(
         return [threads, []];
       }
       return [
-        { ...threads, busy: withId(threads.busy, replying.threadId), error: undefined },
+        {
+          ...threads,
+          replying: { ...replying, sent: replying.body.trim() },
+          busy: withId(threads.busy, replying.threadId),
+          error: undefined,
+        },
         [{ type: 'ReplyToThread', ref, threadId: replying.threadId, body: replying.body.trim() }],
       ];
     }
@@ -109,7 +114,13 @@ export function updateThreads(
         {
           ...next,
           busy: without(threads.busy, msg.threadId),
-          replying: threads.replying?.threadId === msg.threadId ? undefined : threads.replying,
+          // Words written while the reply was on its way stay in the box.
+          replying:
+            !threads.replying || threads.replying.threadId !== msg.threadId
+              ? threads.replying
+              : threads.replying.body.trim() === threads.replying.sent
+                ? undefined
+                : { threadId: msg.threadId, body: threads.replying.body },
         },
         [],
       ];
@@ -136,6 +147,7 @@ export function updateThreads(
       return [
         {
           ...threads,
+          replying: threads.replying && { threadId: threads.replying.threadId, body: threads.replying.body },
           busy: without(threads.busy, msg.threadId),
           error: { threadId: msg.threadId, message: msg.error },
         },

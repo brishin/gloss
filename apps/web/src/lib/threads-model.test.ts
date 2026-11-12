@@ -38,6 +38,15 @@ describe('updateThreads', () => {
     expect(model.busy.size).toBe(0);
   });
 
+  test('words written while a reply is on its way stay in the box', () => {
+    let [model] = updateThreads(loaded, { type: 'ReplyStarted', threadId: 't1' }, REF);
+    [model] = updateThreads(model, { type: 'ReplyChanged', body: 'First.' }, REF);
+    [model] = updateThreads(model, { type: 'ReplySubmitted' }, REF);
+    [model] = updateThreads(model, { type: 'ReplyChanged', body: 'First. And more.' }, REF);
+    [model] = updateThreads(model, { type: 'ReplySent', threadId: 't1', comment: { ...comment, id: 'c2' } }, REF);
+    expect(model.replying).toEqual({ threadId: 't1', body: 'First. And more.' });
+  });
+
   test('a refused reply keeps the words and shows why on the thread', () => {
     let [model] = updateThreads(loaded, { type: 'ReplyStarted', threadId: 't1' }, REF);
     [model] = updateThreads(model, { type: 'ReplyChanged', body: 'x' }, REF);

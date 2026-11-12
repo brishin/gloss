@@ -664,6 +664,10 @@ describe('comment threads', () => {
     const [back] = run(asking, { type: 'CommentsToggled' });
     expect([back.ask.open, back.threads.open]).toEqual([false, true]);
     expect(keyToMsg(back, 'Escape')).toEqual({ type: 'CommentsClosed' });
+    const anchor = { fileId: 'f1', side: 'additions' as const, line: 1 };
+    const composing = { ...back, review: { ...back.review, composing: { ...anchor, body: '' } } };
+    const [fromLine] = run(composing, { type: 'CommentAsked' });
+    expect([fromLine.ask.open, fromLine.threads.open]).toEqual([true, false]);
   });
 
   test('a sent review fetches the threads again, its comments among them', () => {

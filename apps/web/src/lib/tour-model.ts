@@ -483,6 +483,7 @@ function step(model: Model, msg: Msg): Next {
       const opened: Model = {
         ...model,
         review: { ...model.review, composing: undefined },
+        threads: { ...model.threads, open: false },
         ask: { ...model.ask, open: true, context, draft: composing.body.trim() || model.ask.draft },
       };
       if (!composing.body.trim()) {
