@@ -62,6 +62,11 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const homes = useMemo(() => walkHomes(state, groups), [state, groups]);
   const walkStop = hasWalkStop(state, groups);
   const pathHomeKey = useMemo(() => pathHome(state, groups), [state, groups]);
+  // The walkthrough stop shows only what no group's walk reads: not the code path once a group reads it.
+  const leftover = useMemo(
+    () => (state.walkthrough && pathHomeKey ? { ...state.walkthrough, frames: [], steps: [] } : state.walkthrough),
+    [state.walkthrough, pathHomeKey],
+  );
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const current = currentGroup(model, groups);
   const index = current ? groups.indexOf(current) : -1;
@@ -335,7 +340,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             {state.walkthrough && walkStop && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
                 <Walkthrough
-                  walkthrough={state.walkthrough}
+                  walkthrough={leftover ?? state.walkthrough}
                   moved={homes}
                   decisions={state.decisions ?? []}
                   diff={diff}
