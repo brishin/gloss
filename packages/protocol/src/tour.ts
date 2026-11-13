@@ -390,6 +390,8 @@ export const SectionSchema = v.object({
   points: v.array(SectionPointSchema),
   /** One sentence on what the walk leaves to the diffs below it. */
   rest: v.optional(v.string()),
+  /** The key code path is read above this group's stops. */
+  path: v.optional(v.boolean()),
   /** Files a reviewer can skip (mechanical, renames, generated); they start folded. */
   skim: v.optional(v.array(v.string())),
   /** Hunks a reviewer can skip inside files that stay open, folded under one line in their file. */

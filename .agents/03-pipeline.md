@@ -104,9 +104,9 @@ Each group is also read as a walk above its open diffs (`sections.ts`; Brian's a
 sections read like the overview and walkthrough instead of file by file). One notes-tier call per group
 (`SECTION_SYSTEM`), after the group's notes and the walkthrough, writes `notes.section`: a sentence tying the group to
 the ones before it, stops in reading order (a claim, its reason, 1-2 short snippets, a tree where it helps), and the
-files a reviewer can skip. It is told the change-wide walks whose first snippet is in the group and places them among
-its own stops (`wide`), and the group with most of the code path's excerpts reads the path above its stops, so the
-page has no separate walkthrough stop. `normalizeSection` keeps code on the 3 stops that matter most; a decision past
+files a reviewer can skip. It is told the change-wide walks whose first snippet in a walked group is in the group and
+places them among its own stops (`wide`), and the walked group with most of the code path's excerpts reads the path
+above its stops (`section.path`), so the page has no separate walkthrough stop unless no walked group holds that code. `normalizeSection` keeps code on the 3 stops that matter most; a decision past
 them, or one whose lines are already shown, stays as its claim with a link (`see`), and a step past them is dropped.
 Capping the stops instead lost findings, and a walk that replaced the diffs was rejected: the diffs stay open, and
 only a `skim` file that nothing points at starts folded.
@@ -120,6 +120,13 @@ the wider questions lowered the skip scores. Tried and dropped: the walk inside 
 section call marking hunks itself (few folds, worse walk), Jev flags for weakened tests, removed checks, hidden
 failures and unrelated hunks (silent, wrong, or already said by the walk), a smaller model or less thinking for the
 walk (lost findings, no faster), and writing the walk before the walkthrough lands (repeats it).
+
+Docs and tests groups get no walk (`walkedGroups`; Brian, 2026-11-13: there the walk reads worse than the files). Their
+stops only repeat the notes: what the doc says, what each test covers. Such a group is one whose category is docs or
+tests, or whose open files are all guidance or all tests. It keeps notes and open diffs, with no model call; Jev is
+asked the skip question alone, so unimportant hunks still fold. Tests keep their walks when code outside tests is
+under 30% of the non-doc lines (`PLAIN_CODE_SHARE`): in an e2e-only PR the tests are the change. In 9 tours the rule
+picked every group where the walk read worse and no code group.
 
 A walk call would hold one of the three notes slots for 10-25 s, so `writeNotes` sends a group's notes as soon as
 they are written and forks its walk outside the slots; `group.notes` is sent again with the walk, and the notes stage

@@ -9,6 +9,7 @@ import {
   type SectionContext,
   skippableHunks,
   uncoveredKeyHunks,
+  walkedGroups,
 } from './sections.ts';
 
 const patch = Array.from({ length: 60 }, (_, i) => `+line ${i + 1}`).join('\n');
@@ -208,5 +209,53 @@ describe('normalizeKeyStops', () => {
     expect(points.map((point) => [point.title, point.kind, point.snippets.length, point.tree])).toEqual([
       ['two snippets', 'decision', 1, undefined],
     ]);
+  });
+});
+
+describe('walkedGroups', () => {
+  const change = (path: string, lines: number) => ({ ...file, id: path, path, additions: lines });
+  const of = (key: string, category: string, paths: string[]) =>
+    ({ key, label: key, summary: '', category, fileIds: paths }) as unknown as ResolvedGroup;
+  const walked = (files: FileChange[], groups: ResolvedGroup[]) =>
+    walkedGroups(groups, files).map((entry) => entry.key);
+
+  test.each([
+    // Docs and tests read file by file; the code keeps its walk.
+    [
+      'by category',
+      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('docs/a.md', 20), change('build.gradle', 2)],
+      [
+        of('docs', 'docs', ['docs/a.md']),
+        of('core', 'core', ['src/a.ts']),
+        of('tests', 'tests', ['src/a.test.ts', 'build.gradle']),
+      ],
+      ['core'],
+    ],
+    // Whatever the definition calls a group, one that holds only tests or only docs is one.
+    [
+      'by its files',
+      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('README.md', 20), change('src/b.ts', 5)],
+      [
+        of('intro', 'core', ['README.md']),
+        of('core', 'core', ['src/a.ts']),
+        of('checks', 'core', ['src/a.test.ts']),
+        of('mixed', 'core', ['src/b.ts', 'README.md']),
+      ],
+      ['core', 'mixed'],
+    ],
+    // When little but tests changed, the tests are the change and keep their walks. Docs never do.
+    [
+      'tests lead',
+      [change('src/a.ts', 2), change('e2e/a.test.ts', 300), change('e2e/b.test.ts', 50), change('docs/a.md', 400)],
+      [
+        of('docs', 'docs', ['docs/a.md']),
+        of('core', 'core', ['src/a.ts']),
+        of('tests', 'tests', ['e2e/a.test.ts']),
+        of('support', 'core', ['e2e/b.test.ts']),
+      ],
+      ['core', 'tests', 'support'],
+    ],
+  ] as const)('%s', (_name, files, groups, expected) => {
+    expect(walked([...files], [...groups])).toEqual(expected);
   });
 });

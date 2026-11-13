@@ -59,9 +59,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const dispatch = useAtomSet(program.dispatch);
   const { tour: state, diff, viewed, expanded, navOpen, helpOpen, connection, connectionError } = model;
   const groups = useMemo(() => groupsInOrder(state), [state]);
-  const homes = useMemo(() => walkHomes(state, groups), [state, groups]);
+  const homes = useMemo(() => walkHomes(groups), [groups]);
   const walkStop = hasWalkStop(state, groups);
-  const pathHomeKey = useMemo(() => pathHome(state, groups), [state, groups]);
+  const pathHomeKey = useMemo(() => pathHome(groups), [groups]);
   // The walkthrough stop shows only what no group's walk reads: not the code path once a group reads it.
   const leftover = useMemo(
     () => (state.walkthrough && pathHomeKey ? { ...state.walkthrough, frames: [], steps: [] } : state.walkthrough),

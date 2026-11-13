@@ -265,32 +265,23 @@ export function pullStateDetail(pull: StackMember, now: number): string {
 
 /**
  * Where each change-wide decision the walkthrough reads is shown, by its number in the tour's
- * decisions: the group that holds its first snippet, once that group has a walk.
+ * decisions: the group whose walk placed it.
  */
-export function walkHomes(tour: Pick<TourState, 'walkthrough'>, groups: readonly GroupView[]): Map<number, string> {
+export function walkHomes(groups: readonly GroupView[]): Map<number, string> {
   const homes = new Map<number, string>();
-  for (const walk of tour.walkthrough?.decisions ?? []) {
-    const fileId = walk.snippets[0]?.fileId;
-    const home = groups.find((group) => fileId !== undefined && group.fileIds.includes(fileId) && group.notes?.section);
-    if (home) {
-      homes.set(walk.decision, home.key);
+  for (const group of groups) {
+    for (const point of group.notes?.section?.points ?? []) {
+      if (point.kind === 'wide' && point.wide !== undefined) {
+        homes.set(point.wide, group.key);
+      }
     }
   }
   return homes;
 }
 
-/** The group the key code path is read in: the one with a walk that holds most of its excerpts. */
-export function pathHome(tour: Pick<TourState, 'walkthrough'>, groups: readonly GroupView[]): string | undefined {
-  const counts = new Map<string, number>();
-  for (const step of tour.walkthrough?.steps ?? []) {
-    for (const excerpt of step.excerpts) {
-      const home = groups.find((group) => group.fileIds.includes(excerpt.fileId) && group.notes?.section);
-      if (home) {
-        counts.set(home.key, (counts.get(home.key) ?? 0) + 1);
-      }
-    }
-  }
-  return [...counts].toSorted((a, b) => b[1] - a[1])[0]?.[0];
+/** The group the key code path is read in, when a walk took it. */
+export function pathHome(groups: readonly GroupView[]): string | undefined {
+  return groups.find((group) => group.notes?.section?.path)?.key;
 }
 
 /**
@@ -310,8 +301,8 @@ export function shortPath<P extends Pick<Walkthrough, 'frames' | 'steps'>>(path:
 /**
  * Whether the walkthrough has a stop of its own. The groups' walks read its decisions and its
  * code path, so it is a stop only for what no walk took: nothing while the walks are still
- * being written, and afterwards a decision or the code path whose group has no walk (a failed
- * call, or a tour from before walks existed).
+ * being written, and afterwards a decision or the code path that no walk took (its code is in
+ * docs or tests groups, which have no walk, or a call failed).
  */
 export function hasWalkStop(tour: Pick<TourState, 'walkthrough' | 'stages'>, groups: readonly GroupView[]): boolean {
   const walkthrough = tour.walkthrough;
@@ -319,7 +310,7 @@ export function hasWalkStop(tour: Pick<TourState, 'walkthrough' | 'stages'>, gro
   if (!walkthrough || writing) {
     return false;
   }
-  const homes = walkHomes(tour, groups);
-  const pathLeft = walkthrough.steps.length > 0 && !pathHome(tour, groups);
+  const homes = walkHomes(groups);
+  const pathLeft = walkthrough.steps.length > 0 && !pathHome(groups);
   return pathLeft || walkthrough.decisions.some((walk) => !homes.has(walk.decision));
 }

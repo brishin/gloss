@@ -184,27 +184,34 @@ describe('LFS images', () => {
 });
 
 describe("the walkthrough read in the groups' walks", () => {
-  const section = { points: [] };
   const none = { fileNotes: [], lineNotes: [], riskNotes: [] };
-  const group = (key: string, fileIds: string[], walked: boolean) =>
-    ({ key, fileIds, notes: walked ? { ...none, section } : none }) as unknown as GroupView;
+  /** A group whose walk placed the change-wide decisions `wide`, and the code path when `path`. */
+  const group = (key: string, wide?: readonly number[], path = false) =>
+    ({
+      key,
+      fileIds: [],
+      notes: wide
+        ? { ...none, section: { points: wide.map((n) => ({ kind: 'wide', wide: n })), ...(path ? { path } : {}) } }
+        : none,
+    }) as unknown as GroupView;
   const at = (fileId: string) => ({ fileId, hunkId: 'h', from: 1, to: 20 });
-  const walk = (decision: number, fileId?: string) => ({ decision, snippets: fileId ? [at(fileId)] : [] });
+  const walk = (decision: number) => ({ decision, snippets: [] });
   const tour = (walkthrough: unknown, notes: string) =>
     ({ walkthrough, stages: { notes: { state: notes } } }) as unknown as Pick<TourState, 'walkthrough' | 'stages'>;
   const steps = [{ excerpts: [at('f1'), at('f3')] }, { excerpts: [at('f3')] }];
 
-  test('a decision is read in the group that holds its first snippet, once that group has a walk', () => {
-    const walkthrough = { decisions: [walk(0, 'f1'), walk(2, 'f3'), walk(3)], frames: [], steps: [] };
-    const groups = [group('a', ['f1', 'f2'], true), group('b', ['f3'], false)];
-    expect([...walkHomes(tour(walkthrough, 'done'), groups)]).toEqual([[0, 'a']]);
+  test('a decision is read in the group whose walk placed it', () => {
+    expect([...walkHomes([group('a', [0]), group('b'), group('c', [2, 3])])]).toEqual([
+      [0, 'a'],
+      [2, 'c'],
+      [3, 'c'],
+    ]);
   });
 
-  test('the code path is read in the group with a walk that holds most of its excerpts', () => {
+  test('the code path is read in the group whose walk took it', () => {
+    expect(pathHome([group('a', []), group('b', [], true)])).toBe('b');
+    expect(pathHome([group('a', []), group('b')])).toBeUndefined();
     const walkthrough = { decisions: [], frames: [], steps };
-    expect(pathHome(tour(walkthrough, 'done'), [group('a', ['f1'], true), group('b', ['f3'], true)])).toBe('b');
-    expect(pathHome(tour(walkthrough, 'done'), [group('a', ['f1'], true), group('b', ['f3'], false)])).toBe('a');
-    expect(pathHome(tour(walkthrough, 'done'), [group('a', ['f1'], false)])).toBeUndefined();
     expect(shortPath(walkthrough as never as Pick<Walkthrough, 'frames' | 'steps'>).steps[1]!.excerpts).toEqual([
       { ...at('f3'), to: 8 },
     ]);
@@ -212,16 +219,16 @@ describe("the walkthrough read in the groups' walks", () => {
 
   test.each([
     // While the walks are written, nothing is a stop of its own: each decision moves into its group.
-    ['running', [true, true], [walk(0, 'f1')], [], false],
-    ['done', [true, true], [walk(0, 'f1'), walk(1, 'f3')], steps, false],
-    // A group whose walk failed leaves its decision to the walkthrough stop.
-    ['done', [true, false], [walk(0, 'f1'), walk(1, 'f3')], [], true],
-    // A tour from before walks existed keeps the whole walkthrough.
-    ['done', [false, false], [walk(0, 'f1')], [], true],
-    ['done', [false, false], [], steps, true],
-    ['failed', [false, false], [walk(0, 'f1')], [], true],
-  ] as const)('notes %s, walks %j: a walkthrough stop', (notes, [a, b], decisions, path, expected) => {
-    const groups = [group('a', ['f1'], a), group('b', ['f3'], b)];
+    ['running', [group('a'), group('b')], [walk(0)], [], false],
+    ['done', [group('a', [0], true), group('b', [1])], [walk(0), walk(1)], steps, false],
+    // A decision no walk placed (a failed call, or its code is all in docs and tests) stays a stop.
+    ['done', [group('a', [0]), group('b')], [walk(0), walk(1)], [], true],
+    // So does a code path no walk took.
+    ['done', [group('a', [0])], [walk(0)], steps, true],
+    // A group with folds only (docs, tests) takes nothing.
+    ['done', [group('a', [])], [walk(0)], [], true],
+    ['failed', [group('a'), group('b')], [walk(0)], [], true],
+  ] as const)('notes %s: a walkthrough stop', (notes, groups, decisions, path, expected) => {
     expect(hasWalkStop(tour({ decisions, frames: [], steps: path }, notes), groups)).toBe(expected);
   });
 

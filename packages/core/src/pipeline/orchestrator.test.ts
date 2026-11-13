@@ -502,9 +502,8 @@ describe('runTour', () => {
         'notes:auth',
         'notes:docs',
         'notes:tests',
+        // Docs and tests read file by file: no walk.
         'section:auth',
-        'section:docs',
-        'section:tests',
         'place',
         'description-check',
         'affected',
@@ -557,19 +556,20 @@ describe('runTour', () => {
     for (const key of ['docs', 'auth', 'tests']) {
       expect(types.indexOf(key)).toBeGreaterThan(-1);
       expect(types.indexOf(key)).toBeLessThan(firstWalk);
-      expect(types.indexOf(`${key} walk`)).toBeGreaterThan(-1);
     }
+    // Docs and tests keep the file by file read: only the code group gets a walk.
+    expect(types.filter((type) => type.endsWith(' walk'))).toEqual(['auth walk']);
     // The notes stage ends only when the walks are in.
     const done = events.findIndex(
       (event) => event.type === 'stage.status' && event.stage === 'notes' && event.state === 'done',
     );
-    expect(done).toBeGreaterThan(types.lastIndexOf('tests walk'));
+    expect(done).toBeGreaterThan(types.lastIndexOf('auth walk'));
     const walk = finished.notes.auth!.section!;
     expect(walk.points).toMatchObject([
       { kind: 'decision', decision: 0, priority: 'high', title: 'Compares the name' },
     ]);
-    // The first group has nothing before it to tie to; the walk call is told which groups came before.
-    expect(finished.notes.docs!.section!.intro).toBeUndefined();
+    // The walk call is told which groups came before.
+    expect(finished.notes.docs!.section).toBeUndefined();
     expect(walk.intro).toBe('Builds on the group before.');
     const asked = base.calls.find((call) => call.resultName === 'walk' && call.prompt.includes('src/auth.ts'))!;
     expect(asked.tier).toBe('notes');
@@ -587,11 +587,11 @@ describe('runTour', () => {
     const { events, tour: finished } = await tour({ model, judge: fakeJudge() });
     expect(finished.notes.auth?.lineNotes).toHaveLength(1);
     expect(finished.notes.auth?.section).toBeUndefined();
-    expect(events.filter((event) => event.type === 'job.warning' && event.message.includes('walk'))).toHaveLength(3);
+    expect(events.filter((event) => event.type === 'job.warning' && event.message.includes('walk'))).toHaveLength(1);
     expect(events.some((event) => event.type === 'job.error')).toBe(false);
   });
 
-  it('folds a hunk Jev can skip, flags a contract change, and offers a key hunk the walk misses to a follow-up call', async () => {
+  it('folds a hunk Jev can skip, and offers a key hunk the walk misses to a follow-up call', async () => {
     const base = fakeModel();
     const empty = { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] };
     const model = createFakeModelClient({
@@ -639,20 +639,24 @@ describe('runTour', () => {
     const { tour: finished, trace } = await tour({ model, judge });
     const id = (path: string) => finished.files.find((file) => file.path === path)!.id;
     // A skippable hunk folds, and is neither flagged nor offered.
-    expect(finished.notes.docs!.section).toMatchObject({ points: [], skimHunks: [{ fileId: id('README.md') }] });
-    expect(finished.notes.docs!.section!.hunkFlags).toBeUndefined();
-    // A contract change nothing points at gets a note on its first changed line.
-    expect(finished.notes.tests!.section!.hunkFlags).toEqual([
-      { fileId: id('src/auth.test.ts'), hunkId: expect.any(String), side: 'additions', line: 1, flag: 'contract' },
-    ]);
+    // A docs group has no walk, so its section holds the fold alone.
+    expect(finished.notes.docs!.section).toEqual({
+      points: [],
+      skim: [],
+      skimHunks: [{ fileId: id('README.md'), hunkId: expect.any(String) }],
+    });
+    // A group with no walk is asked the skip question only: no flag, and with nothing to fold, no section.
+    expect(finished.notes.tests!.section).toBeUndefined();
     // A key hunk gets a stop from the follow-up call, which says more than its flag would.
     expect(finished.notes.auth!.section).toMatchObject({ points: [{ kind: 'decision', title: 'The rule itself' }] });
     expect(finished.notes.auth!.section!.hunkFlags).toBeUndefined();
     expect([...trace.keys()].filter((step) => step.startsWith('section-key:'))).toEqual(['section-key:auth']);
     // The skip question is asked without the change's summary, the wider ones with it.
-    const readme = states.filter((state) => (state.file as { path: string }).path === 'README.md');
-    expect(readme).toHaveLength(2);
-    expect(readme.filter((state) => 'change_summary' in state)).toHaveLength(1);
+    const asked = (path: string) => states.filter((state) => (state.file as { path: string }).path === path);
+    expect(asked('src/auth.ts')).toHaveLength(2);
+    expect(asked('src/auth.ts').filter((state) => 'change_summary' in state)).toHaveLength(1);
+    expect(asked('README.md')).toHaveLength(1);
+    expect(asked('README.md').filter((state) => 'change_summary' in state)).toHaveLength(0);
   });
 
   it('lists the description gaps in every notes prompt, however late the check lands', async () => {

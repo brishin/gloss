@@ -124,6 +124,7 @@ import {
   SectionResultSchema,
   skippableHunks,
   uncoveredKeyHunks,
+  walkedGroups,
 } from './sections.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
@@ -950,10 +951,16 @@ const tourProgram = Effect.fnUntraced(function* (
 
   /**
    * What Jev says of each hunk of a group, for its walk (`sections.ts`): two calls per hunk, since
-   * the skip question scores lower when the wider ones are asked beside it. A failed call leaves
-   * its hunk unscored: open and unflagged.
+   * the skip question scores lower when the wider ones are asked beside it. A group with no walk
+   * (`wider` false) is asked the skip question only. A failed call leaves its hunk unscored: open
+   * and unflagged.
    */
-  const judgeHunks = (client: JudgeClient['Service'], members: readonly FileChange[], group: ResolvedGroup) => {
+  const judgeHunks = (
+    client: JudgeClient['Service'],
+    members: readonly FileChange[],
+    group: ResolvedGroup,
+    wider: boolean,
+  ) => {
     const context = { summary: state.overallSummary ?? '', group: `${group.label}: ${group.summary}` };
     const ask = (hunkQuestion: Record<string, unknown>, questions: Record<string, JudgeQuestion>) =>
       cached(
@@ -971,7 +978,9 @@ const tourProgram = Effect.fnUntraced(function* (
         Effect.all(
           [
             ask(hunkState(meta.title, file, hunk), HUNK_QUESTIONS),
-            ask(hunkState(meta.title, file, hunk, context), HUNK_WIDE_QUESTIONS),
+            wider
+              ? ask(hunkState(meta.title, file, hunk, context), HUNK_WIDE_QUESTIONS)
+              : Effect.succeed({ value: {} as Record<string, JudgeAnswer>, hit: true }),
           ],
           { concurrency: 2 },
         ).pipe(
@@ -1038,26 +1047,49 @@ const tourProgram = Effect.fnUntraced(function* (
     });
   /**
    * One group's walk (`sections.ts`), from its diff and the notes just written for it. It waits
-   * for the walkthrough: the change-wide decisions whose first snippet is in this group are read
-   * here, placed among the group's own stops, and so is the code path when most of it is here.
-   * `before` are the groups read before this one, `all` every group with a walk.
+   * for the walkthrough: the change-wide decisions whose first snippet in a walked group is in this
+   * one are read here, placed among the group's own stops, and so is the code path when most of it
+   * is here. `before` are the groups read before this one, `walked` every group that gets a walk.
+   *
+   * A group that reads better file by file (`walkedGroups`: docs, tests) gets no walk and no model
+   * call; Jev still says which of its hunks fold.
    */
   const walkGroup = (
     group: ResolvedGroup,
     members: readonly FileChange[],
     notes: GroupNotes,
     before: readonly ResolvedGroup[],
-    all: readonly ResolvedGroup[],
+    walked: readonly ResolvedGroup[],
   ) =>
     Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
       Effect.flatMap(() => {
         const walks = state.walkthrough?.decisions ?? [];
-        const wideHere = walks.filter((walk) => group.fileIds.includes(walk.snippets[0]?.fileId ?? ''));
-        // The code path is read in the group that holds most of its excerpts (`pathHome` in the web app).
         const excerpts = (state.walkthrough?.steps ?? []).flatMap((step) => step.excerpts);
+        const shownInTour = [...walks.flatMap((walk) => walk.snippets), ...excerpts];
+        if (!walked.includes(group)) {
+          if (!judge) {
+            return Effect.succeed(undefined);
+          }
+          return judgeHunks(judge, members, group, false).pipe(
+            Effect.map((scores) => {
+              const { section } = normalizeSection({}, group, members, notes, {
+                wideHere: [],
+                pathHere: [],
+                shownInTour,
+                hunks: { skip: skippableHunks(scores), contract: [] },
+              });
+              return section.skimHunks ? section : undefined;
+            }),
+          );
+        }
+        const inWalked = (fileId: string) => walked.some((other) => other.fileIds.includes(fileId));
+        const wideHere = walks.filter((walk) =>
+          group.fileIds.includes(walk.snippets.find((snippet) => inWalked(snippet.fileId))?.fileId ?? ''),
+        );
+        // The code path is read in the walked group that holds most of its excerpts.
         const counts = new Map<string, number>();
         for (const excerpt of excerpts) {
-          const home = all.find((other) => other.fileIds.includes(excerpt.fileId));
+          const home = walked.find((other) => other.fileIds.includes(excerpt.fileId));
           if (home) {
             counts.set(home.key, (counts.get(home.key) ?? 0) + 1);
           }
@@ -1068,7 +1100,7 @@ const tourProgram = Effect.fnUntraced(function* (
             : [];
         return Effect.all(
           [
-            judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
+            judge ? judgeHunks(judge, members, group, true) : Effect.succeed(undefined),
             askSections(
               `section:${group.key}`,
               `${group.label} (walk)`,
@@ -1096,7 +1128,7 @@ const tourProgram = Effect.fnUntraced(function* (
             const normalized = normalizeSection(value, group, members, notes, {
               wideHere,
               pathHere,
-              shownInTour: [...walks.flatMap((walk) => walk.snippets), ...excerpts],
+              shownInTour,
               ...(scores ? { hunks: { skip: skippableHunks(scores), contract: contractFlags(scores) } } : {}),
             });
             normalized.warnings.forEach((message) => warn('notes', message));
@@ -1152,6 +1184,7 @@ const tourProgram = Effect.fnUntraced(function* (
       const byId = new Map(files.map((file) => [file.id, file]));
       let failed = 0;
       const walks: Fiber.Fiber<void>[] = [];
+      const walked = walkedGroups(annotatable, files);
       // The description check's gaps are in the decision list before any notes prompt is built, so
       // every group's prompt lists them whatever the timing. The check is done by now on most tours.
       return Effect.suspend(() => (checking ? Fiber.join(checking) : Effect.void)).pipe(
@@ -1221,13 +1254,7 @@ const tourProgram = Effect.fnUntraced(function* (
                     // The walk is written outside the notes slots, so the next group's notes start at
                     // once. The notes are on the page meanwhile; they are sent again with the walk.
                     return Effect.forkScoped(
-                      walkGroup(
-                        group,
-                        members,
-                        notes,
-                        annotatable.slice(0, annotatable.indexOf(group)),
-                        annotatable,
-                      ).pipe(
+                      walkGroup(group, members, notes, annotatable.slice(0, annotatable.indexOf(group)), walked).pipe(
                         Effect.map((section) => {
                           if (section) {
                             send({ type: 'group.notes', groupKey: group.key, notes: { ...notes, section }, source });

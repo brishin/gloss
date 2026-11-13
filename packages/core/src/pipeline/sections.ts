@@ -25,8 +25,17 @@ import { DECISION_PRIORITIES } from '@gloss/protocol';
 import * as v from 'valibot';
 import type { JudgeQuestion } from '../adapters/types.ts';
 import { hashOf } from '../hash.ts';
+import { looksLikeTest } from './heuristics.ts';
 import { clip, normalizeSnippet, normalizeTree } from './normalize.ts';
-import { collapsedReason, FILE_BUDGET, header, manifestLine, renderNumberedHunk, TOTAL_BUDGET } from './prompts.ts';
+import {
+  collapsedReason,
+  FILE_BUDGET,
+  header,
+  isGuidance,
+  manifestLine,
+  renderNumberedHunk,
+  TOTAL_BUDGET,
+} from './prompts.ts';
 
 /**
  * Part of every section call's cache key, beside its system and prompt text. Bump when a result
@@ -726,6 +735,7 @@ export function normalizeSection(
       ...(intro ? { intro } : {}),
       points,
       ...(rest ? { rest } : {}),
+      ...(context.pathHere.length ? { path: true } : {}),
       skim,
       ...(skimHunks?.length ? { skimHunks } : {}),
       ...(hunkFlags?.length ? { hunkFlags } : {}),
@@ -756,6 +766,38 @@ export function normalizeKeyStops(
 }
 
 /** Everything that shapes a group's walk, for the finished tour's cache key. */
+/**
+ * Below this share of a change's code lines outside tests, the tests are the change: their groups
+ * keep their walks.
+ */
+export const PLAIN_CODE_SHARE = 0.3;
+
+/**
+ * The groups that get a walk. A docs or tests group reads better file by file: its stops only
+ * repeat its notes (what the doc says, what each test covers), so it keeps its notes and diffs
+ * with no walk above them. Such a group is one the definition calls docs or tests, or one whose
+ * files are all guidance, tests or collapsed. Tests keep their walks when little else changed.
+ */
+export function walkedGroups(groups: readonly ResolvedGroup[], files: readonly FileChange[]): ResolvedGroup[] {
+  const byId = new Map(files.map((file) => [file.id, file]));
+  const members = (group: ResolvedGroup) => group.fileIds.flatMap((id) => byId.get(id) ?? []);
+  const lines = (list: readonly FileChange[]) => list.reduce((sum, file) => sum + file.additions + file.deletions, 0);
+  const read = groups.flatMap(members).filter((file) => !collapsedReason(file) && !isGuidance(file));
+  const code = read.filter((file) => !looksLikeTest(file.path));
+  const testsLead = lines(code) < PLAIN_CODE_SHARE * lines(read);
+  const all = (group: ResolvedGroup, plain: (file: FileChange) => boolean) => {
+    const open = members(group).filter((file) => !collapsedReason(file));
+    return open.length > 0 && open.every(plain);
+  };
+  return groups.filter((group) => {
+    if (group.category === 'docs' || all(group, isGuidance)) {
+      return false;
+    }
+    const tests = group.category === 'tests' || all(group, (file) => isGuidance(file) || looksLikeTest(file.path));
+    return !tests || testsLead;
+  });
+}
+
 export const SECTIONS_KEY = hashOf({
   SECTIONS_VERSION,
   SECTION_SYSTEM,
@@ -765,4 +807,6 @@ export const SECTIONS_KEY = hashOf({
   HUNK_SKIP,
   HUNK_SURE,
   KEY_HUNKS,
+  PLAIN_CODE_SHARE,
+  plain: 1,
 }).slice(0, 12);
