@@ -244,6 +244,7 @@ async function main() {
       const info = await runtime.runPromise(BackendInfo.use(Effect.succeed));
       const start = performance.now();
       console.error(`Touring ${describeRef(ref)}${info.judge ? '' : ' (no judge: LLM places files)'}`);
+      const evalSteps = new Map<string, unknown>();
       const log = (event: TourEventBody) => {
         const at = elapsed(start).padStart(6);
         switch (event.type) {
@@ -281,7 +282,12 @@ async function main() {
       };
       try {
         const fiber = runtime.runFork(
-          runTour({ ref, force: values.force }).pipe(
+          runTour({
+            ref,
+            force: values.force,
+            // EVAL ONLY: GLOSS_EVAL_TRACE=<path> writes the run's trace steps there.
+            onStep: (step) => evalSteps.set(step.id, step),
+          }).pipe(
             Stream.tap((event) => Effect.sync(() => log(event))),
             Stream.runLast,
           ),
@@ -293,6 +299,9 @@ async function main() {
         }
         const { tour } = last.value;
         console.error(`${elapsed(start).padStart(6)}  done`);
+        if (process.env.GLOSS_EVAL_TRACE) {
+          writeFileSync(process.env.GLOSS_EVAL_TRACE, JSON.stringify([...evalSteps.values()]));
+        }
         if (values.json) {
           console.log(JSON.stringify(tour, null, 2));
           return;

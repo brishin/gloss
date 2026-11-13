@@ -52,6 +52,7 @@ import {
   searchRepo,
 } from '../sources/index.ts';
 import { callerTree, countCallers, renderCallerTree } from './callers.ts';
+import { evalFlags } from './eval-flags.ts';
 import { provisionalGroups } from './heuristics.ts';
 import {
   fileState,
@@ -94,6 +95,7 @@ import {
   FollowupSchema,
   NOTES_SYSTEM,
   NotesSchema,
+  type PromptView,
   PROMPTS_VERSION,
   DESCRIPTION_CHECK_SYSTEM,
   quotedGaps,
@@ -110,11 +112,13 @@ import {
   buildSectionPrompt,
   contractFlags,
   HUNK_QUESTIONS,
+  HUNK_SKIP,
   HUNK_WIDE_QUESTIONS,
   type HunkScore,
   hunkCut,
   hunkState,
   KEY_STOPS_SYSTEM,
+  keyHints,
   KeyStopsResultSchema,
   normalizeKeyStops,
   normalizeSection,
@@ -164,6 +168,8 @@ export function tourCacheKey(
     fingerprint,
     models,
     ...(rules.length ? { rules } : {}),
+    // EVAL ONLY: each arm of the Jev exploration is its own tour.
+    ...(evalFlags().size ? { evalJev: [...evalFlags()].toSorted() } : {}),
   });
 }
 
@@ -228,6 +234,18 @@ const tourProgram = Effect.fnUntraced(function* (
   const models: ModelConfig = { define, followup, notes, judge: judge?.model };
   const trace = createTracer(options.onStep);
   const sourceKey = serializeRef(ref);
+  // EVAL ONLY (Jev exploration): see `eval-flags.ts`.
+  const flags = evalFlags();
+  const evalLog = (what: string, data: unknown) => {
+    if (process.env.GLOSS_EVAL_LOG) {
+      console.error(`EVAL ${what} ${JSON.stringify(data)}`);
+    }
+  };
+  /** Hunks Jev is sure are mechanical, read before define (diet); they show as one line in every prompt. */
+  let folded: ReadonlySet<string> | undefined;
+  const changeView = (): PromptView | undefined => (folded ? { folded } : undefined);
+  const groupView = (): PromptView | undefined =>
+    folded || flags.has('roomy') ? { roomy: flags.has('roomy'), ...(folded ? { folded } : {}) } : undefined;
 
   /** Returns the cached value for `request`, or runs `effect` and caches its result. */
   const cached = <T, E>(kind: CacheKind, request: unknown, effect: Effect.Effect<T, E>, modelId?: string) =>
@@ -369,7 +387,7 @@ const tourProgram = Effect.fnUntraced(function* (
    */
   const checkDescription = (listed: readonly Decision[]) =>
     Effect.suspend(() => {
-      const checkPrompt = buildDescriptionCheckPrompt(meta, files, listed);
+      const checkPrompt = buildDescriptionCheckPrompt(meta, files, listed, changeView());
       trace.begin('description-check', 'description-check', {
         inputs: ['fetch', 'define'],
         model: models.define,
@@ -446,7 +464,7 @@ const tourProgram = Effect.fnUntraced(function* (
       // One at a time, so a file reached from two changed files shows under the first.
       { concurrency: 1 },
     ).pipe(Effect.map((all) => all.flat()));
-    const affectedPrompt = buildAffectedPrompt(meta, files, found);
+    const affectedPrompt = buildAffectedPrompt(meta, files, found, changeView());
     trace.begin('affected', 'affected', {
       inputs: ['fetch'],
       model: models.define,
@@ -521,6 +539,7 @@ const tourProgram = Effect.fnUntraced(function* (
         ruleSets,
         files.map((file) => file.path),
       ),
+      changeView(),
     );
     trace.begin('define', 'define', {
       inputs: ['fetch'],
@@ -785,14 +804,14 @@ const tourProgram = Effect.fnUntraced(function* (
           ? askWalk(
               'walkthrough',
               WALKTHROUGH_SYSTEM,
-              buildWalkthroughPrompt(meta, files, overallSummary, decisions),
+              buildWalkthroughPrompt(meta, files, overallSummary, decisions, changeView()),
               WalkthroughResultSchema,
             )
           : Effect.succeed(undefined),
         askWalk(
           'callpath',
           CALL_PATH_SYSTEM,
-          buildCallPathPrompt(meta, files, overallSummary, decisions),
+          buildCallPathPrompt(meta, files, overallSummary, decisions, changeView()),
           CallPathResultSchema,
         ),
       ],
@@ -913,6 +932,19 @@ const tourProgram = Effect.fnUntraced(function* (
       }
       const uncertain = new Set(outcome.uncertain);
       const pending = files.filter((file) => uncertain.has(file.id));
+      if (flags.has('jevplace')) {
+        // EVAL ONLY: an unsure file keeps Jev's best group, so notes start without the follow-up call.
+        return Effect.succeed(
+          applyFollowup(
+            outcome,
+            definitions,
+            pending.flatMap((file) => {
+              const choice = state.judgments[file.id]?.group?.choice;
+              return choice ? [{ fileId: file.id, groupKey: choice }] : [];
+            }),
+          ),
+        );
+      }
       stage('place', 'running', `Asking the model about ${pending.length} files`);
       const followupPrompt = buildFollowupPrompt(meta, definitions, pending);
       trace.begin('followup', 'followup', {
@@ -1049,8 +1081,15 @@ const tourProgram = Effect.fnUntraced(function* (
     before: readonly ResolvedGroup[],
     all: readonly ResolvedGroup[],
   ) =>
-    Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
-      Effect.flatMap(() => {
+    Effect.all(
+      [
+        Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)),
+        // EVAL ONLY (keyhint): Jev reads the hunks while the walk waits for the walkthrough.
+        flags.has('keyhint') && judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
+      ],
+      { concurrency: 2 },
+    ).pipe(
+      Effect.flatMap(([, hinted]) => {
         const walks = state.walkthrough?.decisions ?? [];
         const wideHere = walks.filter((walk) => group.fileIds.includes(walk.snippets[0]?.fileId ?? ''));
         // The code path is read in the group that holds most of its excerpts (`pathHome` in the web app).
@@ -1068,7 +1107,7 @@ const tourProgram = Effect.fnUntraced(function* (
             : [];
         return Effect.all(
           [
-            judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
+            hinted ? Effect.succeed(hinted) : judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
             askSections(
               `section:${group.key}`,
               `${group.label} (walk)`,
@@ -1083,6 +1122,8 @@ const tourProgram = Effect.fnUntraced(function* (
                 before,
                 wideHere,
                 pathHere,
+                groupView(),
+                hinted ? keyHints(hinted) : [],
               ),
               SectionResultSchema,
             ),
@@ -1105,7 +1146,16 @@ const tourProgram = Effect.fnUntraced(function* (
             const section = before.length === 0 || !intro ? untied : { intro, ...untied };
             // A key hunk nothing points at gets a chance at a stop of its own, in one small follow-up call.
             const missed = scores && normalized.covered ? uncoveredKeyHunks(scores, section, normalized.covered) : [];
-            if (missed.length === 0) {
+            evalLog('walk', {
+              group: group.key,
+              hunks: scores?.length ?? 0,
+              key: scores ? keyHints(scores, 99).length : 0,
+              hinted: hinted ? keyHints(hinted).length : 0,
+              missed: missed.length,
+              stops: section.points.filter((entry) => entry.kind !== 'wide').length,
+              folds: section.skimHunks?.length ?? 0,
+            });
+            if (missed.length === 0 || hinted) {
               return Effect.succeed(section);
             }
             const titles = section.points.flatMap((entry) =>
@@ -1122,6 +1172,7 @@ const tourProgram = Effect.fnUntraced(function* (
             ).pipe(
               Effect.map((extra) => {
                 const added = extra ? normalizeKeyStops(extra, group, members, missed) : [];
+                evalLog('keystops', { group: group.key, offered: missed.length, added: added.length });
                 if (added.length === 0) {
                   return section;
                 }
@@ -1173,6 +1224,7 @@ const tourProgram = Effect.fnUntraced(function* (
                     ruleSets,
                     members.map((file) => file.path),
                   ),
+                  groupView(),
                 );
                 const stepId = `notes:${group.key}`;
                 trace.begin(stepId, 'notes', {
@@ -1288,18 +1340,57 @@ const tourProgram = Effect.fnUntraced(function* (
         walking = fiber;
       }),
     );
+  if (flags.has('diet') && judge) {
+    // EVAL ONLY: Jev reads every hunk before define, so every prompt can fold the mechanical ones.
+    trace.begin('judge-hunks', 'judge-files', { inputs: ['fetch'], model: judge.model });
+    const client = judge;
+    const sure = yield* Effect.forEach(
+      files
+        .filter((file) => !file.isBinary && !file.truncated)
+        .flatMap((file) => file.hunks.map((hunk) => ({ file, hunk }))),
+      ({ file, hunk }) => {
+        const hunkQuestion = hunkState(meta.title, file, hunk);
+        return cached(
+          'judge-file',
+          { kind: 'hunk', model: client.model, state: hunkQuestion, questions: HUNK_QUESTIONS },
+          client.judge({ state: hunkQuestion, questions: HUNK_QUESTIONS }),
+          client.model,
+        ).pipe(
+          Effect.map(({ value }) => {
+            const skip = value.skip?.type === 'bool' ? value.skip.probability : 0;
+            return !hunkCut(hunk) && skip >= HUNK_SKIP ? [`${file.id}:${hunk.id}`] : [];
+          }),
+          Effect.catch(() => Effect.succeed([] as string[])),
+        );
+      },
+      { concurrency: 16 },
+    );
+    folded = new Set(sure.flat());
+    trace.end('judge-hunks', { summary: `${folded.size} of ${sure.length} hunks folded in prompts` });
+    evalLog('diet', { hunks: sure.length, folded: folded.size });
+  }
   mapping = yield* Effect.forkScoped(mapAffected);
+  let drawing: Fiber.Fiber<void> | undefined;
+  /** EVAL ONLY (early): the picture is drawn and picked beside placement and notes, not before them. */
+  const showVisualBeside = (defined: Effect.Success<typeof defineGroups>) =>
+    flags.has('early')
+      ? Effect.forkScoped(showVisual(defined)).pipe(
+          Effect.map((fiber) => {
+            drawing = fiber;
+          }),
+        )
+      : showVisual(defined);
   const [definition] = yield* Effect.all(
     [
       defineGroups.pipe(
         Effect.tap(startWalkthrough),
         Effect.tap((defined) =>
           judge
-            ? Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
+            ? Effect.all([judgeGroupChoice(judge, defined.groups), showVisualBeside(defined)], {
                 concurrency: 'unbounded',
                 discard: true,
               })
-            : showVisual(defined),
+            : showVisualBeside(defined),
         ),
       ),
       judge ? judgeFiles(judge) : Effect.void,
@@ -1360,6 +1451,9 @@ const tourProgram = Effect.fnUntraced(function* (
 
   // Stage 3: notes per group, lead group first.
   yield* writeNotes(groups, outcome.uncertain.length && definition.groups.length ? 'followup' : 'place');
+  if (drawing) {
+    yield* Fiber.join(drawing);
+  }
   return yield* finish;
 });
 

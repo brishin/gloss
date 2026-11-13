@@ -26,7 +26,17 @@ import * as v from 'valibot';
 import type { JudgeQuestion } from '../adapters/types.ts';
 import { hashOf } from '../hash.ts';
 import { clip, normalizeSnippet, normalizeTree } from './normalize.ts';
-import { collapsedReason, FILE_BUDGET, header, manifestLine, renderNumberedHunk, TOTAL_BUDGET } from './prompts.ts';
+import {
+  collapsedReason,
+  FILE_BUDGET,
+  fileCaps,
+  header,
+  manifestLine,
+  numberedHunks,
+  type PromptView,
+  renderNumberedHunk,
+  TOTAL_BUDGET,
+} from './prompts.ts';
 
 /**
  * Part of every section call's cache key, beside its system and prompt text. Bump when a result
@@ -334,9 +344,8 @@ export function uncoveredKeyHunks(
     .slice(0, KEY_HUNKS);
 }
 
-function numbered(file: FileChange, remaining: number): string {
-  const body = file.hunks.map(renderNumberedHunk).join('\n');
-  const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+function numbered(body: string, cap: number, remaining: number): string {
+  const budget = Math.min(cap, Math.max(remaining, 0));
   if (body.length <= budget) {
     return body;
   }
@@ -380,6 +389,9 @@ export function buildSectionPrompt(
   before: readonly ResolvedGroup[],
   wideHere: readonly DecisionWalk[],
   pathHere: readonly Shown[],
+  view?: PromptView,
+  /** EVAL ONLY: hunks Jev marks as key, listed for the walk so no follow-up call is needed. */
+  keyHunks: readonly HunkRef[] = [],
 ): string {
   const pathOf = (fileId: string) => files.find((file) => file.id === fileId)?.path ?? fileId;
   const parts = [
@@ -414,17 +426,47 @@ export function buildSectionPrompt(
       ...pathHere.map((shown) => `- ${pathOf(shown.fileId)}:${shown.from}-${shown.to}`),
     );
   }
+  if (keyHunks.length) {
+    parts.push(
+      '',
+      '## Hunks where the main behavior is decided',
+      'A classifier marked these hunks as the few places where the main behavior of the change is decided. Check that the walk reaches each one: give it a stop when it holds something a reviewer should accept or reject on purpose, unless a stop already written or one of your own stops makes its point. Leave one out when it holds nothing of the kind.',
+      ...keyHunks.flatMap(({ fileId, hunkId }) => {
+        const file = files.find((candidate) => candidate.id === fileId);
+        const hunk = file?.hunks.find((candidate) => candidate.id === hunkId);
+        return file && hunk
+          ? [
+              `- ${file.path} hunk ${hunk.id} (lines ${hunk.newStart}-${hunk.newStart + Math.max(hunk.newLines, 1) - 1})`,
+            ]
+          : [];
+      }),
+    );
+  }
   parts.push('', '## Files');
   let remaining = TOTAL_BUDGET;
-  for (const file of files) {
+  const bodies = files.map((file) => (collapsedReason(file) ? '' : numberedHunks(file, view)));
+  const caps = fileCaps(
+    bodies.map((body) => body.length),
+    view,
+  );
+  for (const [at, file] of files.entries()) {
     parts.push(`### ${manifestLine(file)}`);
     if (!collapsedReason(file)) {
-      const body = numbered(file, remaining);
+      const body = numbered(bodies[at]!, caps[at]!, remaining);
       remaining -= body.length;
       parts.push(body);
     }
   }
   return parts.join('\n');
+}
+
+/** EVAL ONLY: the key hunks listed for the walk call, surest first, never one Jev would fold. */
+export function keyHints(scores: readonly HunkScore[], limit = 5): HunkRef[] {
+  return scores
+    .filter((score) => (score.key ?? 0) >= HUNK_SURE && (score.skip ?? 0) < HUNK_SKIP)
+    .toSorted((a, b) => (b.key ?? 0) - (a.key ?? 0))
+    .slice(0, limit)
+    .map(({ fileId, hunkId }) => ({ fileId, hunkId }));
 }
 
 /** The follow-up call's prompt: the group, the titles of its stops, and the key hunks none of them reach. */

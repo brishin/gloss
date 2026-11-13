@@ -822,8 +822,62 @@ export function manifestLine(file: FileChange): string {
   return `${file.id} ${file.status} ${file.path}${rename} +${file.additions} -${file.deletions}${note ? ` [${note}]` : ''}`;
 }
 
-function plainDiff(file: FileChange, budget: number): string {
-  const text = file.hunks.map((hunk) => `${hunk.header}\n${hunk.patch}`).join('\n');
+/**
+ * EVAL ONLY (Jev exploration): how a prompt shows diffs. `roomy` lets a long file use budget the
+ * group's other files leave over; `folded` holds `fileId:hunkId` of hunks Jev is sure are
+ * mechanical, shown as one line.
+ */
+export interface PromptView {
+  roomy?: boolean;
+  folded?: ReadonlySet<string>;
+}
+
+const foldedNote = (hunk: FileChange['hunks'][number]) => {
+  const rows = hunk.patch.split('\n');
+  const added = rows.filter((row) => row[0] === '+').length;
+  const removed = rows.filter((row) => row[0] === '-').length;
+  return `(mechanical edit a classifier judged safe to skip, not shown: +${added} -${removed} lines)`;
+};
+
+const isFolded = (file: FileChange, hunk: FileChange['hunks'][number], view?: PromptView) =>
+  !!view?.folded?.has(`${file.id}:${hunk.id}`);
+
+/** A file's hunks as plain patch text. */
+export function plainHunks(file: FileChange, view?: PromptView): string {
+  return file.hunks
+    .map((hunk) => `${hunk.header}\n${isFolded(file, hunk, view) ? foldedNote(hunk) : hunk.patch}`)
+    .join('\n');
+}
+
+/** A file's hunks with numbered lines. */
+export function numberedHunks(file: FileChange, view?: PromptView): string {
+  return file.hunks
+    .map((hunk) =>
+      isFolded(file, hunk, view)
+        ? `${`@@ hunk ${hunk.id} ${hunk.header.replace(/^@@ .*? @@ ?/, '')}`.trimEnd()}\n${foldedNote(hunk)}`
+        : renderNumberedHunk(hunk),
+    )
+    .join('\n');
+}
+
+/**
+ * Each body's character cap. Without `roomy`, `FILE_BUDGET` for all. With it, budget the other
+ * bodies leave unused under `TOTAL_BUDGET` goes to the bodies over the cap, in order.
+ */
+export function fileCaps(lengths: readonly number[], view?: PromptView): number[] {
+  if (!view?.roomy) {
+    return lengths.map(() => FILE_BUDGET);
+  }
+  let spare = TOTAL_BUDGET - lengths.reduce((sum, length) => sum + Math.min(length, FILE_BUDGET), 0);
+  return lengths.map((length) => {
+    const extra = Math.max(0, Math.min(length - FILE_BUDGET, spare));
+    spare -= extra;
+    return FILE_BUDGET + extra;
+  });
+}
+
+function plainDiff(file: FileChange, budget: number, view?: PromptView): string {
+  const text = plainHunks(file, view);
   return text.length > budget ? `${text.slice(0, budget)}\n... (truncated)` : text;
 }
 
@@ -859,7 +913,12 @@ export function decisionRulesSection(rules: readonly string[], scope: 'change' |
 }
 
 /** The change as the define-tier calls read it: a manifest of every file, then as many diffs as fit the budget. */
-function changePrompt(meta: DiffMeta, files: readonly FileChange[], rules: readonly string[] = []): string {
+function changePrompt(
+  meta: DiffMeta,
+  files: readonly FileChange[],
+  rules: readonly string[] = [],
+  view?: PromptView,
+): string {
   const parts = [
     header(meta),
     ...decisionRulesSection(rules, 'change'),
@@ -877,7 +936,7 @@ function changePrompt(meta: DiffMeta, files: readonly FileChange[], rules: reado
     if (collapsedReason(file)) {
       continue;
     }
-    const body = plainDiff(file, Math.min(FILE_BUDGET, remaining));
+    const body = plainDiff(file, Math.min(FILE_BUDGET, remaining), view);
     if (remaining <= 0 || body.length === 0) {
       omitted.push(file.id);
       continue;
@@ -898,11 +957,12 @@ export function buildDefinePrompt(
   files: readonly FileChange[],
   withFiles: boolean,
   rules: readonly string[] = [],
+  view?: PromptView,
 ): string {
   const ask = withFiles
     ? 'Define the review groups and assign every file id to exactly one group.'
     : 'Define the review groups. Do not list files; they are placed separately.';
-  return `${changePrompt(meta, files, rules)}\n\n${ask}`;
+  return `${changePrompt(meta, files, rules, view)}\n\n${ask}`;
 }
 
 /** The prompt for the description check: the same view of the change as define. */
@@ -910,11 +970,12 @@ export function buildDescriptionCheckPrompt(
   meta: DiffMeta,
   files: readonly FileChange[],
   listed: readonly Pick<Decision, 'text'>[] = [],
+  view?: PromptView,
 ): string {
   const already = listed.length
     ? `\n\n## Decisions the tour lists\n${listed.map((decision) => `- ${decision.text}`).join('\n')}`
     : '';
-  return `${changePrompt(meta, files)}${already}\n\nCheck the change against what its title, description and commits say.`;
+  return `${changePrompt(meta, files, [], view)}${already}\n\nCheck the change against what its title, description and commits say.`;
 }
 
 /** Text compared loosely: case, markdown marks, quote styles and whitespace aside. */
@@ -958,6 +1019,7 @@ export function buildAffectedPrompt(
   meta: DiffMeta,
   files: readonly FileChange[],
   callers: readonly FoundCallers[] = [],
+  view?: PromptView,
 ): string {
   const found = callers.length
     ? `\n\n## Callers found\n${callers
@@ -968,7 +1030,7 @@ export function buildAffectedPrompt(
         })
         .join('\n')}`
     : '';
-  return `${changePrompt(meta, files)}${found}\n\nMap who meets this change differently.`;
+  return `${changePrompt(meta, files, [], view)}${found}\n\nMap who meets this change differently.`;
 }
 
 export function buildFollowupPrompt(
@@ -1030,7 +1092,7 @@ export function buildSketchPrompt(
 }
 
 /** Every code file's hunks with numbered lines, within the prompt budget. Guidance files define no calls. */
-function numberedDiffs(files: readonly FileChange[]): string[] {
+function numberedDiffs(files: readonly FileChange[], view?: PromptView): string[] {
   const parts: string[] = [];
   let remaining = TOTAL_BUDGET;
   const omitted: string[] = [];
@@ -1038,7 +1100,7 @@ function numberedDiffs(files: readonly FileChange[]): string[] {
     if (collapsedReason(file) || isGuidance(file)) {
       continue;
     }
-    let body = file.hunks.map(renderNumberedHunk).join('\n');
+    let body = numberedHunks(file, view);
     const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
     if (budget <= 500) {
       omitted.push(file.id);
@@ -1065,6 +1127,7 @@ export function buildWalkthroughPrompt(
   files: readonly FileChange[],
   overallSummary: string,
   decisions: readonly Pick<Decision, 'text' | 'priority'>[],
+  view?: PromptView,
 ): string {
   return [
     header(meta),
@@ -1073,7 +1136,7 @@ export function buildWalkthroughPrompt(
     ...files.map(manifestLine),
     '',
     '## Diffs',
-    ...numberedDiffs(files),
+    ...numberedDiffs(files, view),
     '',
     '## The tour so far',
     overallSummary,
@@ -1089,6 +1152,7 @@ export function buildCallPathPrompt(
   files: readonly FileChange[],
   overallSummary: string,
   decisions: readonly { text: string }[],
+  view?: PromptView,
 ): string {
   return [
     header(meta),
@@ -1097,7 +1161,7 @@ export function buildCallPathPrompt(
     ...files.map(manifestLine),
     '',
     '## Diffs',
-    ...numberedDiffs(files),
+    ...numberedDiffs(files, view),
     '',
     '## The tour so far',
     overallSummary,
@@ -1113,6 +1177,7 @@ export function buildNotesPrompt(
   judgments: Record<string, FileJudgment>,
   decisions: readonly Decision[] = [],
   rules: readonly string[] = [],
+  view?: PromptView,
 ): string {
   const parts = [header(meta)];
   if (overallSummary) {
@@ -1133,14 +1198,19 @@ export function buildNotesPrompt(
   parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
   let remaining = TOTAL_BUDGET;
   parts.push('', '## Files');
-  for (const file of files) {
+  const bodies = files.map((file) => (collapsedReason(file) ? '' : numberedHunks(file, view)));
+  const caps = fileCaps(
+    bodies.map((body) => body.length),
+    view,
+  );
+  for (const [at, file] of files.entries()) {
     const reason = collapsedReason(file);
     if (reason) {
       parts.push(`### ${manifestLine(file)}`);
       continue;
     }
-    let body = file.hunks.map(renderNumberedHunk).join('\n');
-    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
+    let body = bodies[at]!;
+    const budget = Math.min(caps[at]!, Math.max(remaining, 0));
     if (body.length > budget) {
       body = budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget; read_file it)';
     }
