@@ -137,6 +137,40 @@ describe('normalizeSection', () => {
     expect(section.skim).toEqual([]);
   });
 
+  test('a claim-only stop keeps its own hunk open, not one whose old lines hold the same number', () => {
+    // Line 111 is in hB on the new side, and in hA's old lines 100-119.
+    const shifted: FileChange = {
+      ...file,
+      id: 'f2',
+      path: 'src/b.ts',
+      hunks: [
+        hunk('hA', 100, 10, [...Array.from({ length: 19 }, () => ' same'), '-gone'].join('\n')),
+        hunk('hB', 200, 110, Array.from({ length: 10 }, (_, i) => `+new ${i}`).join('\n')),
+      ],
+    };
+    const claim = stop('d', 110, 'decision', 'low');
+    claim.snippets[0] = { ...claim.snippets[0]!, fileId: 'f2', hunkId: 'hB' };
+    const high = (title: string, at: number) => stop(title, at, 'decision', 'high');
+    const { section } = normalizeSection(
+      { points: [high('a', 1), high('b', 11), high('c', 21), claim] },
+      { ...group, fileIds: ['f1', 'f2'] },
+      [file, shifted],
+      notes,
+      {
+        ...none,
+        hunks: {
+          skip: [
+            { fileId: 'f2', hunkId: 'hA' },
+            { fileId: 'f2', hunkId: 'hB' },
+          ],
+          contract: [],
+        },
+      },
+    );
+    expect(section.points.at(-1)).toMatchObject({ title: 'd', see: { fileId: 'f2', line: 111 } });
+    expect(section.skimHunks).toEqual([{ fileId: 'f2', hunkId: 'hA' }]);
+  });
+
   test('a hunk folds only when nothing points at it, and never without scores', () => {
     const stops = { points: [stop('stop', 1, 'step')] };
     const noted = {

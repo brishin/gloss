@@ -634,6 +634,7 @@ export function normalizeSection(
     entry.kind === 'decision' ? DECISION_PRIORITIES.indexOf(entry.priority!) : DECISION_PRIORITIES.length;
   const coded = points.filter((entry) => entry.kind !== 'wide' && entry.snippets.length > 0);
   const keep = new Set(coded.toSorted((a, b) => rank(a) - rank(b)).slice(0, CODED_STOPS));
+  const linked = new Map<SectionPoint, string>();
   for (const entry of coded) {
     if (keep.has(entry)) {
       continue;
@@ -641,11 +642,14 @@ export function normalizeSection(
     const at = points.indexOf(entry);
     if (entry.kind === 'decision') {
       const { tree: _tree, ...claim } = entry;
-      points[at] = {
+      const point = {
         ...claim,
         see: { fileId: entry.snippets[0]!.fileId, line: entry.snippets[0]!.focus },
         snippets: [],
       };
+      points[at] = point;
+      // The link keeps the hunk its snippet was checked against: a line number alone can match another hunk's old side.
+      linked.set(point, entry.snippets[0]!.hunkId);
     } else {
       points.splice(at, 1);
     }
@@ -701,7 +705,7 @@ export function normalizeSection(
     (notes.decisions ?? []).forEach((decision) => cover(decision.fileId, decision.hunkId, decision.line));
     for (const entry of points) {
       entry.snippets.forEach((snippet) => cover(snippet.fileId, snippet.hunkId));
-      cover(entry.see?.fileId, undefined, entry.see?.line);
+      cover(entry.see?.fileId, linked.get(entry), entry.see?.line);
     }
     // A fold or a flag is only for a hunk of this group that is open and that nothing points at; one hunk gets one of them.
     const seen = new Set<string>();
