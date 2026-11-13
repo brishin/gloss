@@ -266,6 +266,10 @@ export const KEY_HUNKS = 2;
 
 const HUNK_CHAR_CAP = 6_000;
 
+/** Whether Jev sees only the start of a hunk. Such a hunk never folds: its unread tail could hold anything. */
+export const hunkCut = (hunk: FileChange['hunks'][number]): boolean =>
+  `${hunk.header}\n${hunk.patch}`.length > HUNK_CHAR_CAP;
+
 /** The state Jev judges one hunk in; `context` says what the change and the hunk's group are for. */
 export function hunkState(
   prTitle: string,
@@ -648,7 +652,10 @@ export function normalizeSection(
 
   // A file a stop, a note or the walkthrough points at is never skimmed.
   const pointed = new Set([
-    ...points.flatMap((entry) => entry.snippets.map((snippet) => snippet.fileId)),
+    ...points.flatMap((entry) => [
+      ...entry.snippets.map((snippet) => snippet.fileId),
+      ...(entry.see ? [entry.see.fileId] : []),
+    ]),
     ...wideHere.flatMap((walk) => walk.snippets.map((snippet) => snippet.fileId)),
     ...context.shownInTour.map((entry) => entry.fileId),
     ...[...notes.lineNotes, ...notes.fileNotes, ...notes.riskNotes, ...(notes.decisions ?? [])].map(

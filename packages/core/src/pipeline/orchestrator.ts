@@ -112,6 +112,7 @@ import {
   HUNK_QUESTIONS,
   HUNK_WIDE_QUESTIONS,
   type HunkScore,
+  hunkCut,
   hunkState,
   KEY_STOPS_SYSTEM,
   KeyStopsResultSchema,
@@ -977,7 +978,8 @@ const tourProgram = Effect.fnUntraced(function* (
           Effect.map(([{ value: alone }, { value: wide }]): HunkScore => ({
             fileId: file.id,
             hunkId: hunk.id,
-            skip: p(alone.skip),
+            // Jev read only the start of a hunk over the cap, so its skip answer does not count.
+            ...(hunkCut(hunk) ? {} : { skip: p(alone.skip) }),
             contract: p(wide.contract),
             key: p(wide.key),
           })),

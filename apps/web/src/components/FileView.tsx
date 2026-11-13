@@ -17,7 +17,7 @@ import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { Effect } from 'effect';
 import { AtomRegistry } from 'effect/reactivity';
-import { memo, type ReactNode, useContext, useMemo, useState } from 'react';
+import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
 import { placeThreads } from '../lib/threads-model.ts';
@@ -99,6 +99,7 @@ export const FileView = memo(function FileView({
   risks,
   generated,
   foldedHunks,
+  onUnfoldHunks,
   expanded,
   viewed,
   onToggleExpanded,
@@ -120,8 +121,9 @@ export const FileView = memo(function FileView({
   decisions: readonly Decision[];
   risks: readonly RiskNote[];
   generated: boolean;
-  /** Ids of this file's hunks the section marks unimportant; they fold under one line. */
+  /** Ids of this file's hunks the section marks unimportant, until the reader opens them; they fold under one line. */
   foldedHunks?: readonly string[];
+  onUnfoldHunks: (fileId: string) => void;
   expanded: boolean;
   viewed: boolean;
   onToggleExpanded: (fileId: string) => void;
@@ -140,18 +142,17 @@ export const FileView = memo(function FileView({
   const composingSide = composing?.side;
   const composingLine = composing?.line;
   const composingStart = composing?.startLine;
-  // View state kept here, not in the tour model: the fold only hides rows of one file. A comment on the file, drafted or on GitHub, shows every hunk.
-  const [unfolded, setUnfolded] = useState(false);
+  // A comment on the file, drafted or on GitHub, shows every hunk.
   const folded = useMemo(() => {
     const ids = new Set(foldedHunks);
     const hidden =
-      unfolded || drafts.length > 0 || threads.length > 0 || composing
+      drafts.length > 0 || threads.length > 0 || composing
         ? []
         : (change?.hunks ?? []).filter((hunk) => ids.has(hunk.id));
     const count = (marker: string) =>
       hidden.reduce((sum, hunk) => sum + hunk.patch.split('\n').filter((line) => line[0] === marker).length, 0);
     return { ids: new Set(hidden.map((hunk) => hunk.id)), additions: count('+'), deletions: count('-') };
-  }, [foldedHunks, unfolded, drafts.length, threads.length, composing, change]);
+  }, [foldedHunks, drafts.length, threads.length, composing, change]);
   const fileDiff = useMemo<FileDiffMetadata | undefined>(
     () => (change && change.hunks.length > folded.ids.size ? processFile(unifiedText(change, folded.ids)) : undefined),
     [change, folded.ids],
@@ -335,7 +336,7 @@ export const FileView = memo(function FileView({
           />
         ))}
       {expanded && folded.ids.size > 0 && (
-        <button type="button" className="collapsed folded-hunks" onClick={() => setUnfolded(true)}>
+        <button type="button" className="collapsed folded-hunks" onClick={() => onUnfoldHunks(summary.id)}>
           Show {folded.ids.size} unimportant {folded.ids.size === 1 ? 'hunk' : 'hunks'}
           <span className="stat">
             {folded.additions > 0 && <span className="adds"> +{folded.additions}</span>}

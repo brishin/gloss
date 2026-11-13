@@ -117,12 +117,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       expanded,
       viewed,
       onToggleExpanded: (fileId) => dispatch({ type: 'ExpandedToggled', fileId }),
+      unfolded: model.unfolded,
+      onUnfoldHunks: (fileId) => dispatch({ type: 'HunksUnfolded', fileId }),
       onToggleViewed: (fileId) => dispatch({ type: 'ViewedToggled', fileId }),
       review,
       reviewer,
       threads: threadControls,
     }),
-    [expanded, viewed, dispatch, review, reviewer, threadControls],
+    [expanded, viewed, model.unfolded, dispatch, review, reviewer, threadControls],
   );
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 

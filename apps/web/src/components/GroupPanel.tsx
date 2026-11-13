@@ -45,6 +45,9 @@ export interface FileControls {
   expanded: Readonly<Record<string, boolean>>;
   viewed: ReadonlySet<string>;
   onToggleExpanded: (fileId: string) => void;
+  /** Files whose folded hunks the reader opened. */
+  unfolded: ReadonlySet<string>;
+  onUnfoldHunks: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   review: ReviewDraft;
   reviewer: Reviewer | undefined;
@@ -216,7 +219,8 @@ export const GroupPanel = memo(function GroupPanel({
               decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
               risks={risks.get(fileId) ?? NO_RISKS}
               generated={isGeneratedFile(group, summary)}
-              foldedHunks={foldedHunks.get(fileId)}
+              foldedHunks={controls.unfolded.has(fileId) ? undefined : foldedHunks.get(fileId)}
+              onUnfoldHunks={controls.onUnfoldHunks}
               expanded={isFileExpanded(controls, group, summary)}
               viewed={controls.viewed.has(fileId)}
               onToggleExpanded={controls.onToggleExpanded}

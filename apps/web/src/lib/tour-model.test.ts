@@ -308,6 +308,11 @@ describe('viewed', () => {
     expect(unmarked.activeFileId).toBe('f1');
   });
 
+  test("opening a file's folded hunks keeps them open, for that file only", () => {
+    const [opened] = run(model(), { type: 'HunksUnfolded', fileId: 'f1' }, { type: 'HunksUnfolded', fileId: 'f1' });
+    expect([...opened.unfolded]).toEqual(['f1']);
+  });
+
   test('x flips a file away from its default', () => {
     const [collapsed] = run(model({ position: { g: 'a' } }), { type: 'ExpandedToggled', fileId: 'f1' });
     expect(collapsed.expanded.f1).toBe(false);

@@ -96,6 +96,8 @@ export interface Model {
   activeFileId?: string;
   /** Files the reader expanded or collapsed themselves. */
   expanded: Readonly<Record<string, boolean>>;
+  /** Files whose folded hunks the reader opened (`Section.skimHunks`). */
+  unfolded: ReadonlySet<string>;
   /** Files marked viewed, kept per diff in this browser. */
   viewed: ReadonlySet<string>;
   navOpen: boolean;
@@ -144,6 +146,8 @@ export type Msg =
   /** The reader scrolled (or the page moved under them): the position follows the page. */
   | { type: 'Scrolled'; spied: Spied }
   | { type: 'ExpandedToggled'; fileId: string }
+  /** The reader opened the hunks a file folds as unimportant. */
+  | { type: 'HunksUnfolded'; fileId: string }
   | { type: 'ViewedToggled'; fileId: string }
   /** `v`: marks the current file viewed and moves on, or unmarks it. */
   | { type: 'ActiveFileViewed' }
@@ -252,6 +256,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
     position,
     restoring: position.g !== undefined || position.f !== undefined ? position : undefined,
     expanded: {},
+    unfolded: new Set(),
     viewed: new Set(),
     navOpen: false,
     helpOpen: false,
@@ -582,6 +587,8 @@ function step(model: Model, msg: Msg): Next {
       const expanded = isFileExpanded(model, groupOfFile(groupsOf(model), file.id), file);
       return [{ ...model, expanded: { ...model.expanded, [msg.fileId]: !expanded } }, []];
     }
+    case 'HunksUnfolded':
+      return [{ ...model, unfolded: new Set(model.unfolded).add(msg.fileId) }, []];
     case 'ViewedToggled':
       return toggleViewed(model, msg.fileId);
     case 'ActiveFileViewed': {

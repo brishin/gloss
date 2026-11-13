@@ -2,6 +2,7 @@ import type { FileChange, GroupNotes, ResolvedGroup } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import {
   contractFlags,
+  hunkCut,
   type HunkScore,
   normalizeKeyStops,
   normalizeSection,
@@ -109,6 +110,32 @@ describe('normalizeSection', () => {
     expect(section.skim).toEqual(['f4']);
   });
 
+  test('a file a claim-only stop links to does not fold', () => {
+    const other = { ...file, id: 'f2', path: 'src/b.ts' };
+    const on = (fileId: string, title: string, at: number, priority: string) => {
+      const entry = stop(title, at, 'decision', priority);
+      entry.snippets[0]!.fileId = fileId;
+      return entry;
+    };
+    const { section } = normalizeSection(
+      {
+        points: [
+          on('f1', 'a', 1, 'high'),
+          on('f1', 'b', 11, 'high'),
+          on('f1', 'c', 21, 'high'),
+          on('f2', 'd', 1, 'low'),
+        ],
+        skim: ['f2'],
+      },
+      { ...group, fileIds: ['f1', 'f2'] },
+      [file, other],
+      notes,
+      none,
+    );
+    expect(section.points.at(-1)).toMatchObject({ title: 'd', snippets: [], see: { fileId: 'f2', line: 2 } });
+    expect(section.skim).toEqual([]);
+  });
+
   test('a hunk folds only when nothing points at it, and never without scores', () => {
     const stops = { points: [stop('stop', 1, 'step')] };
     const noted = {
@@ -148,6 +175,11 @@ describe('hunk scores', () => {
     // A hunk whose Jev call failed is never folded or flagged.
     { fileId: 'f3', hunkId: 'h1' },
   ];
+
+  test('a hunk Jev reads only the start of is cut', () => {
+    expect(hunkCut(hunk('h', 0, 1, '+a'))).toBe(false);
+    expect(hunkCut(hunk('h', 0, 1, `+${'a'.repeat(6000)}`))).toBe(true);
+  });
 
   test('a hunk folds at 0.7 on the skip question', () => {
     expect(skippableHunks(scores)).toEqual([{ fileId: 'f1', hunkId: 'h3' }]);
