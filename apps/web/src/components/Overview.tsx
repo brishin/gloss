@@ -92,12 +92,15 @@ export const Overview = memo(function Overview({
   running,
   onJumpToFile,
   onSelectGroup,
+  homes,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
   onSelectGroup: (key: string) => void;
+  /** Change-wide decisions read in a group's section, by decision number. */
+  homes?: ReadonlyMap<number, string>;
 }) {
   const files = new Map(state.files.map((file) => [file.id, file]));
   const meta = state.meta;
@@ -149,7 +152,7 @@ export const Overview = memo(function Overview({
                           title="Read it in code"
                           onClick={(event) => {
                             event.preventDefault();
-                            onSelectGroup(WALKTHROUGH);
+                            onSelectGroup(homes?.get(state.decisions?.indexOf(decision) ?? -1) ?? WALKTHROUGH);
                           }}
                         >
                           {decision.text}

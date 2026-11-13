@@ -33,7 +33,7 @@ import {
   tourStops,
 } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
-import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
+import { hasWalkStop, OVERVIEW, pathHome, WALKTHROUGH, walkHomes } from '../lib/tour-view.ts';
 import { AskPanel } from './AskPanel.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
@@ -59,6 +59,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const dispatch = useAtomSet(program.dispatch);
   const { tour: state, diff, viewed, expanded, navOpen, helpOpen, connection, connectionError } = model;
   const groups = useMemo(() => groupsInOrder(state), [state]);
+  const homes = useMemo(() => walkHomes(groups), [groups]);
+  const walkStop = hasWalkStop(state, groups);
+  const pathHomeKey = useMemo(() => pathHome(groups), [groups]);
+  // The walkthrough stop shows only what no group's walk reads: not the code path once a group reads it.
+  const leftover = useMemo(
+    () => (state.walkthrough && pathHomeKey ? { ...state.walkthrough, frames: [], steps: [] } : state.walkthrough),
+    [state.walkthrough, pathHomeKey],
+  );
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const current = currentGroup(model, groups);
   const index = current ? groups.indexOf(current) : -1;
@@ -114,12 +122,14 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
       expanded,
       viewed,
       onToggleExpanded: (fileId) => dispatch({ type: 'ExpandedToggled', fileId }),
+      unfolded: model.unfolded,
+      onUnfoldHunks: (fileId) => dispatch({ type: 'HunksUnfolded', fileId }),
       onToggleViewed: (fileId) => dispatch({ type: 'ViewedToggled', fileId }),
       review,
       reviewer,
       threads: threadControls,
     }),
-    [expanded, viewed, dispatch, review, reviewer, threadControls],
+    [expanded, viewed, model.unfolded, dispatch, review, reviewer, threadControls],
   );
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
@@ -225,7 +235,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           groups={groups}
           files={files}
           selection={selected}
-          walkthrough={!!state.walkthrough}
+          walkthrough={walkStop}
           activeFileId={model.activeFileId}
           viewed={viewed}
           loading={running}
@@ -321,15 +331,17 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   running={running}
                   onJumpToFile={jumpToFile}
                   onSelectGroup={select}
+                  homes={homes}
                 />
               ) : (
                 <Skeleton height={160} />
               )}
             </section>
-            {state.walkthrough && (
+            {state.walkthrough && walkStop && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
                 <Walkthrough
-                  walkthrough={state.walkthrough}
+                  walkthrough={leftover ?? state.walkthrough}
+                  moved={homes}
                   decisions={state.decisions ?? []}
                   diff={diff}
                   onJumpToFile={jumpToFile}
@@ -341,7 +353,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             )}
             {groups.map((group) => (
               <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
-                <GroupPanel group={group} state={state} diff={diff} controls={controls} />
+                <GroupPanel
+                  group={group}
+                  state={state}
+                  diff={diff}
+                  controls={controls}
+                  onJumpToFile={jumpToFile}
+                  homes={homes}
+                  pathHomeKey={pathHomeKey}
+                />
               </section>
             ))}
           </div>

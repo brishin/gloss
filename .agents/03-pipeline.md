@@ -100,6 +100,48 @@ accurate candidate that is more than a list, with the highest `whole` x `easy`, 
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
 first candidate is shown.
 
+Each group is also read as a walk above its open diffs (`sections.ts`; Brian's ask, 2026-11-12, so the themed
+sections read like the overview and walkthrough instead of file by file). One notes-tier call per group
+(`SECTION_SYSTEM`), after the group's notes and the walkthrough, writes `notes.section`: a sentence tying the group to
+the ones before it, stops in reading order (a claim, its reason, 1-2 short snippets, a tree where it helps), and the
+files a reviewer can skip. It is told the change-wide walks whose first snippet in a walked group is in the group and
+places them among its own stops (`wide`), and the walked group with most of the code path's excerpts reads the path
+above its stops (`section.path`), so the page has no separate walkthrough stop unless no walked group holds that code. `normalizeSection` keeps code on the 3 stops that matter most; a decision past
+them, or one whose lines are already shown, stays as its claim with a link (`see`), and a step past them is dropped.
+Capping the stops instead lost findings, and a walk that replaced the diffs was rejected: the diffs stay open, and
+only a `skim` file that nothing points at starts folded.
+
+Beside that call Jev reads every hunk of the group, two calls per hunk. `HUNK_QUESTIONS` (the hunk alone): `skip` at
+0.7 or over folds the hunk inside its file (101 of 365 hunks on 8 PRs, none wrongly), unless a note, decision, stop
+or walkthrough line points at it. `HUNK_WIDE_QUESTIONS` (with the change's summary): `contract` at 0.8 or over puts
+one note per file on the surest hunk nothing points at, and `key` at 0.8 or over offers up to 2 such hunks to a
+follow-up call (`KEY_STOPS_SYSTEM`, step `section-key:<groupKey>`) that may add a stop for each. Asked in one call,
+the wider questions lowered the skip scores. Tried and dropped: the walk inside the notes call (worse notes), the
+section call marking hunks itself (few folds, worse walk), Jev flags for weakened tests, removed checks, hidden
+failures and unrelated hunks (silent, wrong, or already said by the walk), a smaller model or less thinking for the
+walk (lost findings, no faster), and writing the walk before the walkthrough lands (repeats it).
+
+A group gets a walk when the behavior of the change is decided in it (`walkedGroups`; Brian, 2026-11-13: on docs and
+tests the walk reads worse than the files, and he asked for a general rule, not a list of kinds). A group that only
+supports the change reads file by file, as before walks existed: no walk call, no folds. Its stops would only repeat
+its notes: what the doc says, what each test covers. Two parts decide it. `supportsChange`: the group's category is
+one that checks, describes, configures or ships code (`SUPPORT_CATEGORIES`), or tests and docs are half or more of its
+changed lines. Then Jev: the group's highest hunk `key` score (the question the key stops use) at 0.3 or over
+(`SUPPORT_KEY`) says one of its hunks decides the change, and the group gets its walk. So a change that is itself
+tests or docs keeps its walks, with no rule about line shares. Supporting groups' hunks are scored beside the notes,
+so the answer is in before any walk starts. Without Jev, supporting groups get walks only when code is under 30% of
+the change. On 68 groups of 18 PRs this had no misses either way (supporting groups to read by file scored 0.07-0.20,
+the ones to walk 0.42-0.85). Tried and dropped: the key score alone (a UI group scores 0.17), a group-level Jev
+question on whether the group decides behavior (UI and wiring groups read as not deciding), and what the tour
+already says (decisions, walkthrough snippets). A change-wide decision whose snippets are all in groups with no walk
+is read in the walked group its own file is in, else with the code path, else in the first walked group.
+
+A walk call would hold one of the three notes slots for 10-25 s, so `writeNotes` sends a group's notes as soon as
+they are written and forks its walk outside the slots; `group.notes` is sent again with the walk, and the notes stage
+ends when the walks are in. Every group's notes land about when they did before walks existed. The notes calls first
+wait for the description check, so each notes prompt lists its gaps whatever the timing; the check has almost always
+landed by then. A failed walk call is a warning and leaves the group its notes.
+
 Notes, the walkthrough and the call path get one read-only tool, `read_file` (`read-file.ts`): any file at
 the diff's head, numbered, 400 lines or 24k characters a read, 8 reads a call. It is for code
 the prompt cuts off (a truncated or omitted diff, a file too large to show) and for code a
@@ -110,8 +152,8 @@ Notes still pin only to hunk lines. The per-group cache key is still the prompt,
 answer does not see later edits to files outside the group. The trace lists each call's reads.
 
 Trace: `runTour`'s `onStep` gets every step as it starts and ends (`pipeline/trace.ts`):
-fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, callpath, place, followup, and
-`notes:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
+fetch, define, sketch, judge-files, judge-groups, judge-visual, walkthrough, callpath, place, followup,
+`notes:<groupKey>`, `section:<groupKey>` and `section-key:<groupKey>`. A finished tour caches its trace next to it (`traceCacheKey`), so a
 cached tour replays its trace too. The web app's pipeline view (`d` on a tour) draws it.
 When a prompt gains a `## ` section that reads another step, add it to that call's
 `promptSections` map, or the view credits it to the fetch.

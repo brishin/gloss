@@ -357,12 +357,68 @@ export const VisualSchema = v.variant('kind', [
 ]);
 export type Visual = v.InferOutput<typeof VisualSchema>;
 
+/**
+ * One stop of a group's walk: a decision the group makes, or a step that shows how a piece
+ * works, read in a few lines of code like a walkthrough decision. `decision` indexes the
+ * group's `decisions` when the stop reads one of them.
+ */
+export const SectionPointSchema = v.object({
+  /** `wide`: a change-wide decision read here, the walkthrough entry for decision number `wide`. */
+  kind: v.picklist(['decision', 'step', 'wide']),
+  decision: v.optional(v.number()),
+  wide: v.optional(v.number()),
+  priority: v.optional(DecisionPrioritySchema),
+  title: v.string(),
+  why: v.string(),
+  instead: v.optional(v.string()),
+  check: v.optional(v.string()),
+  /** A tree the snippets hang under, when the stop runs across calls or defines a hierarchy. */
+  tree: v.optional(v.array(DecisionNodeSchema)),
+  /** A stop read as its claim alone (no snippets): where its code is, already shown above or open below. */
+  see: v.optional(v.object({ fileId: v.string(), line: v.number() })),
+  snippets: v.array(SnippetSchema),
+});
+export type SectionPoint = v.InferOutput<typeof SectionPointSchema>;
+
+/**
+ * A group read like the overview and walkthrough, above its open diffs: an optional sentence
+ * tying it to the tour so far, its stops in reading order, and what a reviewer can skip below.
+ * The change-wide decisions and the key code path are read in the group that holds their code.
+ */
+export const SectionSchema = v.object({
+  intro: v.optional(v.string()),
+  points: v.array(SectionPointSchema),
+  /** One sentence on what the walk leaves to the diffs below it. */
+  rest: v.optional(v.string()),
+  /** The key code path is read above this group's stops. */
+  path: v.optional(v.boolean()),
+  /** Files a reviewer can skip (mechanical, renames, generated); they start folded. */
+  skim: v.optional(v.array(v.string())),
+  /** Hunks a reviewer can skip inside files that stay open, folded under one line in their file. */
+  skimHunks: v.optional(v.array(v.object({ fileId: v.string(), hunkId: v.string() }))),
+  /** Hunks flagged where nothing else in the tour points at them, shown as a note on `line`. */
+  hunkFlags: v.optional(
+    v.array(
+      v.object({
+        fileId: v.string(),
+        hunkId: v.string(),
+        side: DiffSideSchema,
+        line: v.number(),
+        flag: v.picklist(['contract']),
+      }),
+    ),
+  ),
+});
+export type Section = v.InferOutput<typeof SectionSchema>;
+
 export const GroupNotesSchema = v.object({
   fileNotes: v.array(FileNoteSchema),
   lineNotes: v.array(LineNoteSchema),
   riskNotes: v.array(RiskNoteSchema),
   /** Decisions in this group's files. Absent in tours written before decisions existed. */
   decisions: v.optional(v.array(DecisionSchema)),
+  /** The group's walk; absent until it is written, and in tours from before walks existed. */
+  section: v.optional(SectionSchema),
 });
 export type GroupNotes = v.InferOutput<typeof GroupNotesSchema>;
 

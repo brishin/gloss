@@ -788,7 +788,7 @@ export const PROMPTS_VERSION = hashOf({
   SCHEMA_VERSION,
 }).slice(0, 12);
 
-function header(meta: DiffMeta): string {
+export function header(meta: DiffMeta): string {
   const lines = [`# ${meta.title}`, `${meta.baseRef} <- ${meta.headRef}`];
   if (meta.description?.trim()) {
     lines.push('', '## Description', meta.description.trim().slice(0, 4000));
@@ -799,7 +799,7 @@ function header(meta: DiffMeta): string {
   return lines.join('\n');
 }
 
-function collapsedReason(file: FileChange): string | undefined {
+export function collapsedReason(file: FileChange): string | undefined {
   if (file.isBinary) {
     return 'binary';
   }
@@ -812,11 +812,11 @@ function collapsedReason(file: FileChange): string | undefined {
   return undefined;
 }
 
-function isGuidance(file: FileChange): boolean {
+export function isGuidance(file: FileChange): boolean {
   return isAgentGuidance(file.path) || (isDocumentation(file.path) && !looksLikeTest(file.path));
 }
 
-function manifestLine(file: FileChange): string {
+export function manifestLine(file: FileChange): string {
   const rename = file.previousPath ? ` (from ${file.previousPath})` : '';
   const note = collapsedReason(file) ?? (isGuidance(file) ? 'guidance' : undefined);
   return `${file.id} ${file.status} ${file.path}${rename} +${file.additions} -${file.deletions}${note ? ` [${note}]` : ''}`;

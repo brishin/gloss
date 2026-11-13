@@ -1,4 +1,4 @@
-import type { Decision, GroupView, LfsPointer, StackMember, TourState } from '@gloss/protocol';
+import type { Decision, GroupView, LfsPointer, StackMember, TourState, Walkthrough } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import {
   ago,
@@ -7,10 +7,14 @@ import {
   defaultExpanded,
   evidenceFile,
   foldedChecks,
+  hasWalkStop,
   lfsImageOids,
   lfsLabel,
+  pathHome,
   pullStateDetail,
   sectionFlagCounts,
+  shortPath,
+  walkHomes,
 } from './tour-view.ts';
 
 const sha = (c: string) => c.repeat(64);
@@ -176,5 +180,59 @@ describe('LFS images', () => {
         file('d.png'),
       ]),
     ).toEqual([sha('a'), sha('b'), sha('c')]);
+  });
+});
+
+describe("the walkthrough read in the groups' walks", () => {
+  const none = { fileNotes: [], lineNotes: [], riskNotes: [] };
+  /** A group whose walk placed the change-wide decisions `wide`, and the code path when `path`. */
+  const group = (key: string, wide?: readonly number[], path = false) =>
+    ({
+      key,
+      fileIds: [],
+      notes: wide
+        ? { ...none, section: { points: wide.map((n) => ({ kind: 'wide', wide: n })), ...(path ? { path } : {}) } }
+        : none,
+    }) as unknown as GroupView;
+  const at = (fileId: string) => ({ fileId, hunkId: 'h', from: 1, to: 20 });
+  const walk = (decision: number) => ({ decision, snippets: [] });
+  const tour = (walkthrough: unknown, notes: string) =>
+    ({ walkthrough, stages: { notes: { state: notes } } }) as unknown as Pick<TourState, 'walkthrough' | 'stages'>;
+  const steps = [{ excerpts: [at('f1'), at('f3')] }, { excerpts: [at('f3')] }];
+
+  test('a decision is read in the group whose walk placed it', () => {
+    expect([...walkHomes([group('a', [0]), group('b'), group('c', [2, 3])])]).toEqual([
+      [0, 'a'],
+      [2, 'c'],
+      [3, 'c'],
+    ]);
+  });
+
+  test('the code path is read in the group whose walk took it', () => {
+    expect(pathHome([group('a', []), group('b', [], true)])).toBe('b');
+    expect(pathHome([group('a', []), group('b')])).toBeUndefined();
+    const walkthrough = { decisions: [], frames: [], steps };
+    expect(shortPath(walkthrough as never as Pick<Walkthrough, 'frames' | 'steps'>).steps[1]!.excerpts).toEqual([
+      { ...at('f3'), to: 8 },
+    ]);
+  });
+
+  test.each([
+    // While the walks are written, nothing is a stop of its own: each decision moves into its group.
+    ['running', [group('a'), group('b')], [walk(0)], [], false],
+    ['done', [group('a', [0], true), group('b', [1])], [walk(0), walk(1)], steps, false],
+    // A decision no walk placed (a failed call, or its code is all in docs and tests) stays a stop.
+    ['done', [group('a', [0]), group('b')], [walk(0), walk(1)], [], true],
+    // So does a code path no walk took.
+    ['done', [group('a', [0])], [walk(0)], steps, true],
+    // A walk that placed nothing takes nothing.
+    ['done', [group('a', [])], [walk(0)], [], true],
+    ['failed', [group('a'), group('b')], [walk(0)], [], true],
+  ] as const)('notes %s: a walkthrough stop', (notes, groups, decisions, path, expected) => {
+    expect(hasWalkStop(tour({ decisions, frames: [], steps: path }, notes), groups)).toBe(expected);
+  });
+
+  test('no walkthrough, no stop', () => {
+    expect(hasWalkStop(tour(undefined, 'done'), [])).toBe(false);
   });
 });

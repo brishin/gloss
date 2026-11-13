@@ -30,7 +30,7 @@ Events (`events.ts`), in the order a fresh tour emits them: `job.started`,
 `stage.status`, `diff.ready`, `groups.provisional`, then `group.defined` (one per
 group) + `tour.summary` + `groups.defined`, with `file.judged` (one or two per file)
 interleaved, then `placement` (per file), `groups.resolved`, `group.notes` (per
-group), `tour.complete`. A cache hit is `job.started` then `tour.complete`.
+group, then once more with the group's walk), `tour.complete`. A cache hit is `job.started` then `tour.complete`.
 
 The client parses every event with valibot. It retries only network errors and 5xx,
 because a malformed event is a protocol bug and should fail loudly.
@@ -39,6 +39,14 @@ Decisions are choices a reviewer should agree with on purpose, each one sentence
 Linear-style priority. Change-wide ones ride on `tour.summary` (and `Tour.decisions`);
 ones in code ride on `group.notes` as `notes.decisions`, with `fileId` and, when the line
 is visible, `hunkId`/`side`/`line`.
+
+A group's walk rides on `group.notes` as `notes.section`, in a second event for the group once
+it is written: `intro?`, `points` (each `decision`, `step`, or `wide` for the walkthrough entry
+of decision number `wide`, read in this group), `rest?`, `path?` (the code path is read here), and
+what a reviewer can skip: `skim` file ids, `skimHunks`, and `hunkFlags` (a note on a hunk nothing
+else points at). A group that only supports the change (tests, docs, config) has no walk and no section.
+The web app shows the walkthrough's decisions and code path inside the groups whose sections took
+them (`walkHomes`, `pathHome`), and a walkthrough stop only for what no walk took.
 
 The tour's visual rides on `tour.summary` (and `Tour.visual`): at most one picture of the
 main decision, as data the client draws. `before-after` is two small Mermaid diagrams

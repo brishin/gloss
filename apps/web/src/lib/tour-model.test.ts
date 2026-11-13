@@ -141,8 +141,11 @@ describe('jumping', () => {
   });
 
   test('the walkthrough is a stop between the overview and the groups, only when the tour has one', () => {
-    const walkthrough = { decisions: [], frames: [], steps: [] };
-    const walking = model({ tour: tour({ walkthrough }) });
+    // A decision no group's walk reads, once the walks are written.
+    const walk = { decision: 0, title: '', why: '', snippets: [], refs: [], links: [] };
+    const walkthrough = { decisions: [walk], frames: [], steps: [] };
+    const stages = { ...tour().stages, notes: { state: 'done' as const } };
+    const walking = model({ tour: tour({ walkthrough, stages }) });
     const [atWalk, cmds] = run(walking, { type: 'GroupStepped', by: 1 });
     expect(atWalk.position.g).toBe(WALKTHROUGH);
     expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: WALKTHROUGH });
@@ -303,6 +306,11 @@ describe('viewed', () => {
     const [unmarked] = run({ ...marked, activeFileId: 'f1' }, { type: 'ActiveFileViewed' });
     expect(unmarked.viewed.has('f1')).toBe(false);
     expect(unmarked.activeFileId).toBe('f1');
+  });
+
+  test("opening a file's folded hunks keeps them open, for that file only", () => {
+    const [opened] = run(model(), { type: 'HunksUnfolded', fileId: 'f1' }, { type: 'HunksUnfolded', fileId: 'f1' });
+    expect([...opened.unfolded]).toEqual(['f1']);
   });
 
   test('x flips a file away from its default', () => {

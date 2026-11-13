@@ -14,6 +14,7 @@ import {
   JudgeClient,
   JudgeError,
   ModelClient,
+  ModelError,
   type ModelRequest,
 } from '../adapters/types.ts';
 import { type CacheStore, createMemoryCacheStore, TourCache } from '../cache/store.ts';
@@ -146,6 +147,22 @@ const withCheck =
   (request) =>
     request.resultName === 'descriptionCheck' ? check : request.resultName === 'affected' ? affected : answer(request);
 
+/** One stop of a group's walk, on line 2 of a hunk: the group's first listed decision. */
+const walkStop = (fileId: string, hunkId: string) => ({
+  kind: 'decision',
+  decision: 0,
+  priority: 'high',
+  title: 'Compares the name',
+  why: 'No role table yet.',
+  instead: '',
+  check: '',
+  snippets: [{ fileId, hunkId, from: 1, to: 2, focus: 2, caption: 'The check.', note: '' }],
+  wide: -1,
+  tree: 'none',
+  nodes: [],
+});
+const walkAnswer = (points: unknown[]) => ({ intro: 'Builds on the group before.', points, rest: '', skim: [] });
+
 function fakeModel() {
   return createFakeModelClient({
     answers: {
@@ -167,6 +184,9 @@ function fakeModel() {
       notes: (request) => {
         const fileId = /^### (f[0-9a-f]+) /m.exec(request.prompt)?.[1] ?? 'none';
         const hunkId = /^@@ hunk (h[0-9a-f]+)/m.exec(request.prompt)?.[1] ?? 'none';
+        if (request.resultName === 'walk') {
+          return walkAnswer([walkStop(fileId, hunkId)]);
+        }
         return {
           fileNotes: [],
           lineNotes: [{ fileId, hunkId, side: 'additions', line: 2, text: 'Note.' }],
@@ -482,6 +502,8 @@ describe('runTour', () => {
         'notes:auth',
         'notes:docs',
         'notes:tests',
+        // Docs and tests read file by file: no walk.
+        'section:auth',
         'place',
         'description-check',
         'affected',
@@ -513,6 +535,147 @@ describe('runTour', () => {
 
     const replayed = await tour({ model: fakeModel(), judge: fakeJudge(), cache });
     expect([...replayed.trace.values()]).toEqual(steps);
+  });
+
+  it("sends a group's notes at once and again with its walk, which waits for the walkthrough", async () => {
+    const base = fakeModel();
+    const model: ModelClient['Service'] = {
+      ...base,
+      // The walkthrough lands last, so every walk has to wait for it.
+      prompt: (request) =>
+        request.resultName === 'walkthrough'
+          ? Effect.sleep(40).pipe(Effect.flatMap(() => base.prompt(request)))
+          : base.prompt(request),
+    };
+    const { events, tour: finished } = await tour({ model, judge: fakeJudge() });
+    const types = events.map((event) =>
+      event.type === 'group.notes' ? `${event.groupKey}${event.notes.section ? ' walk' : ''}` : event.type,
+    );
+    // Every group's notes are out before any walk: the walks wait for the walkthrough, the notes do not.
+    const firstWalk = types.findIndex((type) => type.endsWith(' walk'));
+    for (const key of ['docs', 'auth', 'tests']) {
+      expect(types.indexOf(key)).toBeGreaterThan(-1);
+      expect(types.indexOf(key)).toBeLessThan(firstWalk);
+    }
+    // Docs and tests keep the file by file read: only the code group gets a walk.
+    expect(types.filter((type) => type.endsWith(' walk'))).toEqual(['auth walk']);
+    // The notes stage ends only when the walks are in.
+    const done = events.findIndex(
+      (event) => event.type === 'stage.status' && event.stage === 'notes' && event.state === 'done',
+    );
+    expect(done).toBeGreaterThan(types.lastIndexOf('auth walk'));
+    const walk = finished.notes.auth!.section!;
+    expect(walk.points).toMatchObject([
+      { kind: 'decision', decision: 0, priority: 'high', title: 'Compares the name' },
+    ]);
+    // The walk call is told which groups came before.
+    expect(finished.notes.docs!.section).toBeUndefined();
+    expect(walk.intro).toBe('Builds on the group before.');
+    const asked = base.calls.find((call) => call.resultName === 'walk' && call.prompt.includes('src/auth.ts'))!;
+    expect(asked.tier).toBe('notes');
+    expect(asked.prompt).toContain('## Groups read before this one\n- Docs: Readme.');
+    expect(asked.prompt).toContain('Decisions in this group:\n0. (high) src/auth.ts:2 Compare by name.');
+  });
+
+  it('a failed walk call leaves the group its notes, with a warning', async () => {
+    const base = fakeModel();
+    const model: ModelClient['Service'] = {
+      ...base,
+      prompt: (request) =>
+        request.resultName === 'walk' ? Effect.fail(new ModelError({ message: 'overloaded' })) : base.prompt(request),
+    };
+    const { events, tour: finished } = await tour({ model, judge: fakeJudge() });
+    expect(finished.notes.auth?.lineNotes).toHaveLength(1);
+    expect(finished.notes.auth?.section).toBeUndefined();
+    expect(events.filter((event) => event.type === 'job.warning' && event.message.includes('walk'))).toHaveLength(1);
+    expect(events.some((event) => event.type === 'job.error')).toBe(false);
+  });
+
+  it('walks a supporting group only when Jev finds a deciding hunk in it, and offers a key hunk the walk misses to a follow-up call', async () => {
+    const base = fakeModel();
+    const empty = { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] };
+    const model = createFakeModelClient({
+      answers: {
+        define: (request) => base.prompt(request).pipe(Effect.runSync).data,
+        followup: (request) => base.prompt(request).pipe(Effect.runSync).data,
+        // Nothing points at any hunk, so what happens to each is up to Jev.
+        notes: (request) => {
+          if (request.resultName !== 'walk') {
+            return empty;
+          }
+          const fileId = /^### (f[0-9a-f]+) /m.exec(request.prompt)?.[1] ?? 'none';
+          const hunkId = /^@@ hunk (h[0-9a-f]+)/m.exec(request.prompt)?.[1] ?? 'none';
+          return request.prompt.includes('## Hunks the walk does not reach')
+            ? { points: [{ ...walkStop(fileId, hunkId), decision: -1, title: 'The rule itself' }], rest: '' }
+            : walkAnswer([]);
+        },
+      },
+    });
+    const files = fakeJudge();
+    const sure: Record<string, string[]> = {
+      'README.md': ['skip', 'contract', 'key'],
+      'src/auth.test.ts': ['contract'],
+      'src/auth.ts': ['contract', 'key'],
+    };
+    const states: Record<string, unknown>[] = [];
+    const judge: JudgeClient['Service'] = {
+      ...files,
+      judge: (request) => {
+        if (!('hunk' in request.state)) {
+          return files.judge(request);
+        }
+        states.push(request.state);
+        const path = (request.state.file as { path: string }).path;
+        return Effect.succeed(
+          Object.fromEntries(
+            Object.keys(request.questions).map((id): [string, JudgeAnswer] => [
+              id,
+              { type: 'bool', probability: sure[path]?.includes(id) ? 0.9 : 0.1 },
+            ]),
+          ),
+        );
+      },
+    };
+    const { tour: finished, trace } = await tour({ model, judge });
+    const id = (path: string) => finished.files.find((file) => file.path === path)!.id;
+    // Jev says the README hunk decides the change, so the docs group gets a walk; its skippable hunk folds.
+    expect(finished.notes.docs!.section).toMatchObject({ points: [], skimHunks: [{ fileId: id('README.md') }] });
+    // Nothing in the tests group decides the change: it reads file by file, with no section.
+    expect(finished.notes.tests!.section).toBeUndefined();
+    // A key hunk gets a stop from the follow-up call, which says more than its flag would.
+    expect(finished.notes.auth!.section).toMatchObject({ points: [{ kind: 'decision', title: 'The rule itself' }] });
+    expect(finished.notes.auth!.section!.hunkFlags).toBeUndefined();
+    expect([...trace.keys()].filter((step) => step.startsWith('section-key:'))).toEqual(['section-key:auth']);
+    // The skip question is asked without the change's summary, the wider ones with it.
+    const asked = (path: string) => states.filter((state) => (state.file as { path: string }).path === path);
+    expect(asked('src/auth.ts')).toHaveLength(2);
+    expect(asked('src/auth.ts').filter((state) => 'change_summary' in state)).toHaveLength(1);
+    // A supporting group's hunks are scored once, for the choice and for the walk.
+    expect(asked('README.md')).toHaveLength(2);
+  });
+
+  it('lists the description gaps in every notes prompt, however late the check lands', async () => {
+    const base = fakeModel();
+    const gap = { text: 'Described as admin-only, but every user runs the new check.', priority: 'medium' };
+    const check = {
+      claims: [{ claim: 'Admin only', status: 'contradicted' }],
+      stated: 'Admin only',
+      areas: [],
+      decisions: [{ ...gap, quote: 'Working tree changes', admittedBy: '' }],
+    };
+    const model: ModelClient['Service'] = {
+      ...base,
+      prompt: (request) =>
+        request.resultName === 'descriptionCheck'
+          ? Effect.sleep(40).pipe(Effect.as({ data: check as never, model: 'fake/define' }))
+          : base.prompt(request),
+    };
+    await tour({ model, judge: fakeJudge() });
+    const prompts = base.calls.filter((call) => call.resultName === 'notes').map((call) => call.prompt);
+    expect(prompts).toHaveLength(3);
+    for (const notesPrompt of prompts) {
+      expect(notesPrompt).toContain(gap.text);
+    }
   });
 
   it('without a judge, the LLM lists files and nothing is dropped', async () => {
@@ -604,7 +767,7 @@ describe('runTour', () => {
     };
     const { trace } = await tour({ model });
     // A changed file reads from the working tree, any other file from HEAD; nothing outside the repository.
-    expect(outputs).toHaveLength(4);
+    expect(outputs).toHaveLength(5);
     expect(new Set(outputs.map((answers) => answers.join('\n'))).size).toBe(1);
     expect(outputs[0]).toEqual([
       '1 export function check(user: string) {\n2   return user === "admin";\n3 }',
@@ -614,6 +777,7 @@ describe('runTour', () => {
     expect(trace.get('walkthrough')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('callpath')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     expect(trace.get('notes:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
+    expect(trace.get('section:auth')?.reads).toEqual(['src/auth.ts lines 1-3', '.gitattributes lines 1-1']);
     // Only the affected map looks up importers and searches, through git grep in a local repository.
     expect(searched).toEqual([
       "src/login.ts:1:import { check } from './auth';",
