@@ -157,12 +157,12 @@ describe('normalizeSection', () => {
     expect(unscored.covered).toBeUndefined();
   });
 
-  test('a flag lands on the first changed line of a hunk nothing points at, and not on a folded one', () => {
+  test('one flag a file lands on the first changed line of its surest hunk nothing points at, and not on a folded one', () => {
     const { section } = normalizeSection({ points: [stop('stop', 1, 'step')] }, group, [four], notes, {
       ...none,
-      hunks: { skip: refs('h4'), contract: refs('h1', 'h2', 'h4') },
+      hunks: { skip: refs('h4'), contract: refs('h1', 'h2', 'h3', 'h4') },
     });
-    // h1 holds the stop; h2's first change is its removed line.
+    // h1, the surest, holds the stop, so the file's one flag goes to the next: h2, whose first change is its removed line.
     expect(section.hunkFlags).toEqual([{ fileId: 'f1', hunkId: 'h2', side: 'deletions', line: 10, flag: 'contract' }]);
   });
 });
@@ -186,8 +186,11 @@ describe('hunk scores', () => {
     expect(skippableHunks(scores)).toEqual([{ fileId: 'f1', hunkId: 'h3' }]);
   });
 
-  test('the contract flag goes to the surest hunk of each file at 0.8, never a skippable one', () => {
-    expect(contractFlags(scores)).toEqual([{ fileId: 'f1', hunkId: 'h2' }]);
+  test('the contract flag is offered at 0.8, surest first, never on a skippable hunk', () => {
+    expect(contractFlags(scores)).toEqual([
+      { fileId: 'f1', hunkId: 'h2' },
+      { fileId: 'f1', hunkId: 'h1' },
+    ]);
   });
 
   test('a key hunk counts as missed only when nothing reaches it and it is open', () => {

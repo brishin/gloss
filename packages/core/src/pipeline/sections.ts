@@ -313,16 +313,12 @@ export function skippableHunks(scores: readonly HunkScore[]): HunkRef[] {
   return scores.filter((score) => (score.skip ?? 0) >= HUNK_SKIP).map(({ fileId, hunkId }) => ({ fileId, hunkId }));
 }
 
-/** The contract flag: on the surest hunk of each file, and never on a skippable one. */
+/** The contract flag's candidates, surest first, never a skippable hunk: `normalizeSection` flags the first open one of each file. */
 export function contractFlags(scores: readonly HunkScore[]): HunkRef[] {
-  const best = new Map<string, HunkScore>();
-  for (const score of scores) {
-    const p = score.contract ?? 0;
-    if (p >= HUNK_SURE && (score.skip ?? 0) < HUNK_SKIP && p > (best.get(score.fileId)?.contract ?? 0)) {
-      best.set(score.fileId, score);
-    }
-  }
-  return [...best.values()].map(({ fileId, hunkId }) => ({ fileId, hunkId }));
+  return scores
+    .filter((score) => (score.contract ?? 0) >= HUNK_SURE && (score.skip ?? 0) < HUNK_SKIP)
+    .toSorted((a, b) => (b.contract ?? 0) - (a.contract ?? 0))
+    .map(({ fileId, hunkId }) => ({ fileId, hunkId }));
 }
 
 /** The key hunks nothing in the tour points at (`covered` holds `fileId:hunkId`), surest first. */
@@ -721,8 +717,13 @@ export function normalizeSection(
       const at = free(ref);
       return at ? [{ fileId: at.file.id, hunkId: at.hunk.id }] : [];
     });
+    // One flag a file: its surest hunk that nothing points at.
+    const flagged = new Set<string>();
     hunkFlags = context.hunks.contract.flatMap((ref) => {
-      const at = free(ref);
+      const at = flagged.has(ref.fileId) ? undefined : free(ref);
+      if (at) {
+        flagged.add(ref.fileId);
+      }
       const change = at && firstChange(at.hunk);
       return at && change ? [{ fileId: at.file.id, hunkId: at.hunk.id, ...change, flag: 'contract' as const }] : [];
     });
@@ -808,5 +809,5 @@ export const SECTIONS_KEY = hashOf({
   HUNK_SURE,
   KEY_HUNKS,
   PLAIN_CODE_SHARE,
-  plain: 1,
+  rules: 2,
 }).slice(0, 12);
