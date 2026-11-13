@@ -121,13 +121,20 @@ section call marking hunks itself (few folds, worse walk), Jev flags for weakene
 failures and unrelated hunks (silent, wrong, or already said by the walk), a smaller model or less thinking for the
 walk (lost findings, no faster), and writing the walk before the walkthrough lands (repeats it).
 
-Docs and tests groups get no walk (`walkedGroups`; Brian, 2026-11-13: there the walk reads worse than the files). Their
-stops only repeat the notes: what the doc says, what each test covers. Such a group is one whose category is docs or
-tests, or whose open files are all guidance or all tests. It keeps notes and open diffs as before walks existed: no
-model call, no Jev hunk scores, no folds. A change-wide decision whose snippets are all in such groups is read in the
-walked group its own file is in, else with the code path, else in the first walked group. Tests keep their walks when code outside tests is
-under 30% of the non-doc lines (`PLAIN_CODE_SHARE`): in an e2e-only PR the tests are the change. In 9 tours the rule
-picked every group where the walk read worse and no code group.
+A group gets a walk when the behavior of the change is decided in it (`walkedGroups`; Brian, 2026-11-13: on docs and
+tests the walk reads worse than the files, and he asked for a general rule, not a list of kinds). A group that only
+supports the change reads file by file, as before walks existed: no walk call, no folds. Its stops would only repeat
+its notes: what the doc says, what each test covers. Two parts decide it. `supportsChange`: the group's category is
+one that checks, describes, configures or ships code (`SUPPORT_CATEGORIES`), or tests and docs are half or more of its
+changed lines. Then Jev: the group's highest hunk `key` score (the question the key stops use) at 0.3 or over
+(`SUPPORT_KEY`) says one of its hunks decides the change, and the group gets its walk. So a change that is itself
+tests or docs keeps its walks, with no rule about line shares. Supporting groups' hunks are scored beside the notes,
+so the answer is in before any walk starts. Without Jev, supporting groups get walks only when code is under 30% of
+the change. On 68 groups of 18 PRs this had no misses either way (supporting groups to read by file scored 0.07-0.20,
+the ones to walk 0.42-0.85). Tried and dropped: the key score alone (a UI group scores 0.17), a group-level Jev
+question on whether the group decides behavior (UI and wiring groups read as not deciding), and what the tour
+already says (decisions, walkthrough snippets). A change-wide decision whose snippets are all in groups with no walk
+is read in the walked group its own file is in, else with the code path, else in the first walked group.
 
 A walk call would hold one of the three notes slots for 10-25 s, so `writeNotes` sends a group's notes as soon as
 they are written and forks its walk outside the slots; `group.notes` is sent again with the walk, and the notes stage

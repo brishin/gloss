@@ -591,7 +591,7 @@ describe('runTour', () => {
     expect(events.some((event) => event.type === 'job.error')).toBe(false);
   });
 
-  it('asks Jev about the hunks of a walked group, and offers a key hunk the walk misses to a follow-up call', async () => {
+  it('walks a supporting group only when Jev finds a deciding hunk in it, and offers a key hunk the walk misses to a follow-up call', async () => {
     const base = fakeModel();
     const empty = { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] };
     const model = createFakeModelClient({
@@ -637,8 +637,10 @@ describe('runTour', () => {
       },
     };
     const { tour: finished, trace } = await tour({ model, judge });
-    // Docs and tests groups have no walk: no section, and Jev is not asked about their hunks.
-    expect(finished.notes.docs!.section).toBeUndefined();
+    const id = (path: string) => finished.files.find((file) => file.path === path)!.id;
+    // Jev says the README hunk decides the change, so the docs group gets a walk; its skippable hunk folds.
+    expect(finished.notes.docs!.section).toMatchObject({ points: [], skimHunks: [{ fileId: id('README.md') }] });
+    // Nothing in the tests group decides the change: it reads file by file, with no section.
     expect(finished.notes.tests!.section).toBeUndefined();
     // A key hunk gets a stop from the follow-up call, which says more than its flag would.
     expect(finished.notes.auth!.section).toMatchObject({ points: [{ kind: 'decision', title: 'The rule itself' }] });
@@ -648,7 +650,8 @@ describe('runTour', () => {
     const asked = (path: string) => states.filter((state) => (state.file as { path: string }).path === path);
     expect(asked('src/auth.ts')).toHaveLength(2);
     expect(asked('src/auth.ts').filter((state) => 'change_summary' in state)).toHaveLength(1);
-    expect(asked('README.md')).toHaveLength(0);
+    // A supporting group's hunks are scored once, for the choice and for the walk.
+    expect(asked('README.md')).toHaveLength(2);
   });
 
   it('lists the description gaps in every notes prompt, however late the check lands', async () => {

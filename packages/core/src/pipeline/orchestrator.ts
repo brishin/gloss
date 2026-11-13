@@ -124,6 +124,8 @@ import {
   SectionResultSchema,
   skippableHunks,
   uncoveredKeyHunks,
+  keyScore,
+  supportsChange,
   walkedGroups,
 } from './sections.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
@@ -1041,20 +1043,29 @@ const tourProgram = Effect.fnUntraced(function* (
    * One group's walk (`sections.ts`), from its diff and the notes just written for it. It waits
    * for the walkthrough: the change-wide decisions whose code is in this group are read here,
    * placed among the group's own stops, and so is the code path when most of it is here. `before`
-   * are the groups read before this one, `walked` every group that gets a walk.
+   * are the groups read before this one, `support` what Jev said of the groups that support the
+   * change, once it is in.
    *
-   * A group that reads better file by file (`walkedGroups`: docs, tests) gets no walk: no call,
-   * no folds, its notes and diffs as they are.
+   * A group that only supports the change (`walkedGroups`: tests, docs, config) gets no walk: no
+   * call, no folds, its notes and diffs as they are.
    */
   const walkGroup = (
     group: ResolvedGroup,
     members: readonly FileChange[],
     notes: GroupNotes,
     before: readonly ResolvedGroup[],
-    walked: readonly ResolvedGroup[],
+    all: readonly ResolvedGroup[],
+    support: Fiber.Fiber<ReadonlyMap<string, readonly HunkScore[]>>,
   ) =>
     Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
-      Effect.flatMap(() => {
+      Effect.flatMap(() => Fiber.join(support)),
+      Effect.flatMap((scored) => {
+        const key = new Map([...scored].flatMap(([id, scores]) => [[id, keyScore(scores)] as const]));
+        const walked = walkedGroups(
+          all,
+          files,
+          new Map([...key].filter((entry): entry is [string, number] => entry[1] !== undefined)),
+        );
         if (!walked.includes(group)) {
           return Effect.succeed(undefined);
         }
@@ -1087,7 +1098,12 @@ const tourProgram = Effect.fnUntraced(function* (
         const wideHere = walks.filter((walk) => wideHome(walk) === group.key);
         return Effect.all(
           [
-            judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
+            // A supporting group's hunks are scored already.
+            scored.has(group.key)
+              ? Effect.succeed(scored.get(group.key))
+              : judge
+                ? judgeHunks(judge, members, group)
+                : Effect.succeed(undefined),
             askSections(
               `section:${group.key}`,
               `${group.label} (walk)`,
@@ -1172,16 +1188,26 @@ const tourProgram = Effect.fnUntraced(function* (
       const byId = new Map(files.map((file) => [file.id, file]));
       let failed = 0;
       const walks: Fiber.Fiber<void>[] = [];
-      const walked = walkedGroups(annotatable, files);
+      const membersOf = (group: ResolvedGroup) =>
+        group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
+      // Whether a group that supports the change still gets a walk is up to Jev (`walkedGroups`). Its
+      // hunks are scored beside the notes, so the answer is in before any walk starts.
+      const scoreSupport = Effect.forEach(
+        judge ? annotatable.filter((group) => supportsChange(group, files)) : [],
+        (group) =>
+          judgeHunks(judge!, membersOf(group), group).pipe(Effect.map((scores) => [group.key, scores] as const)),
+        { concurrency: 'unbounded' },
+      ).pipe(Effect.map((entries): ReadonlyMap<string, readonly HunkScore[]> => new Map(entries)));
       // The description check's gaps are in the decision list before any notes prompt is built, so
       // every group's prompt lists them whatever the timing. The check is done by now on most tours.
-      return Effect.suspend(() => (checking ? Fiber.join(checking) : Effect.void)).pipe(
-        Effect.flatMap(() =>
+      return Effect.forkScoped(scoreSupport).pipe(
+        Effect.tap(() => (checking ? Fiber.join(checking) : Effect.void)),
+        Effect.flatMap((support) =>
           Effect.forEach(
             annotatable,
             (group) =>
               Effect.suspend(() => {
-                const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
+                const members = membersOf(group);
                 const notesPrompt = buildNotesPrompt(
                   meta,
                   state.overallSummary,
@@ -1242,7 +1268,14 @@ const tourProgram = Effect.fnUntraced(function* (
                     // The walk is written outside the notes slots, so the next group's notes start at
                     // once. The notes are on the page meanwhile; they are sent again with the walk.
                     return Effect.forkScoped(
-                      walkGroup(group, members, notes, annotatable.slice(0, annotatable.indexOf(group)), walked).pipe(
+                      walkGroup(
+                        group,
+                        members,
+                        notes,
+                        annotatable.slice(0, annotatable.indexOf(group)),
+                        annotatable,
+                        support,
+                      ).pipe(
                         Effect.map((section) => {
                           if (section) {
                             send({ type: 'group.notes', groupKey: group.key, notes: { ...notes, section }, source });

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   contractFlags,
   hunkCut,
+  keyScore,
   type HunkScore,
   normalizeKeyStops,
   normalizeSection,
@@ -253,46 +254,73 @@ describe('walkedGroups', () => {
   const change = (path: string, lines: number) => ({ ...file, id: path, path, additions: lines });
   const of = (key: string, category: string, paths: string[]) =>
     ({ key, label: key, summary: '', category, fileIds: paths }) as unknown as ResolvedGroup;
-  const walked = (files: FileChange[], groups: ResolvedGroup[]) =>
-    walkedGroups(groups, files).map((entry) => entry.key);
+  const code = of('core', 'core', ['src/a.ts']);
 
   test.each([
-    // Docs and tests read file by file; the code keeps its walk.
+    // A group that supports the change reads file by file; the code keeps its walk.
     [
       'by category',
-      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('docs/a.md', 20), change('build.gradle', 2)],
+      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('docs/a.md', 20), change('ci.yml', 2)],
       [
         of('docs', 'docs', ['docs/a.md']),
-        of('core', 'core', ['src/a.ts']),
-        of('tests', 'tests', ['src/a.test.ts', 'build.gradle']),
+        code,
+        of('tests', 'tests', ['src/a.test.ts']),
+        of('ci', 'config', ['ci.yml']),
       ],
+      {},
       ['core'],
     ],
-    // Whatever the definition calls a group, one that holds only tests or only docs is one.
+    // Whatever the definition calls a group, one whose changed lines are mostly tests and docs supports the change.
     [
       'by its files',
-      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('README.md', 20), change('src/b.ts', 5)],
-      [
-        of('intro', 'core', ['README.md']),
-        of('core', 'core', ['src/a.ts']),
-        of('checks', 'core', ['src/a.test.ts']),
-        of('mixed', 'core', ['src/b.ts', 'README.md']),
-      ],
-      ['core', 'mixed'],
+      [change('src/a.ts', 60), change('src/a.test.ts', 100), change('README.md', 20), change('src/b.ts', 30)],
+      [code, of('checks', 'core', ['src/a.test.ts']), of('mostly code', 'core', ['src/b.ts', 'README.md'])],
+      {},
+      ['core', 'mostly code'],
     ],
-    // When little but tests changed, the tests are the change and keep their walks. Docs never do.
+    // Jev finds a hunk that decides the change in a supporting group: it gets a walk. A code group needs no score.
     [
-      'tests lead',
-      [change('src/a.ts', 2), change('e2e/a.test.ts', 300), change('e2e/b.test.ts', 50), change('docs/a.md', 400)],
+      'a deciding hunk',
+      [change('src/a.ts', 60), change('e2e/a.test.ts', 300), change('e2e/b.test.ts', 50), change('docs/a.md', 40)],
       [
         of('docs', 'docs', ['docs/a.md']),
-        of('core', 'core', ['src/a.ts']),
+        code,
         of('tests', 'tests', ['e2e/a.test.ts']),
-        of('support', 'core', ['e2e/b.test.ts']),
+        of('fakes', 'tests', ['e2e/b.test.ts']),
       ],
-      ['core', 'tests', 'support'],
+      { docs: 0.19, core: 0.1, tests: 0.3, fakes: 0.2 },
+      ['core', 'tests'],
     ],
-  ] as const)('%s', (_name, files, groups, expected) => {
-    expect(walked([...files], [...groups])).toEqual(expected);
+    // Without a score (no Jev, or its calls failed), supporting groups get walks when they are most of the change.
+    [
+      'no scores, little code',
+      [change('src/a.ts', 2), change('e2e/a.test.ts', 300), change('docs/a.md', 40)],
+      [of('docs', 'docs', ['docs/a.md']), code, of('tests', 'tests', ['e2e/a.test.ts'])],
+      {},
+      ['docs', 'core', 'tests'],
+    ],
+    // A score wins over that share.
+    [
+      'scores, little code',
+      [change('src/a.ts', 2), change('e2e/a.test.ts', 300), change('docs/a.md', 40)],
+      [of('docs', 'docs', ['docs/a.md']), code, of('tests', 'tests', ['e2e/a.test.ts'])],
+      { docs: 0.1, tests: 0.85 },
+      ['core', 'tests'],
+    ],
+  ] as const)('%s', (_name, files, groups, key, expected) => {
+    expect(walkedGroups([...groups], [...files], new Map(Object.entries(key))).map((entry) => entry.key)).toEqual(
+      expected,
+    );
+  });
+
+  test("a group's score is its surest hunk, and none when no hunk was scored", () => {
+    expect(
+      keyScore([
+        { fileId: 'f', hunkId: 'a', key: 0.2 },
+        { fileId: 'f', hunkId: 'b', key: 0.6 },
+        { fileId: 'f', hunkId: 'c' },
+      ]),
+    ).toBe(0.6);
+    expect(keyScore([{ fileId: 'f', hunkId: 'c' }])).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@
  * The walk rides `GroupNotes.section`, so it needs no event of its own.
  */
 import type {
+  Category,
   Decision,
   DecisionWalk,
   DiffMeta,
@@ -774,35 +775,74 @@ export function normalizeKeyStops(
 
 /** Everything that shapes a group's walk, for the finished tour's cache key. */
 /**
- * Below this share of a change's code lines outside tests, the tests are the change: their groups
- * keep their walks.
+ * The categories of a group that supports a change rather than makes it: what checks, describes,
+ * configures or ships the code, not the code itself.
  */
-export const PLAIN_CODE_SHARE = 0.3;
+export const SUPPORT_CATEGORIES: readonly Category[] = [
+  'tests',
+  'docs',
+  'examples',
+  'deps',
+  'build',
+  'config',
+  'i18n',
+  'assets',
+];
+/** At this `key` score Jev says a hunk decides the change's behavior, so its group has a walk whatever it is. */
+export const SUPPORT_KEY = 0.3;
+/** Without Jev: below this share of code lines in the change, the supporting files are the change. */
+export const SUPPORT_CODE_SHARE = 0.3;
 
 /**
- * The groups that get a walk. A docs or tests group reads better file by file: its stops only
- * repeat its notes (what the doc says, what each test covers), so it keeps its notes and diffs
- * with no walk above them. Such a group is one the definition calls docs or tests, or one whose
- * files are all guidance, tests or collapsed. Tests keep their walks when little else changed.
+ * Whether a group supports the change (tests, docs, config, dependency pins) rather than makes
+ * it: the definition says so by its category, or tests and docs are most of its changed lines.
  */
-export function walkedGroups(groups: readonly ResolvedGroup[], files: readonly FileChange[]): ResolvedGroup[] {
-  const byId = new Map(files.map((file) => [file.id, file]));
-  const members = (group: ResolvedGroup) => group.fileIds.flatMap((id) => byId.get(id) ?? []);
-  const lines = (list: readonly FileChange[]) => list.reduce((sum, file) => sum + file.additions + file.deletions, 0);
-  const read = groups.flatMap(members).filter((file) => !collapsedReason(file) && !isGuidance(file));
-  const code = read.filter((file) => !looksLikeTest(file.path));
-  const testsLead = lines(code) < PLAIN_CODE_SHARE * lines(read);
-  const all = (group: ResolvedGroup, plain: (file: FileChange) => boolean) => {
-    const open = members(group).filter((file) => !collapsedReason(file));
-    return open.length > 0 && open.every(plain);
+export function supportsChange(group: ResolvedGroup, files: readonly FileChange[]): boolean {
+  if (SUPPORT_CATEGORIES.includes(group.category)) {
+    return true;
+  }
+  const open = files.filter((file) => group.fileIds.includes(file.id) && !collapsedReason(file));
+  const support = open.filter((file) => isGuidance(file) || looksLikeTest(file.path));
+  return open.length > 0 && changed(support) * 2 >= changed(open);
+}
+
+const changed = (files: readonly FileChange[]) => files.reduce((sum, file) => sum + file.additions + file.deletions, 0);
+
+/**
+ * The groups that get a walk: every group where the behavior of the change is decided. A group
+ * that only supports the change reads better file by file, since its stops would repeat its notes
+ * (what the doc says, what each test covers), so it keeps its notes and diffs with no walk above
+ * them. A supporting group still gets a walk when it holds a hunk Jev marks as deciding the
+ * change (`key`, the group's highest hunk score): in a change that is itself tests or docs, those
+ * files are the change. Without a score, it gets one when little but supporting files changed.
+ */
+export function walkedGroups(
+  groups: readonly ResolvedGroup[],
+  files: readonly FileChange[],
+  key: ReadonlyMap<string, number> = new Map(),
+): ResolvedGroup[] {
+  const supporting = new Set(groups.filter((group) => supportsChange(group, files)));
+  const inGroups = (list: Iterable<ResolvedGroup>) => {
+    const ids = new Set([...list].flatMap((group) => group.fileIds));
+    return files.filter((file) => ids.has(file.id) && !collapsedReason(file));
   };
+  const code = inGroups(groups.filter((group) => !supporting.has(group))).filter(
+    (file) => !isGuidance(file) && !looksLikeTest(file.path),
+  );
+  const supportLeads = changed(code) < SUPPORT_CODE_SHARE * changed(inGroups(groups));
   return groups.filter((group) => {
-    if (group.category === 'docs' || all(group, isGuidance)) {
-      return false;
+    if (!supporting.has(group)) {
+      return true;
     }
-    const tests = group.category === 'tests' || all(group, (file) => isGuidance(file) || looksLikeTest(file.path));
-    return !tests || testsLead;
+    const score = key.get(group.key);
+    return score === undefined ? supportLeads : score >= SUPPORT_KEY;
   });
+}
+
+/** A group's highest `key` score: how sure Jev is that one of its hunks decides the change. Undefined when no hunk was scored. */
+export function keyScore(scores: readonly HunkScore[]): number | undefined {
+  const keys = scores.flatMap((score) => score.key ?? []);
+  return keys.length ? Math.max(...keys) : undefined;
 }
 
 export const SECTIONS_KEY = hashOf({
@@ -814,6 +854,8 @@ export const SECTIONS_KEY = hashOf({
   HUNK_SKIP,
   HUNK_SURE,
   KEY_HUNKS,
-  PLAIN_CODE_SHARE,
-  rules: 2,
+  SUPPORT_CATEGORIES,
+  SUPPORT_KEY,
+  SUPPORT_CODE_SHARE,
+  rules: 3,
 }).slice(0, 12);
