@@ -141,8 +141,11 @@ describe('jumping', () => {
   });
 
   test('the walkthrough is a stop between the overview and the groups, only when the tour has one', () => {
-    const walkthrough = { decisions: [], frames: [], steps: [] };
-    const walking = model({ tour: tour({ walkthrough }) });
+    // A decision no group's walk reads, once the walks are written.
+    const walk = { decision: 0, title: '', why: '', snippets: [], refs: [], links: [] };
+    const walkthrough = { decisions: [walk], frames: [], steps: [] };
+    const stages = { ...tour().stages, notes: { state: 'done' as const } };
+    const walking = model({ tour: tour({ walkthrough, stages }) });
     const [atWalk, cmds] = run(walking, { type: 'GroupStepped', by: 1 });
     expect(atWalk.position.g).toBe(WALKTHROUGH);
     expect(cmds).toContainEqual({ type: 'ScrollToGroup', key: WALKTHROUGH });

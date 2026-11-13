@@ -33,7 +33,7 @@ import {
   tourStops,
 } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
-import { OVERVIEW, WALKTHROUGH } from '../lib/tour-view.ts';
+import { hasWalkStop, OVERVIEW, pathHome, WALKTHROUGH, walkHomes } from '../lib/tour-view.ts';
 import { AskPanel } from './AskPanel.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
@@ -59,6 +59,9 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const dispatch = useAtomSet(program.dispatch);
   const { tour: state, diff, viewed, expanded, navOpen, helpOpen, connection, connectionError } = model;
   const groups = useMemo(() => groupsInOrder(state), [state]);
+  const homes = useMemo(() => walkHomes(state, groups), [state, groups]);
+  const walkStop = hasWalkStop(state, groups);
+  const pathHomeKey = useMemo(() => pathHome(state, groups), [state, groups]);
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const current = currentGroup(model, groups);
   const index = current ? groups.indexOf(current) : -1;
@@ -225,7 +228,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           groups={groups}
           files={files}
           selection={selected}
-          walkthrough={!!state.walkthrough}
+          walkthrough={walkStop}
           activeFileId={model.activeFileId}
           viewed={viewed}
           loading={running}
@@ -321,15 +324,17 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   running={running}
                   onJumpToFile={jumpToFile}
                   onSelectGroup={select}
+                  homes={homes}
                 />
               ) : (
                 <Skeleton height={160} />
               )}
             </section>
-            {state.walkthrough && (
+            {state.walkthrough && walkStop && (
               <section className="stop" id={`group-${WALKTHROUGH}`} data-group-key={WALKTHROUGH}>
                 <Walkthrough
                   walkthrough={state.walkthrough}
+                  moved={homes}
                   decisions={state.decisions ?? []}
                   diff={diff}
                   onJumpToFile={jumpToFile}
@@ -341,7 +346,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             )}
             {groups.map((group) => (
               <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
-                <GroupPanel group={group} state={state} diff={diff} controls={controls} />
+                <GroupPanel
+                  group={group}
+                  state={state}
+                  diff={diff}
+                  controls={controls}
+                  onJumpToFile={jumpToFile}
+                  homes={homes}
+                  pathHomeKey={pathHomeKey}
+                />
               </section>
             ))}
           </div>

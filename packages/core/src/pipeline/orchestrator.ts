@@ -5,8 +5,10 @@ import type {
   FileChange,
   FileJudgment,
   GroupDefinition,
+  GroupNotes,
   ModelConfig,
   Placement,
+  ResolvedGroup,
   SourceRef,
   Stage,
   StageState,
@@ -28,7 +30,14 @@ import {
 } from '@gloss/protocol';
 import { Data, Effect, Fiber, FiberSet, Option, Queue, type Scope, Stream } from 'effect';
 import type * as v from 'valibot';
-import { DecisionRules, JudgeClient, type JudgeQuestion, ModelClient, type ModelRequest } from '../adapters/types.ts';
+import {
+  DecisionRules,
+  type JudgeAnswer,
+  JudgeClient,
+  type JudgeQuestion,
+  ModelClient,
+  type ModelRequest,
+} from '../adapters/types.ts';
 import { type CacheKind, TourCache } from '../cache/store.ts';
 import { hashOf } from '../hash.ts';
 import {
@@ -96,6 +105,25 @@ import {
   WalkthroughResultSchema,
 } from './prompts.ts';
 import { codeSearcher, fileReader, importerFinder } from './read-file.ts';
+import {
+  buildKeyStopsPrompt,
+  buildSectionPrompt,
+  contractFlags,
+  HUNK_QUESTIONS,
+  HUNK_WIDE_QUESTIONS,
+  type HunkScore,
+  hunkState,
+  KEY_STOPS_SYSTEM,
+  KeyStopsResultSchema,
+  normalizeKeyStops,
+  normalizeSection,
+  SECTION_SYSTEM,
+  SECTIONS_KEY,
+  SECTIONS_VERSION,
+  SectionResultSchema,
+  skippableHunks,
+  uncoveredKeyHunks,
+} from './sections.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
 
@@ -130,6 +158,7 @@ export function tourCacheKey(
     DESCRIPTION_CHECK_VERSION,
     AFFECTED_VERSION,
     QUESTIONS_VERSION,
+    SECTIONS_KEY,
     sourceKey,
     fingerprint,
     models,
@@ -918,6 +947,198 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     });
 
+  /**
+   * What Jev says of each hunk of a group, for its walk (`sections.ts`): two calls per hunk, since
+   * the skip question scores lower when the wider ones are asked beside it. A failed call leaves
+   * its hunk unscored: open and unflagged.
+   */
+  const judgeHunks = (client: JudgeClient['Service'], members: readonly FileChange[], group: ResolvedGroup) => {
+    const context = { summary: state.overallSummary ?? '', group: `${group.label}: ${group.summary}` };
+    const ask = (hunkQuestion: Record<string, unknown>, questions: Record<string, JudgeQuestion>) =>
+      cached(
+        'judge-file',
+        { kind: 'hunk', model: client.model, state: hunkQuestion, questions },
+        client.judge({ state: hunkQuestion, questions }),
+        client.model,
+      );
+    const p = (answer: JudgeAnswer | undefined) => (answer?.type === 'bool' ? answer.probability : undefined);
+    return Effect.forEach(
+      members
+        .filter((file) => !file.isBinary && !file.truncated)
+        .flatMap((file) => file.hunks.map((hunk) => ({ file, hunk }))),
+      ({ file, hunk }) =>
+        Effect.all(
+          [
+            ask(hunkState(meta.title, file, hunk), HUNK_QUESTIONS),
+            ask(hunkState(meta.title, file, hunk, context), HUNK_WIDE_QUESTIONS),
+          ],
+          { concurrency: 2 },
+        ).pipe(
+          Effect.map(([{ value: alone }, { value: wide }]): HunkScore => ({
+            fileId: file.id,
+            hunkId: hunk.id,
+            skip: p(alone.skip),
+            contract: p(wide.contract),
+            key: p(wide.key),
+          })),
+          Effect.catch((error) =>
+            Effect.sync((): HunkScore => {
+              warn('judge', `Jev failed on a hunk of ${file.path}: ${messageOf(error)}`, file.id);
+              return { fileId: file.id, hunkId: hunk.id };
+            }),
+          ),
+        ),
+      { concurrency: judgeConcurrency },
+    );
+  };
+  /** One traced, cached call for a group's walk; a failed call is only a warning (undefined). */
+  const askSections = <S extends v.GenericSchema>(
+    stepId: string,
+    subject: string,
+    system: string,
+    sectionPrompt: string,
+    result: S,
+  ) =>
+    Effect.suspend(() => {
+      trace.begin(stepId, 'notes', {
+        subject,
+        inputs: ['define'],
+        model: models.notes,
+        system,
+        prompt: sectionPrompt,
+      });
+      const reading = reader();
+      return cached(
+        'notes',
+        { SECTIONS_VERSION, kind: 'section', model: models.notes, system, prompt: sectionPrompt },
+        prompt(stepId, {
+          tier: 'notes',
+          system,
+          prompt: sectionPrompt,
+          result,
+          resultName: 'walk',
+          tools: [reading.tool],
+        }),
+        models.notes,
+      ).pipe(
+        Effect.map(({ value, hit }) => {
+          trace.end(stepId, { cached: hit, output: value, ...readFields(reading.reads()) });
+          return value as v.InferOutput<S> | undefined;
+        }),
+        Effect.catchTag('ModelError', (error) =>
+          Effect.sync(() => {
+            warn('notes', `Writing the walk for ${subject} failed: ${error.message}`);
+            trace.end(stepId, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
+            return undefined;
+          }),
+        ),
+      );
+    });
+  /**
+   * One group's walk (`sections.ts`), from its diff and the notes just written for it. It waits
+   * for the walkthrough: the change-wide decisions whose first snippet is in this group are read
+   * here, placed among the group's own stops, and so is the code path when most of it is here.
+   * `before` are the groups read before this one, `all` every group with a walk.
+   */
+  const walkGroup = (
+    group: ResolvedGroup,
+    members: readonly FileChange[],
+    notes: GroupNotes,
+    before: readonly ResolvedGroup[],
+    all: readonly ResolvedGroup[],
+  ) =>
+    Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
+      Effect.flatMap(() => {
+        const walks = state.walkthrough?.decisions ?? [];
+        const wideHere = walks.filter((walk) => group.fileIds.includes(walk.snippets[0]?.fileId ?? ''));
+        // The code path is read in the group that holds most of its excerpts (`pathHome` in the web app).
+        const excerpts = (state.walkthrough?.steps ?? []).flatMap((step) => step.excerpts);
+        const counts = new Map<string, number>();
+        for (const excerpt of excerpts) {
+          const home = all.find((other) => other.fileIds.includes(excerpt.fileId));
+          if (home) {
+            counts.set(home.key, (counts.get(home.key) ?? 0) + 1);
+          }
+        }
+        const pathHere =
+          [...counts].toSorted((a, b) => b[1] - a[1])[0]?.[0] === group.key
+            ? excerpts.filter((excerpt) => group.fileIds.includes(excerpt.fileId))
+            : [];
+        return Effect.all(
+          [
+            judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
+            askSections(
+              `section:${group.key}`,
+              `${group.label} (walk)`,
+              SECTION_SYSTEM,
+              buildSectionPrompt(
+                meta,
+                state.overallSummary,
+                state.decisions ?? [],
+                group,
+                members,
+                notes,
+                before,
+                wideHere,
+                pathHere,
+              ),
+              SectionResultSchema,
+            ),
+          ],
+          { concurrency: 2 },
+        ).pipe(
+          Effect.flatMap(([scores, value]) => {
+            if (!value) {
+              return Effect.succeed(undefined);
+            }
+            const normalized = normalizeSection(value, group, members, notes, {
+              wideHere,
+              pathHere,
+              shownInTour: [...walks.flatMap((walk) => walk.snippets), ...excerpts],
+              ...(scores ? { hunks: { skip: skippableHunks(scores), contract: contractFlags(scores) } } : {}),
+            });
+            normalized.warnings.forEach((message) => warn('notes', message));
+            // The first section has nothing before it to tie to.
+            const { intro, ...untied } = normalized.section;
+            const section = before.length === 0 || !intro ? untied : { intro, ...untied };
+            // A key hunk nothing points at gets a chance at a stop of its own, in one small follow-up call.
+            const missed = scores && normalized.covered ? uncoveredKeyHunks(scores, section, normalized.covered) : [];
+            if (missed.length === 0) {
+              return Effect.succeed(section);
+            }
+            const titles = section.points.flatMap((entry) =>
+              entry.kind === 'wide'
+                ? (walks.find((walk) => walk.decision === entry.wide)?.title ?? [])
+                : entry.title || entry.why,
+            );
+            return askSections(
+              `section-key:${group.key}`,
+              `${group.label} (key hunks)`,
+              KEY_STOPS_SYSTEM,
+              buildKeyStopsPrompt(meta, state.overallSummary, group, members, titles, missed),
+              KeyStopsResultSchema,
+            ).pipe(
+              Effect.map((extra) => {
+                const added = extra ? normalizeKeyStops(extra, group, members, missed) : [];
+                if (added.length === 0) {
+                  return section;
+                }
+                // The stop says more than a flag on the same hunk would.
+                const reached = new Set(added.flatMap((entry) => entry.snippets.map((s) => `${s.fileId}:${s.hunkId}`)));
+                const { hunkFlags, ...rest } = section;
+                const flags = hunkFlags?.filter((flag) => !reached.has(`${flag.fileId}:${flag.hunkId}`));
+                return {
+                  ...rest,
+                  points: [...section.points, ...added],
+                  ...(flags?.length ? { hunkFlags: flags } : {}),
+                };
+              }),
+            );
+          }),
+        );
+      }),
+    );
+
   const writeNotes = (groups: ReturnType<typeof resolveGroups>, placedBy: 'place' | 'followup') =>
     Effect.suspend(() => {
       const annotatable = groups.filter((group) => group.key !== SYNTHETIC_GROUPS.generated.key);
@@ -928,85 +1149,114 @@ const tourProgram = Effect.fnUntraced(function* (
       stage('notes', 'running', `${annotatable.length} groups`);
       const byId = new Map(files.map((file) => [file.id, file]));
       let failed = 0;
-      return Effect.forEach(
-        annotatable,
-        (group) =>
-          Effect.suspend(() => {
-            const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
-            const notesPrompt = buildNotesPrompt(
-              meta,
-              state.overallSummary,
-              group,
-              members,
-              state.judgments,
-              state.decisions,
-              // Only the rules whose files pattern matches one of this group's files.
-              rulesFor(
-                ruleSets,
-                members.map((file) => file.path),
-              ),
-            );
-            const stepId = `notes:${group.key}`;
-            trace.begin(stepId, 'notes', {
-              subject: group.label,
-              inputs: [placedBy, 'define', ...(judge ? ['judge-files'] : [])],
-              model: models.notes,
-              system: NOTES_SYSTEM,
-              prompt: notesPrompt,
-              sections: promptSections(notesPrompt, {
-                Overall: 'define',
-                'Change-wide decisions': 'define',
-                'This group': 'define',
-                'Flagged risks': judge ? 'judge-files' : 'define',
-                Files: placedBy,
-              }),
-            });
-            const reading = reader();
-            return cached(
-              'notes',
-              { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
-              prompt(stepId, {
-                tier: 'notes',
-                system: NOTES_SYSTEM,
-                prompt: notesPrompt,
-                result: NotesSchema,
-                resultName: 'notes',
-                tools: [reading.tool],
-              }),
-              models.notes,
-            ).pipe(
-              Effect.map(({ value, hit }) => {
-                const { notes, warnings } = normalizeNotes(value, group, members);
-                for (const message of warnings) {
-                  warn('notes', message);
-                }
-                const count = value.fileNotes.length + value.lineNotes.length + value.riskNotes.length;
-                trace.end(stepId, {
-                  cached: hit,
-                  output: value,
-                  ...readFields(reading.reads()),
-                  summary: `${count} notes`,
-                  ...(warnings.length ? { warnings } : {}),
+      const walks: Fiber.Fiber<void>[] = [];
+      // The description check's gaps are in the decision list before any notes prompt is built, so
+      // every group's prompt lists them whatever the timing. The check is done by now on most tours.
+      return Effect.suspend(() => (checking ? Fiber.join(checking) : Effect.void)).pipe(
+        Effect.flatMap(() =>
+          Effect.forEach(
+            annotatable,
+            (group) =>
+              Effect.suspend(() => {
+                const members = group.fileIds.map((id) => byId.get(id)).filter((file): file is FileChange => !!file);
+                const notesPrompt = buildNotesPrompt(
+                  meta,
+                  state.overallSummary,
+                  group,
+                  members,
+                  state.judgments,
+                  state.decisions,
+                  // Only the rules whose files pattern matches one of this group's files.
+                  rulesFor(
+                    ruleSets,
+                    members.map((file) => file.path),
+                  ),
+                );
+                const stepId = `notes:${group.key}`;
+                trace.begin(stepId, 'notes', {
+                  subject: group.label,
+                  inputs: [placedBy, 'define', ...(judge ? ['judge-files'] : [])],
+                  model: models.notes,
+                  system: NOTES_SYSTEM,
+                  prompt: notesPrompt,
+                  sections: promptSections(notesPrompt, {
+                    Overall: 'define',
+                    'Change-wide decisions': 'define',
+                    'This group': 'define',
+                    'Flagged risks': judge ? 'judge-files' : 'define',
+                    Files: placedBy,
+                  }),
                 });
-                send({ type: 'group.notes', groupKey: group.key, notes, source: hit ? 'cache' : 'llm' });
+                const reading = reader();
+                return cached(
+                  'notes',
+                  { PROMPTS_VERSION, model: models.notes, prompt: notesPrompt },
+                  prompt(stepId, {
+                    tier: 'notes',
+                    system: NOTES_SYSTEM,
+                    prompt: notesPrompt,
+                    result: NotesSchema,
+                    resultName: 'notes',
+                    tools: [reading.tool],
+                  }),
+                  models.notes,
+                ).pipe(
+                  Effect.flatMap(({ value, hit }) => {
+                    const { notes, warnings } = normalizeNotes(value, group, members);
+                    for (const message of warnings) {
+                      warn('notes', message);
+                    }
+                    const count = value.fileNotes.length + value.lineNotes.length + value.riskNotes.length;
+                    trace.end(stepId, {
+                      cached: hit,
+                      output: value,
+                      ...readFields(reading.reads()),
+                      summary: `${count} notes`,
+                      ...(warnings.length ? { warnings } : {}),
+                    });
+                    const source = hit ? ('cache' as const) : ('llm' as const);
+                    send({ type: 'group.notes', groupKey: group.key, notes, source });
+                    // The walk is written outside the notes slots, so the next group's notes start at
+                    // once. The notes are on the page meanwhile; they are sent again with the walk.
+                    return Effect.forkScoped(
+                      walkGroup(
+                        group,
+                        members,
+                        notes,
+                        annotatable.slice(0, annotatable.indexOf(group)),
+                        annotatable,
+                      ).pipe(
+                        Effect.map((section) => {
+                          if (section) {
+                            send({ type: 'group.notes', groupKey: group.key, notes: { ...notes, section }, source });
+                          }
+                        }),
+                      ),
+                    ).pipe(
+                      Effect.map((fiber) => {
+                        walks.push(fiber);
+                      }),
+                    );
+                  }),
+                  Effect.catchTag('ModelError', (error) =>
+                    Effect.sync(() => {
+                      failed++;
+                      trace.end(stepId, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
+                      send({
+                        type: 'job.error',
+                        stage: 'notes',
+                        code: 'model',
+                        message: `Notes for "${group.label}" failed: ${error.message}`,
+                        fatal: false,
+                      });
+                    }),
+                  ),
+                );
               }),
-              Effect.catchTag('ModelError', (error) =>
-                Effect.sync(() => {
-                  failed++;
-                  trace.end(stepId, { ...readFields(reading.reads()), warnings: [error.message] }, 'failed');
-                  send({
-                    type: 'job.error',
-                    stage: 'notes',
-                    code: 'model',
-                    message: `Notes for "${group.label}" failed: ${error.message}`,
-                    fatal: false,
-                  });
-                }),
-              ),
-            );
-          }),
-        { concurrency: options.concurrency?.notes ?? 3, discard: true },
-      ).pipe(
+            { concurrency: options.concurrency?.notes ?? 3, discard: true },
+          ),
+        ),
+        Effect.tap(() => Effect.forEach(walks, (fiber) => Fiber.join(fiber), { discard: true })),
         Effect.tap(() =>
           Effect.sync(() =>
             stage(

@@ -1318,6 +1318,21 @@
     font-weight: 500;
   }
 
+  /* A group read as a walk (SectionWalk), then its diffs under "All changes". */
+  .walk-intro,
+  .section-rest p {
+    margin: 0;
+    max-width: 72ch;
+    color: var(--color-text-secondary);
+  }
+
+  .section-rest {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    margin-top: var(--spacing-4);
+  }
+
   /* The key code paths after the decisions: its steps read down a dimmed slice of one call tree. */
   .walk-path {
     display: flex;
@@ -1872,6 +1887,17 @@
     padding: var(--spacing-2) var(--spacing-3);
     color: var(--color-text-secondary);
     font-size: 12px;
+  }
+
+  /* The hunks a section marks unimportant, folded under one line in their file. */
+  button.folded-hunks {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    background: none;
+    text-align: left;
+    cursor: pointer;
   }
 
   /* A changed image: both sides at the same scale, the old one edged red and the new one green. */
