@@ -385,8 +385,10 @@ export function buildSectionPrompt(
   before: readonly ResolvedGroup[],
   wideHere: readonly DecisionWalk[],
   pathHere: readonly Shown[],
+  /** Paths of files outside the group, for a change-wide decision read here whose code is in a group with no walk. */
+  elsewhere: ReadonlyMap<string, string> = new Map(),
 ): string {
-  const pathOf = (fileId: string) => files.find((file) => file.id === fileId)?.path ?? fileId;
+  const pathOf = (fileId: string) => files.find((file) => file.id === fileId)?.path ?? elsewhere.get(fileId) ?? fileId;
   const parts = [
     header(meta),
     '',

@@ -591,7 +591,7 @@ describe('runTour', () => {
     expect(events.some((event) => event.type === 'job.error')).toBe(false);
   });
 
-  it('folds a hunk Jev can skip, and offers a key hunk the walk misses to a follow-up call', async () => {
+  it('asks Jev about the hunks of a walked group, and offers a key hunk the walk misses to a follow-up call', async () => {
     const base = fakeModel();
     const empty = { fileNotes: [], lineNotes: [], riskNotes: [], decisions: [] };
     const model = createFakeModelClient({
@@ -637,15 +637,8 @@ describe('runTour', () => {
       },
     };
     const { tour: finished, trace } = await tour({ model, judge });
-    const id = (path: string) => finished.files.find((file) => file.path === path)!.id;
-    // A skippable hunk folds, and is neither flagged nor offered.
-    // A docs group has no walk, so its section holds the fold alone.
-    expect(finished.notes.docs!.section).toEqual({
-      points: [],
-      skim: [],
-      skimHunks: [{ fileId: id('README.md'), hunkId: expect.any(String) }],
-    });
-    // A group with no walk is asked the skip question only: no flag, and with nothing to fold, no section.
+    // Docs and tests groups have no walk: no section, and Jev is not asked about their hunks.
+    expect(finished.notes.docs!.section).toBeUndefined();
     expect(finished.notes.tests!.section).toBeUndefined();
     // A key hunk gets a stop from the follow-up call, which says more than its flag would.
     expect(finished.notes.auth!.section).toMatchObject({ points: [{ kind: 'decision', title: 'The rule itself' }] });
@@ -655,8 +648,7 @@ describe('runTour', () => {
     const asked = (path: string) => states.filter((state) => (state.file as { path: string }).path === path);
     expect(asked('src/auth.ts')).toHaveLength(2);
     expect(asked('src/auth.ts').filter((state) => 'change_summary' in state)).toHaveLength(1);
-    expect(asked('README.md')).toHaveLength(1);
-    expect(asked('README.md').filter((state) => 'change_summary' in state)).toHaveLength(0);
+    expect(asked('README.md')).toHaveLength(0);
   });
 
   it('lists the description gaps in every notes prompt, however late the check lands', async () => {

@@ -123,8 +123,9 @@ walk (lost findings, no faster), and writing the walk before the walkthrough lan
 
 Docs and tests groups get no walk (`walkedGroups`; Brian, 2026-11-13: there the walk reads worse than the files). Their
 stops only repeat the notes: what the doc says, what each test covers. Such a group is one whose category is docs or
-tests, or whose open files are all guidance or all tests. It keeps notes and open diffs, with no model call; Jev is
-asked the skip question alone, so unimportant hunks still fold. Tests keep their walks when code outside tests is
+tests, or whose open files are all guidance or all tests. It keeps notes and open diffs as before walks existed: no
+model call, no Jev hunk scores, no folds. A change-wide decision whose snippets are all in such groups is read in the
+walked group its own file is in, else with the code path, else in the first walked group. Tests keep their walks when code outside tests is
 under 30% of the non-doc lines (`PLAIN_CODE_SHARE`): in an e2e-only PR the tests are the change. In 9 tours the rule
 picked every group where the walk read worse and no code group.
 

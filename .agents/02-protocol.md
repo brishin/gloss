@@ -44,7 +44,7 @@ A group's walk rides on `group.notes` as `notes.section`, in a second event for 
 it is written: `intro?`, `points` (each `decision`, `step`, or `wide` for the walkthrough entry
 of decision number `wide`, read in this group), `rest?`, `path?` (the code path is read here), and
 what a reviewer can skip: `skim` file ids, `skimHunks`, and `hunkFlags` (a note on a hunk nothing
-else points at). A docs or tests group has no walk: its section, if any, holds `skimHunks` alone.
+else points at). A docs or tests group has no walk and no section.
 The web app shows the walkthrough's decisions and code path inside the groups whose sections took
 them (`walkHomes`, `pathHome`), and a walkthrough stop only for what no walk took.
 

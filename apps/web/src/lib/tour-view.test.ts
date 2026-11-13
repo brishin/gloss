@@ -225,7 +225,7 @@ describe("the walkthrough read in the groups' walks", () => {
     ['done', [group('a', [0]), group('b')], [walk(0), walk(1)], [], true],
     // So does a code path no walk took.
     ['done', [group('a', [0])], [walk(0)], steps, true],
-    // A group with folds only (docs, tests) takes nothing.
+    // A walk that placed nothing takes nothing.
     ['done', [group('a', [])], [walk(0)], [], true],
     ['failed', [group('a'), group('b')], [walk(0)], [], true],
   ] as const)('notes %s: a walkthrough stop', (notes, groups, decisions, path, expected) => {

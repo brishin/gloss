@@ -951,16 +951,10 @@ const tourProgram = Effect.fnUntraced(function* (
 
   /**
    * What Jev says of each hunk of a group, for its walk (`sections.ts`): two calls per hunk, since
-   * the skip question scores lower when the wider ones are asked beside it. A group with no walk
-   * (`wider` false) is asked the skip question only. A failed call leaves its hunk unscored: open
-   * and unflagged.
+   * the skip question scores lower when the wider ones are asked beside it. A failed call leaves
+   * its hunk unscored: open and unflagged.
    */
-  const judgeHunks = (
-    client: JudgeClient['Service'],
-    members: readonly FileChange[],
-    group: ResolvedGroup,
-    wider: boolean,
-  ) => {
+  const judgeHunks = (client: JudgeClient['Service'], members: readonly FileChange[], group: ResolvedGroup) => {
     const context = { summary: state.overallSummary ?? '', group: `${group.label}: ${group.summary}` };
     const ask = (hunkQuestion: Record<string, unknown>, questions: Record<string, JudgeQuestion>) =>
       cached(
@@ -978,9 +972,7 @@ const tourProgram = Effect.fnUntraced(function* (
         Effect.all(
           [
             ask(hunkState(meta.title, file, hunk), HUNK_QUESTIONS),
-            wider
-              ? ask(hunkState(meta.title, file, hunk, context), HUNK_WIDE_QUESTIONS)
-              : Effect.succeed({ value: {} as Record<string, JudgeAnswer>, hit: true }),
+            ask(hunkState(meta.title, file, hunk, context), HUNK_WIDE_QUESTIONS),
           ],
           { concurrency: 2 },
         ).pipe(
@@ -1047,12 +1039,12 @@ const tourProgram = Effect.fnUntraced(function* (
     });
   /**
    * One group's walk (`sections.ts`), from its diff and the notes just written for it. It waits
-   * for the walkthrough: the change-wide decisions whose first snippet in a walked group is in this
-   * one are read here, placed among the group's own stops, and so is the code path when most of it
-   * is here. `before` are the groups read before this one, `walked` every group that gets a walk.
+   * for the walkthrough: the change-wide decisions whose code is in this group are read here,
+   * placed among the group's own stops, and so is the code path when most of it is here. `before`
+   * are the groups read before this one, `walked` every group that gets a walk.
    *
-   * A group that reads better file by file (`walkedGroups`: docs, tests) gets no walk and no model
-   * call; Jev still says which of its hunks fold.
+   * A group that reads better file by file (`walkedGroups`: docs, tests) gets no walk: no call,
+   * no folds, its notes and diffs as they are.
    */
   const walkGroup = (
     group: ResolvedGroup,
@@ -1063,44 +1055,39 @@ const tourProgram = Effect.fnUntraced(function* (
   ) =>
     Effect.suspend(() => (walking ? Fiber.join(walking) : Effect.void)).pipe(
       Effect.flatMap(() => {
+        if (!walked.includes(group)) {
+          return Effect.succeed(undefined);
+        }
         const walks = state.walkthrough?.decisions ?? [];
         const excerpts = (state.walkthrough?.steps ?? []).flatMap((step) => step.excerpts);
         const shownInTour = [...walks.flatMap((walk) => walk.snippets), ...excerpts];
-        if (!walked.includes(group)) {
-          if (!judge) {
-            return Effect.succeed(undefined);
-          }
-          return judgeHunks(judge, members, group, false).pipe(
-            Effect.map((scores) => {
-              const { section } = normalizeSection({}, group, members, notes, {
-                wideHere: [],
-                pathHere: [],
-                shownInTour,
-                hunks: { skip: skippableHunks(scores), contract: [] },
-              });
-              return section.skimHunks ? section : undefined;
-            }),
-          );
-        }
-        const inWalked = (fileId: string) => walked.some((other) => other.fileIds.includes(fileId));
-        const wideHere = walks.filter((walk) =>
-          group.fileIds.includes(walk.snippets.find((snippet) => inWalked(snippet.fileId))?.fileId ?? ''),
-        );
+        const homeOf = (fileId: string | undefined) =>
+          fileId === undefined ? undefined : walked.find((other) => other.fileIds.includes(fileId));
         // The code path is read in the walked group that holds most of its excerpts.
         const counts = new Map<string, number>();
         for (const excerpt of excerpts) {
-          const home = walked.find((other) => other.fileIds.includes(excerpt.fileId));
+          const home = homeOf(excerpt.fileId);
           if (home) {
             counts.set(home.key, (counts.get(home.key) ?? 0) + 1);
           }
         }
+        const pathHome = [...counts].toSorted((a, b) => b[1] - a[1])[0]?.[0];
         const pathHere =
-          [...counts].toSorted((a, b) => b[1] - a[1])[0]?.[0] === group.key
-            ? excerpts.filter((excerpt) => group.fileIds.includes(excerpt.fileId))
-            : [];
+          pathHome === group.key ? excerpts.filter((excerpt) => group.fileIds.includes(excerpt.fileId)) : [];
+        // A change-wide decision is read where its code is: the group of its first snippet in a walked
+        // group. One shown only in docs or tests is read where the decision points, else with the code
+        // path, else in the first walked group, so the page needs no walkthrough stop for it.
+        const wideHome = (walk: (typeof walks)[number]) =>
+          (
+            walk.snippets.map((snippet) => homeOf(snippet.fileId)).find(Boolean) ??
+            homeOf(state.decisions?.[walk.decision]?.fileId) ??
+            walked.find((other) => other.key === pathHome) ??
+            walked[0]
+          )?.key;
+        const wideHere = walks.filter((walk) => wideHome(walk) === group.key);
         return Effect.all(
           [
-            judge ? judgeHunks(judge, members, group, true) : Effect.succeed(undefined),
+            judge ? judgeHunks(judge, members, group) : Effect.succeed(undefined),
             askSections(
               `section:${group.key}`,
               `${group.label} (walk)`,
@@ -1115,6 +1102,7 @@ const tourProgram = Effect.fnUntraced(function* (
                 before,
                 wideHere,
                 pathHere,
+                new Map(files.map((file) => [file.id, file.path])),
               ),
               SectionResultSchema,
             ),
