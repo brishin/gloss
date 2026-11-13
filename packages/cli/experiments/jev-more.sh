@@ -35,7 +35,7 @@ export OUT
 case "${1:-}" in
   content) printf '%s\n' $ALL | xargs -P 3 -I{} bash -c 'content_one {}' ;;
   analyze) printf '%s\n' $ALL | xargs -P 2 -I{} bash -c 'analyze_one {}' ;;
-  diet) printf '%s\n' $ALL | xargs -P 3 -I{} bash -c 'tour {} diet diet' ;;
+  diet) printf '%s\n' $ALL | xargs -P 3 -I{} bash -c 'tour {} dietarm diet' ;;
   fresh)
     # One tour at a time, arms back to back, so each pair shares a time window.
     for round in 1 2; do
