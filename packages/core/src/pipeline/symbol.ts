@@ -102,6 +102,8 @@ export interface SymbolCard {
     added: number;
     /** How many of the uses call it; the rest pass, set or read it. */
     calls: number;
+    /** Lines whose syntax uses the name that the model said are some other thing. */
+    skipped: number;
     summary?: string;
     lines: SymbolLine[];
   };
@@ -302,6 +304,7 @@ export async function normalizeSymbolCard(
       tests: uses.filter((use) => TEST_PATH.test(use.path)).length,
       added: uses.filter((use) => lineAdded(diff, use.path, use.line)).length,
       calls: uses.filter((use) => use.kind === 'call').length,
+      skipped: lines.length - uses.length,
       ...(summary && uses.length > 1 ? { summary } : {}),
       lines: uses,
     };
