@@ -785,6 +785,8 @@ export const PROMPTS_VERSION = hashOf({
   CALL_PATH_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
+  /** How `groupBodies` shares the budget in notes and walk prompts; bump when that changes. */
+  GROUP_BUDGET: 'spare',
   SCHEMA_VERSION,
 }).slice(0, 12);
 
