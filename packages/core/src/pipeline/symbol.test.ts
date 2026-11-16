@@ -18,7 +18,8 @@ const files: Record<string, string> = {
 };
 const read = (path: string) => Promise.resolve(files[path]);
 const draft = (over: Partial<SymbolCardDraft>): SymbolCardDraft => ({
-  lead: ' Lead. ',
+  checked: [],
+  lead: ' Lead. Second sentence. ',
   rows: { label: '', items: [] },
   excerpt: { path: '', from: 0, to: 0 },
   effect: '',

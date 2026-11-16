@@ -22,7 +22,9 @@ Use search_code and read_file before you answer. Every fact must come from code 
 
 ## The card
 
-lead: ONE sentence, 20 words at most. It is the finding, not a description. Do not say what kind of thing the symbol is, do not restate its body, and do not start with its name, "Resolves", "Returns", "Helper", or "This".
+checked: fill this first. One entry for each place you read that calls, passes, sets or reads the symbol: where it is, and what it does with the symbol in a few words. For a flag or gate, and for a value that is only read behind one, list every entry point that reaches the clicked line (follow the callers of the enclosing function up to where requests come in) and say for each whether it supplies what the gate needs. List at least three places when that many exist. If you cannot fill this, search and read more before going on. The lead comes from what differs between these entries.
+
+lead: ONE sentence, 20 words at most. It is the finding, not a description. Do not say what kind of thing the symbol is, do not restate its body, and do not start with its name, "Resolves", "Returns", "Helper", or "This". A lead that starts with the symbol's name is an error.
   Too long and descriptive: "Resolves the thread's source into a kind and name, but only if that item is attached. The name is cleaned. Otherwise it returns None."
   Right: "The attached Capture or Collection this Session started from; None for anything else."
 
@@ -43,6 +45,12 @@ definition: the path and line where the symbol is defined.
 A card that is only a lead is a good card. Plain words, present tense. Backticks around code names in lead and effect only. Before you submit, count the words in lead and effect and cut them to the limit.`;
 
 export const SymbolCardSchema = v.object({
+  checked: v.array(
+    v.object({
+      place: v.pipe(v.string(), v.description('path:line, or the entry point by name with its path:line.')),
+      does: v.pipe(v.string(), v.description('What this place does with the symbol, a few words.')),
+    }),
+  ),
   lead: v.pipe(v.string(), v.description('One or two sentences, 24 words at most.')),
   rows: v.object({
     label: v.pipe(v.string(), v.description('Two or three plain words; empty when there are no items.')),
@@ -127,6 +135,13 @@ export function buildSymbolPrompt({ tour, diff, fileId, line, symbol }: RunSymbo
     .join('\n\n');
 }
 
+/** The first sentence of `text`: a full stop, then a space and a capital or backtick, ends it. */
+export function firstSentence(text: string): string {
+  const trimmed = text.trim();
+  const end = trimmed.search(/[.!?](?=\s+[A-Z`])/);
+  return end === -1 ? trimmed : trimmed.slice(0, end + 1);
+}
+
 /** Model output is untrusted: clamp the card, and read the excerpt's lines from the repository. */
 export async function normalizeSymbolCard(
   draft: SymbolCardDraft,
@@ -134,7 +149,7 @@ export async function normalizeSymbolCard(
   diff: DiffPayload,
   read: (path: string) => Promise<string | undefined>,
 ): Promise<SymbolCard> {
-  const card: SymbolCard = { symbol, lead: draft.lead.trim() };
+  const card: SymbolCard = { symbol, lead: firstSentence(draft.lead) };
   const items = draft.rows.items
     .map((item) => ({ value: item.value.trim(), where: item.where.trim(), code: item.code }))
     .filter((item) => item.value && item.where)
@@ -157,7 +172,7 @@ export async function normalizeSymbolCard(
     }
   }
   if (draft.effect.trim()) {
-    card.effect = draft.effect.trim();
+    card.effect = firstSentence(draft.effect);
   }
   const definedAt = repoPath(draft.definition.path.trim());
   if (definedAt && draft.definition.line >= 1) {
@@ -176,7 +191,11 @@ export async function normalizeSymbolCard(
 /** One card for one clicked symbol, with what the model read on the way. */
 export function runSymbol(
   options: RunSymbolOptions,
-): Effect.Effect<{ card: SymbolCard; reads: string[]; model: string }, ModelError, ModelClient | RepoClones> {
+): Effect.Effect<
+  { card: SymbolCard; checked: SymbolCardDraft['checked']; reads: string[]; model: string },
+  ModelError,
+  ModelClient | RepoClones
+> {
   const { diff } = options;
   return Effect.scoped(
     Effect.gen(function* () {
@@ -206,7 +225,12 @@ export function runSymbol(
       const card = yield* Effect.promise(() =>
         normalizeSymbolCard(response.data, options.symbol, diff, (path) => read(path).catch(() => undefined)),
       );
-      return { card, reads: [...searcher.reads(), ...reader.reads()], model: response.model };
+      return {
+        card,
+        checked: response.data.checked,
+        reads: [...searcher.reads(), ...reader.reads()],
+        model: response.model,
+      };
     }),
   );
 }
