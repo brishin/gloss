@@ -7,10 +7,12 @@ import {
   type HunkScore,
   normalizeKeyStops,
   normalizeSection,
+  notePairs,
   type SectionContext,
   skippableHunks,
   uncoveredKeyHunks,
   walkedGroups,
+  withoutRepeats,
 } from './sections.ts';
 
 const patch = Array.from({ length: 60 }, (_, i) => `+line ${i + 1}`).join('\n');
@@ -247,6 +249,48 @@ describe('normalizeKeyStops', () => {
     expect(points.map((point) => [point.title, point.kind, point.snippets.length, point.tree])).toEqual([
       ['two snippets', 'decision', 1, undefined],
     ]);
+  });
+});
+
+describe('repeated line notes', () => {
+  const note = (text: string, critical?: boolean) => ({
+    fileId: 'f1',
+    hunkId: 'h1',
+    side: 'additions' as const,
+    line: 2,
+    text,
+    ...(critical ? { critical } : {}),
+  });
+  const withNotes: GroupNotes = {
+    ...notes,
+    lineNotes: [note('first'), note('critical', true), note('second')],
+  };
+  const section = {
+    points: [
+      { kind: 'wide' as const, wide: 0, title: '', why: '', snippets: [] },
+      { kind: 'decision' as const, title: 'A', why: 'Because.', snippets: [] },
+      { kind: 'step' as const, title: 'B', why: 'Then.', snippets: [] },
+    ],
+  };
+
+  test("pairs each note that is not critical with each of the group's own stops, the stop first", () => {
+    expect(notePairs(withNotes, section)).toEqual([
+      { note: 0, a: 'A. Because.', b: 'first' },
+      { note: 0, a: 'B. Then.', b: 'first' },
+      { note: 2, a: 'A. Because.', b: 'second' },
+      { note: 2, a: 'B. Then.', b: 'second' },
+    ]);
+  });
+
+  test.each([
+    { same: [0.1, 0.2, 0.3, 0.1], kept: ['first', 'critical', 'second'] },
+    { same: [0.1, 0.7, 0.3, 0.1], kept: ['critical', 'second'] },
+    { same: [0.69, 0.1, 0.1, 0.95], kept: ['first', 'critical'] },
+    // A failed call leaves its pair unscored, and the note stays.
+    { same: [undefined, undefined, 0.9, undefined], kept: ['first', 'critical'] },
+  ])('keeps $kept for scores $same', ({ same, kept }) => {
+    const pairs = notePairs(withNotes, section);
+    expect(withoutRepeats(withNotes, pairs, same).map((entry) => entry.text)).toEqual(kept);
   });
 });
 

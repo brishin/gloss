@@ -9,6 +9,7 @@ import type {
   ModelConfig,
   Placement,
   ResolvedGroup,
+  Section,
   SourceRef,
   Stage,
   StageState,
@@ -118,9 +119,12 @@ import {
   KeyStopsResultSchema,
   normalizeKeyStops,
   normalizeSection,
+  notePairs,
+  withoutRepeats,
   SECTION_SYSTEM,
   SECTIONS_KEY,
   SECTIONS_VERSION,
+  SAME_POINT_QUESTIONS,
   SectionResultSchema,
   skippableHunks,
   uncoveredKeyHunks,
@@ -996,6 +1000,38 @@ const tourProgram = Effect.fnUntraced(function* (
       { concurrency: judgeConcurrency },
     );
   };
+  /**
+   * A group's line notes without those one of its own stops already makes (`notePairs`): the walk
+   * is read first, so the note would only say it again on its line. Without Jev, or when a call
+   * fails, every note stays.
+   */
+  const hideRepeats = (notes: GroupNotes, section: Section) => {
+    const pairs = notePairs(notes, section);
+    if (!judge || pairs.length === 0) {
+      return Effect.succeed(notes.lineNotes);
+    }
+    return Effect.forEach(
+      pairs,
+      ({ a, b }) => {
+        const pairState = { pr_title: meta.title, a, b };
+        return cached(
+          'judge-file',
+          { kind: 'same-point', model: judge.model, state: pairState, questions: SAME_POINT_QUESTIONS },
+          judge.judge({ state: pairState, questions: SAME_POINT_QUESTIONS }),
+          judge.model,
+        ).pipe(
+          Effect.map(({ value }) => (value.same?.type === 'bool' ? value.same.probability : undefined)),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              warn('judge', `Jev could not compare a note with a stop: ${messageOf(error)}`);
+              return undefined;
+            }),
+          ),
+        );
+      },
+      { concurrency: judgeConcurrency },
+    ).pipe(Effect.map((same) => withoutRepeats(notes, pairs, same)));
+  };
   /** One traced, cached call for a group's walk; a failed call is only a warning (undefined). */
   const askSections = <S extends v.GenericSchema>(
     stepId: string,
@@ -1276,11 +1312,20 @@ const tourProgram = Effect.fnUntraced(function* (
                         annotatable,
                         support,
                       ).pipe(
-                        Effect.map((section) => {
-                          if (section) {
-                            send({ type: 'group.notes', groupKey: group.key, notes: { ...notes, section }, source });
-                          }
-                        }),
+                        Effect.flatMap((section) =>
+                          section
+                            ? hideRepeats(notes, section).pipe(
+                                Effect.map((lineNotes) =>
+                                  send({
+                                    type: 'group.notes',
+                                    groupKey: group.key,
+                                    notes: { ...notes, lineNotes, section },
+                                    source,
+                                  }),
+                                ),
+                              )
+                            : Effect.void,
+                        ),
                       ),
                     ).pipe(
                       Effect.map((fiber) => {

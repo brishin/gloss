@@ -121,6 +121,11 @@ section call marking hunks itself (few folds, worse walk), Jev flags for weakene
 failures and unrelated hunks (silent, wrong, or already said by the walk), a smaller model or less thinking for the
 walk (lost findings, no faster), and writing the walk before the walkthrough lands (repeats it).
 
+Once the walk is written, Jev reads each line note of the group against each of its own stops (`SAME_POINT_QUESTIONS`,
+the stop as `a`, the note as `b`): at 0.7 or over (`SAME_POINT`) the stop already makes the note's point, so the walk's
+`group.notes` drops the note and its line shows no repeat. Critical notes always stay, and change-wide stops are not
+compared. On 8 eval tours this found 13 pairs, all true repeats (2026-11-13).
+
 A group gets a walk when the behavior of the change is decided in it (`walkedGroups`; Brian, 2026-11-13: on docs and
 tests the walk reads worse than the files, and he asked for a general rule, not a list of kinds). A group that only
 supports the change reads file by file, as before walks existed: no walk call, no folds. Its stops would only repeat

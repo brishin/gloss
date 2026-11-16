@@ -44,7 +44,8 @@ A group's walk rides on `group.notes` as `notes.section`, in a second event for 
 it is written: `intro?`, `points` (each `decision`, `step`, or `wide` for the walkthrough entry
 of decision number `wide`, read in this group), `rest?`, `path?` (the code path is read here), and
 what a reviewer can skip: `skim` file ids, `skimHunks`, and `hunkFlags` (a note on a hunk nothing
-else points at). A group that only supports the change (tests, docs, config) has no walk and no section.
+else points at). The second event can hold fewer `lineNotes` than the first: a note one of the
+group's own stops repeats is dropped. A group that only supports the change (tests, docs, config) has no walk and no section.
 The web app shows the walkthrough's decisions and code path inside the groups whose sections took
 them (`walkHomes`, `pathHome`), and a walkthrough stop only for what no walk took.
 
