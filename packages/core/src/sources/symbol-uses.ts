@@ -213,6 +213,8 @@ export interface NamedAt {
   member: boolean;
   /** Rows (from 1) of the function around a definition that is not a parameter, when there is one. */
   within?: { from: number; to: number };
+  /** A definition that is a parameter. */
+  parameter?: boolean;
   /** A definition at the top of a JavaScript or TypeScript file that the file does not export. */
   unexported?: boolean;
 }
@@ -259,6 +261,9 @@ export async function namedAt(
               parent.type === 'pair' ||
               parent.type === 'jsx_attribute'),
         };
+        if (kind === 'define' && (node.type === 'property_identifier' || parameter(node))) {
+          found.parameter = true;
+        }
         // A property of an object or a type is not a name in scope.
         if (kind === 'define' && parent && node.type !== 'property_identifier' && !parameter(node)) {
           let above: Node | null = parent;

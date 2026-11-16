@@ -119,7 +119,7 @@ const grep = (sources: Record<string, string>, symbol: string) =>
     ),
   );
 const kinds = async (sources: Record<string, string>, symbol: string, clicked: { path: string; line: number }) =>
-  (await symbolUses(grep(sources, symbol), symbol, clicked, (path) => Promise.resolve(sources[path]))).map(
+  (await symbolUses(grep(sources, symbol), symbol, clicked, (path) => Promise.resolve(sources[path]))).lines.map(
     (use) => `${use.path}:${use.line} ${use.kind}`,
   );
 
@@ -190,6 +190,8 @@ test('a name defined inside a function, or not exported, is counted only where i
   const lazy = {
     'a.ts': "async function f() {\n  const { go } = await import('./go');\n  return go(1);\n}",
     'b.ts': "async function g() {\n  const { go } = await import('./go');\n  return go(2);\n}",
+    // A file that neither imports nor defines it has some other `go`.
+    'c.ts': 'function h(go: number) {\n  return go;\n}',
   };
   expect(await kinds(lazy, 'go', { path: 'a.ts', line: 3 })).toEqual(['a.ts:3 call', 'b.ts:3 call']);
 });
