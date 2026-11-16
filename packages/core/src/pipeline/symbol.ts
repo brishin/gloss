@@ -3,7 +3,7 @@ import { Effect, FiberSet } from 'effect';
 import * as v from 'valibot';
 import { ModelClient, type ModelError } from '../adapters/types.ts';
 import { RepoClones } from '../sources/clone.ts';
-import { readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
+import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
 import { codeSearcher, fileReader } from './read-file.ts';
 
 /**
@@ -16,7 +16,7 @@ export const SYMBOL_SYSTEM = `A reviewer reading a pull request clicked a symbol
 ## Look first
 
 Use search_code and read_file before you answer. Every fact must come from code you read in this session.
-- Find the definition, then every place that calls, passes, sets or reads the symbol.
+- Find the definition, then every place that calls, passes, sets or reads the symbol. When the prompt has "Every line that names the symbol", that list is complete: start from it instead of searching for the name.
 - Go one hop past the obvious. For a flag, gate or boolean: find what makes it true, then check each entry point: does it ever supply that? For a parameter or a stored value: check what each caller passes, and whether that caller's path ever reads it. A value that is passed but never read on some path is the finding.
 - For a helper: find the default or edge case that matters at the clicked line. Stay on the helper; do not report on the feature around it.
 - search_code shows at most 5 matches per file, so a missing match proves nothing. Before you say something has no caller, is never read or never runs, read the file where it would be used and find the lines. If you did not, do not make the claim.
@@ -33,6 +33,10 @@ lead: ONE sentence, 20 words at most. It is the finding, not a description. Do n
 rows: most cards have none. Use rows only when the finding itself is that places differ and the lead cannot carry it. Never use rows to list callers that the lead does not talk about, to restate checked, or to show places that all behave the same. label is two or three plain words that say what the values are ("callers pass", "gets the tool"), never one word such as "from". Each item is a value (code, or a few plain words) and where (the name a reader of this codebase would use for the place, such as "threads" or "Slack"; add path:line only when the name is not enough). Group places that pass the same thing into one item ("threads, Slack"), and keep the odd one out as its own item. Four items at most.
 
 excerpt: the few lines that decide the behavior (the condition, the default, the branch), 8 lines at most. Never a signature, a docstring or imports. Only lines that this pull request's diff does not show. Give the path and line range and do not quote code. Leave the path empty when nothing outside the diff needs showing.
+
+uses: the prompt may list every line at the head that names the symbol, numbered. The reader is shown a count made from that list ("7 uses in 4 files"), so never write a count yourself.
+  skip: the numbers of the lines that are not a use of the clicked symbol: its own definition, imports and exports, comments, docs and strings, and other things that only share the name. Read a line's file when you cannot tell from the line.
+  summary: one line, 14 words at most, that tells the uses apart by what they do ("threads and Slack pass the thread's source; admin passes None"). Name places the way a reader of this codebase would. Empty when there is at most one use, when the uses all do the same thing the clicked line does, or when the lead already says it. When summary says how places differ, leave rows empty.
 
 effect: ONE sentence, 20 words at most: what the finding means at the clicked line, when a reviewer would act on it or would not guess it. Empty otherwise.
 
@@ -73,6 +77,10 @@ export const SymbolCardSchema = v.object({
     from: v.number(),
     to: v.number(),
   }),
+  uses: v.object({
+    skip: v.pipe(v.array(v.number()), v.description('Numbers of the listed lines that are not a use of the symbol.')),
+    summary: v.pipe(v.string(), v.description('One line, 14 words at most, or empty.')),
+  }),
   effect: v.pipe(v.string(), v.description('One sentence, 20 words at most, or empty.')),
   definition: v.object({ path: v.string(), line: v.number() }),
 });
@@ -84,8 +92,17 @@ export interface SymbolCard {
   rows?: { label: string; items: { value: string; where: string; code: boolean }[] };
   /** Lines read from the repository at the head. */
   excerpt?: { path: string; from: number; lines: string[] };
+  /** Counted from grep at the head, less the lines the model says are not uses; the summary is the model's. */
+  uses?: { count: number; files: number; tests: number; added: number; summary?: string; lines: SymbolLine[] };
   effect?: string;
   definition?: { path: string; line: number; inDiff: boolean };
+}
+
+/** One line at the head that names the symbol. */
+export interface SymbolLine {
+  path: string;
+  line: number;
+  text: string;
 }
 
 export interface RunSymbolOptions {
@@ -95,8 +112,12 @@ export interface RunSymbolOptions {
   /** New-side line the reviewer clicked. */
   line: number;
   symbol: string;
+  /** Every line that names the symbol, from grep; absent when there are too many to list or no clone. */
+  lines?: readonly SymbolLine[];
 }
 
+/** More lines than this name the symbol: too common a name to list or count. */
+export const SYMBOL_LINES = 80;
 const EXCERPT_LINES = 8;
 const ROW_ITEMS = 4;
 
@@ -104,6 +125,33 @@ const ROW_ITEMS = 4;
 export function lineInDiff(diff: DiffPayload, path: string, line: number): boolean {
   const file = diff.files.find((candidate) => candidate.path === path);
   return !!file?.hunks.some((hunk) => line >= hunk.newStart && line < hunk.newStart + Math.max(hunk.newLines, 1));
+}
+
+/** Whether this pull request adds new-side `line` of `path`. */
+export function lineAdded(diff: DiffPayload, path: string, line: number): boolean {
+  for (const hunk of diff.files.find((candidate) => candidate.path === path)?.hunks ?? []) {
+    let at = hunk.newStart;
+    for (const row of hunk.patch.split('\n')) {
+      if (row.startsWith('-') || row.startsWith('\\')) {
+        continue;
+      }
+      if (at === line && row.startsWith('+')) {
+        return true;
+      }
+      at += 1;
+    }
+  }
+  return false;
+}
+
+const TEST_PATH = /(^|\/)(tests?|__tests__|specs?)\/|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|_test\.(py|go)$/;
+
+/** `path:line:text` rows of grep output as lines; rows that do not parse are dropped. */
+export function parseSymbolLines(rows: readonly string[]): SymbolLine[] {
+  return rows.flatMap((row) => {
+    const match = /^(.+?):(\d+):(.*)$/.exec(row);
+    return match ? [{ path: match[1]!, line: Number(match[2]), text: match[3]!.trim().slice(0, 160) }] : [];
+  });
 }
 
 /** The hunk that shows new-side `line`, with new-side line numbers. */
@@ -121,7 +169,7 @@ function numberedHunk(file: FileChange, line: number): string {
     .join('\n');
 }
 
-export function buildSymbolPrompt({ tour, diff, fileId, line, symbol }: RunSymbolOptions): string {
+export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines }: RunSymbolOptions): string {
   const file = diff.files.find((candidate) => candidate.id === fileId);
   const group = tour.groups.find((candidate) => candidate.fileIds.includes(fileId));
   const notes = Object.values(tour.notes).flatMap((groupNotes) => [
@@ -136,6 +184,9 @@ export function buildSymbolPrompt({ tour, diff, fileId, line, symbol }: RunSymbo
     `## Notes the reviewer already has\n${notes.map((note) => `- ${note}`).join('\n') || '(none)'}`,
     `## The click\nSymbol: \`${symbol}\`\nFile: ${file?.path ?? fileId}\nLine: ${line}${group ? `\nGroup: ${group.label}` : ''}`,
     file ? `## The hunk around it (new line numbers)\n${numberedHunk(file, line)}` : '',
+    lines?.length
+      ? `## Every line that names the symbol (complete, numbered)\n${lines.map((use, index) => `[${index}] ${use.path}:${use.line}: ${use.text}`).join('\n')}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -154,8 +205,22 @@ export async function normalizeSymbolCard(
   symbol: string,
   diff: DiffPayload,
   read: (path: string) => Promise<string | undefined>,
+  lines: readonly SymbolLine[] = [],
 ): Promise<SymbolCard> {
   const card: SymbolCard = { symbol, lead: firstSentence(draft.lead) };
+  const skip = new Set(draft.uses.skip);
+  const uses = lines.filter((_, index) => !skip.has(index));
+  if (uses.length > 0) {
+    const summary = firstSentence(draft.uses.summary);
+    card.uses = {
+      count: uses.length,
+      files: new Set(uses.map((use) => use.path)).size,
+      tests: uses.filter((use) => TEST_PATH.test(use.path)).length,
+      added: uses.filter((use) => lineAdded(diff, use.path, use.line)).length,
+      ...(summary && uses.length > 1 ? { summary } : {}),
+      lines: uses,
+    };
+  }
   const items = draft.rows.items
     .map((item) => ({ value: item.value.trim(), where: item.where.trim(), code: item.code }))
     .filter((item) => item.value && item.where)
@@ -220,16 +285,22 @@ export function runSymbol(
       const searcher = codeSearcher(diff, (text, path) =>
         runPromise(Effect.tryPromise((signal) => searchRepo(diff, tree, text, path, signal))),
       );
+      const found = yield* Effect.promise(() =>
+        runPromise(
+          Effect.tryPromise((signal) => findSymbolLines(tree, options.symbol, SYMBOL_LINES + 1, signal)),
+        ).catch(() => []),
+      );
+      const lines = found.length > SYMBOL_LINES ? [] : parseSymbolLines(found);
       const response = yield* model.prompt({
         tier: 'notes',
         system: SYMBOL_SYSTEM,
-        prompt: buildSymbolPrompt(options),
+        prompt: buildSymbolPrompt({ ...options, lines }),
         result: SymbolCardSchema,
         resultName: 'symbol',
         tools: [reader.tool, searcher.tool],
       });
       const card = yield* Effect.promise(() =>
-        normalizeSymbolCard(response.data, options.symbol, diff, (path) => read(path).catch(() => undefined)),
+        normalizeSymbolCard(response.data, options.symbol, diff, (path) => read(path).catch(() => undefined), lines),
       );
       return {
         card,

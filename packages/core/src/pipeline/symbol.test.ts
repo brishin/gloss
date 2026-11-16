@@ -1,6 +1,6 @@
 import type { DiffPayload } from '@gloss/protocol';
 import { expect, test } from 'vitest';
-import { normalizeSymbolCard, type SymbolCardDraft } from './symbol.ts';
+import { normalizeSymbolCard, parseSymbolLines, type SymbolCardDraft } from './symbol.ts';
 
 const diff = {
   files: [
@@ -22,6 +22,7 @@ const draft = (over: Partial<SymbolCardDraft>): SymbolCardDraft => ({
   lead: ' Lead. Second sentence. ',
   rows: { label: '', items: [] },
   excerpt: { path: '', from: 0, to: 0 },
+  uses: { skip: [], summary: '' },
   effect: '',
   definition: { path: '', line: 0 },
   ...over,
@@ -59,4 +60,25 @@ test('rows need a label and two items; the definition says whether the diff show
   );
   expect(five.rows?.items).toHaveLength(4);
   expect(five.definition).toEqual({ path: 'src/a.ts', line: 11, inDiff: true });
+});
+
+test('uses are counted from the grep lines, less the ones the model skips', async () => {
+  const lines = parseSymbolLines([
+    'src/a.ts:11:export function s() {',
+    'src/a.ts:12:  s();',
+    'src/b.ts:4:s()',
+    'src/b.test.ts:9:  expect(s()).toBe(1);',
+    'not a grep row',
+  ]);
+  const added = {
+    files: [{ ...diff.files[0]!, hunks: [{ ...diff.files[0]!.hunks[0]!, patch: ' a10\n a11\n+a12\n a13' }] }],
+  } as unknown as DiffPayload;
+  const card = await normalizeSymbolCard(
+    draft({ uses: { skip: [0, 9], summary: 'Two call it. More.' } }),
+    's',
+    added,
+    read,
+    lines,
+  );
+  expect(card.uses).toEqual({ count: 3, files: 3, tests: 1, added: 1, summary: 'Two call it.', lines: lines.slice(1) });
 });

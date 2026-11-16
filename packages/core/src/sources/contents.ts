@@ -268,6 +268,19 @@ export async function searchRepo(
 }
 
 /**
+ * Every line in `tree` that names `symbol` as a whole word, as `path:line:text`, up to `limit`;
+ * none without a tree.
+ */
+export async function findSymbolLines(
+  tree: SearchTree | undefined,
+  symbol: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  return tree ? (await grepTree(tree, ['-F', '-w', '-e', symbol], [], signal)).slice(0, limit) : [];
+}
+
+/**
  * The files that import what `query` names, as `path:line: text`, outside the files the diff
  * changes. Grepped like `searchRepo`; without a tree, GitHub's code search for the bare name, keeping
  * the import lines (it matches any file of that name, so it is a guess).
