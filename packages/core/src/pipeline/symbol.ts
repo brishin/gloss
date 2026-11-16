@@ -1,7 +1,7 @@
 import type { DiffPayload, FileChange, Tour } from '@gloss/protocol';
 import { Effect, FiberSet } from 'effect';
 import * as v from 'valibot';
-import { ModelClient, type ModelError, type ModelTier, type ModelUsage } from '../adapters/types.ts';
+import { type ChatTool, ModelClient, type ModelError, type ModelTier, type ModelUsage } from '../adapters/types.ts';
 import { RepoClones } from '../sources/clone.ts';
 import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
 import { blocksAround, namedAt, type UseKind } from '../sources/symbol-uses.ts';
@@ -139,6 +139,8 @@ export interface RunSymbolOptions {
   tier?: ModelTier;
   /** Experiment: read the definition and the code around the uses into the prompt. */
   preload?: boolean;
+  /** Experiment: a short prompt (no summary, file list or notes, the first uses only) with tools that fetch the rest. */
+  lean?: boolean;
 }
 
 /** More lines than this name the symbol: too common a name to list or count. */
@@ -295,23 +297,80 @@ function numberedHunk(file: FileChange, line: number): string {
     .join('\n');
 }
 
-export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines, exact, code }: RunSymbolOptions): string {
-  const file = diff.files.find((candidate) => candidate.id === fileId);
-  const group = tour.groups.find((candidate) => candidate.fileIds.includes(fileId));
-  const notes = Object.values(tour.notes).flatMap((groupNotes) => [
+/** Uses the lean prompt shows; `list_uses` hands over the rest. */
+export const LEAN_LINES = 8;
+
+function tourNotes(tour: Tour): string[] {
+  return Object.values(tour.notes).flatMap((groupNotes) => [
     ...groupNotes.fileNotes.map((note) => note.text),
     ...groupNotes.lineNotes.map((note) => note.text),
     ...(groupNotes.decisions ?? []).map((note) => note.text),
   ]);
+}
+
+const useLine = (use: SymbolLine, index: number) =>
+  `[${index}] ${use.kind ? `${use.kind} ` : ''}${use.path}:${use.line}: ${use.text}`;
+
+/** The tools that give back what the lean prompt leaves out. */
+export function leanTools(
+  { tour, diff }: Pick<RunSymbolOptions, 'tour' | 'diff'>,
+  lines: readonly SymbolLine[],
+): ChatTool[] {
+  return [
+    {
+      name: 'tour_context',
+      description:
+        "The pull request's summary, its changed files, and every note the reviewer already has. Call it once before you write the card, so the card repeats none of the notes.",
+      input: v.object({}),
+      run: async () =>
+        [
+          tour.overallSummary,
+          `## Changed files\n${diff.files.map((file) => `${file.status} ${file.path}`).join('\n')}`,
+          `## Notes the reviewer already has\n${
+            tourNotes(tour)
+              .map((note) => `- ${note}`)
+              .join('\n') || '(none)'
+          }`,
+        ].join('\n\n'),
+    },
+    {
+      name: 'list_uses',
+      description: 'Every line that names the symbol, numbered: the prompt shows only the first few.',
+      input: v.object({}),
+      run: async () => lines.map(useLine).join('\n') || '(none)',
+    },
+  ];
+}
+
+export function buildSymbolPrompt({
+  tour,
+  diff,
+  fileId,
+  line,
+  symbol,
+  lines,
+  exact,
+  code,
+  lean,
+}: RunSymbolOptions): string {
+  const file = diff.files.find((candidate) => candidate.id === fileId);
+  const group = tour.groups.find((candidate) => candidate.fileIds.includes(fileId));
+  const notes = tourNotes(tour);
+  const shown = lean ? (lines ?? []).slice(0, LEAN_LINES) : (lines ?? []);
+  const more = (lines?.length ?? 0) - shown.length;
   return [
     `# ${diff.meta.title}`,
-    tour.overallSummary,
-    `## Changed files\n${diff.files.map((candidate) => `${candidate.status} ${candidate.path}`).join('\n')}`,
-    `## Notes the reviewer already has\n${notes.map((note) => `- ${note}`).join('\n') || '(none)'}`,
+    lean
+      ? `The summary, the changed files and the ${notes.length} notes the reviewer already has are not shown here: tour_context returns them.`
+      : tour.overallSummary,
+    lean
+      ? ''
+      : `## Changed files\n${diff.files.map((candidate) => `${candidate.status} ${candidate.path}`).join('\n')}`,
+    lean ? '' : `## Notes the reviewer already has\n${notes.map((note) => `- ${note}`).join('\n') || '(none)'}`,
     `## The click\nSymbol: \`${symbol}\`\nFile: ${file?.path ?? fileId}\nLine: ${line}${group ? `\nGroup: ${group.label}` : ''}`,
     file ? `## The hunk around it (new line numbers)\n${numberedHunk(file, line)}` : '',
     lines?.length
-      ? `## Every line that names the symbol (complete, numbered${exact ? '; all of them are the clicked symbol, so skip is empty' : ''})\n${lines.map((use, index) => `[${index}] ${use.kind ? `${use.kind} ` : ''}${use.path}:${use.line}: ${use.text}`).join('\n')}`
+      ? `## ${more > 0 ? `The first ${shown.length} of ${lines.length} lines that name the symbol (list_uses returns all of them` : 'Every line that names the symbol (complete, numbered'}${exact ? '; all of them are the clicked symbol, so skip is empty' : ''})\n${shown.map(useLine).join('\n')}`
       : '',
     code
       ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses: these replace your first reads only. They show where the symbol is defined and used, not what makes a gate true, which entry points reach the clicked line, or what a caller's own callers pass. Still go the one hop with read_file and search_code before you answer, and do not read the lines below again.\n\n${code}`
@@ -541,7 +600,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
         prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code }),
         result: SymbolCardSchema,
         resultName: 'symbol',
-        tools: [timed(reader.tool), timed(searcher.tool)],
+        tools: [reader.tool, searcher.tool, ...(options.lean ? leanTools(options, listed) : [])].map(timed),
         onDelta: () => {
           first ??= Date.now() - started;
         },

@@ -47,6 +47,7 @@ const results = await runtime.runPromise(
         // GLOSS_SYMBOL_TIER=followup, GLOSS_SYMBOL_PRELOAD=1: timing arms.
         tier: (process.env.GLOSS_SYMBOL_TIER as 'notes' | 'followup' | undefined) ?? 'notes',
         preload: process.env.GLOSS_SYMBOL_PRELOAD === '1',
+        lean: process.env.GLOSS_SYMBOL_LEAN === '1',
       }).pipe(
         Effect.map((result): Outcome => ({ ...c, ms: Date.now() - started, ...result })),
         Effect.catch((error) => Effect.succeed<Outcome>({ ...c, ms: Date.now() - started, error: error.message })),
