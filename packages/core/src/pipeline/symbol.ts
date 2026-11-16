@@ -16,7 +16,7 @@ export const SYMBOL_SYSTEM = `A reviewer reading a pull request clicked a symbol
 ## Look first
 
 Use search_code and read_file before you answer. Every fact must come from code you read in this session.
-- Find the definition, then every place that calls, passes, sets or reads the symbol. When the prompt has "Every line that names the symbol", that list is complete: start from it instead of searching for the name.
+- Find the definition, then every place that calls, passes, sets or reads the symbol. When the prompt has "Every line that names the symbol", that list is complete: start from it instead of searching for the name. The list saves searching, not reading: it shows where the name appears, not what makes a gate true or what a caller's path reads. Still read the definition and go the one hop.
 - Go one hop past the obvious. For a flag, gate or boolean: find what makes it true, then check each entry point: does it ever supply that? For a parameter or a stored value: check what each caller passes, and whether that caller's path ever reads it. A value that is passed but never read on some path is the finding.
 - For a helper: find the default or edge case that matters at the clicked line. Stay on the helper; do not report on the feature around it.
 - search_code shows at most 5 matches per file, so a missing match proves nothing. Before you say something has no caller, is never read or never runs, read the file where it would be used and find the lines. If you did not, do not make the claim.
@@ -35,8 +35,8 @@ rows: most cards have none. Use rows only when the finding itself is that places
 excerpt: the few lines that decide the behavior (the condition, the default, the branch), 8 lines at most. Never a signature, a docstring or imports. Only lines that this pull request's diff does not show. Give the path and line range and do not quote code. Leave the path empty when nothing outside the diff needs showing.
 
 uses: the prompt may list every line at the head that names the symbol, numbered. The reader is shown a count made from that list ("7 uses in 4 files"), so never write a count yourself.
-  skip: the numbers of the lines that are not a use of the clicked symbol: its own definition, imports and exports, comments, docs and strings, and other things that only share the name. Read a line's file when you cannot tell from the line.
-  summary: one line, 14 words at most, that tells the uses apart by what they do ("threads and Slack pass the thread's source; admin passes None"). Name places the way a reader of this codebase would. Empty when there is at most one use, when the uses all do the same thing the clicked line does, or when the lead already says it. When summary says how places differ, leave rows empty.
+  skip: the numbers of the lines that are not a use of the clicked symbol: its own definition, a parameter or field declaration of it, a line of a multi-line import, comments, docs and strings, and other things that only share the name. A line that passes, calls, reads or sets it is a use. Read a line's file when you cannot tell from the line.
+  summary: one line, 14 words at most, that tells the uses apart by what they do ("threads and Slack pass the thread's source; admin passes None"). Name places the way a reader of this codebase would, never by line number. Empty when there is at most one use, when the uses all do the same thing the clicked line does, or when the lead already says it. When summary says how places differ, leave rows empty.
 
 effect: ONE sentence, 20 words at most: what the finding means at the clicked line, when a reviewer would act on it or would not guess it. Empty otherwise.
 
@@ -117,7 +117,7 @@ export interface RunSymbolOptions {
 }
 
 /** More lines than this name the symbol: too common a name to list or count. */
-export const SYMBOL_LINES = 80;
+export const SYMBOL_LINES = 200;
 const EXCERPT_LINES = 8;
 const ROW_ITEMS = 4;
 
@@ -152,6 +152,23 @@ export function parseSymbolLines(rows: readonly string[]): SymbolLine[] {
     const match = /^(.+?):(\d+):(.*)$/.exec(row);
     return match ? [{ path: match[1]!, line: Number(match[2]), text: match[3]!.trim().slice(0, 160) }] : [];
   });
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Whether a line that names `symbol` can be a use of it: not an import, a comment, or the line
+ * that defines it. What only the code around the line tells (a namesake, a parameter) is the model's to skip.
+ */
+export function mayUse(text: string, symbol: string): boolean {
+  const defines = new RegExp(
+    `^(export\\s+)?(default\\s+)?(async\\s+)?(function\\*?|class|const|let|var|def|type|interface|enum)\\s+${escaped(symbol)}\\b`,
+  );
+  return !(
+    /^(import\b|from\s+\S+\s+import\b|export\s.*\sfrom\s|#|\/\/|\/\*|\*)/.test(text) ||
+    /\bimport\s*\(/.test(text) ||
+    defines.test(text)
+  );
 }
 
 /** The hunk that shows new-side `line`, with new-side line numbers. */
@@ -225,7 +242,8 @@ export async function normalizeSymbolCard(
     .map((item) => ({ value: item.value.trim(), where: item.where.trim(), code: item.code }))
     .filter((item) => item.value && item.where)
     .slice(0, ROW_ITEMS);
-  if (draft.rows.label.trim() && items.length > 1) {
+  // The uses line already tells the places apart: rows would say it twice.
+  if (draft.rows.label.trim() && items.length > 1 && !card.uses?.summary) {
     card.rows = { label: draft.rows.label.trim(), items };
   }
   const path = repoPath(draft.excerpt.path.trim());
@@ -287,10 +305,11 @@ export function runSymbol(
       );
       const found = yield* Effect.promise(() =>
         runPromise(
-          Effect.tryPromise((signal) => findSymbolLines(tree, options.symbol, SYMBOL_LINES + 1, signal)),
+          Effect.tryPromise((signal) => findSymbolLines(tree, options.symbol, SYMBOL_LINES * 2, signal)),
         ).catch(() => []),
       );
-      const lines = found.length > SYMBOL_LINES ? [] : parseSymbolLines(found);
+      const named = parseSymbolLines(found).filter((use) => mayUse(use.text, options.symbol));
+      const lines = named.length > SYMBOL_LINES ? [] : named;
       const response = yield* model.prompt({
         tier: 'notes',
         system: SYMBOL_SYSTEM,

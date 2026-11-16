@@ -1,6 +1,6 @@
 import type { DiffPayload } from '@gloss/protocol';
 import { expect, test } from 'vitest';
-import { normalizeSymbolCard, parseSymbolLines, type SymbolCardDraft } from './symbol.ts';
+import { mayUse, normalizeSymbolCard, parseSymbolLines, type SymbolCardDraft } from './symbol.ts';
 
 const diff = {
   files: [
@@ -81,4 +81,20 @@ test('uses are counted from the grep lines, less the ones the model skips', asyn
     lines,
   );
   expect(card.uses).toEqual({ count: 3, files: 3, tests: 1, added: 1, summary: 'Two call it.', lines: lines.slice(1) });
+});
+
+test('imports, comments and the defining line are not uses', () => {
+  const uses = [
+    'import { s } from "./a"',
+    'from a import s',
+    'const { s } = await import("./a");',
+    '// s does this',
+    'export async function s() {',
+    'def s(self):',
+    'const s = 1;',
+    'return s(1);',
+    'const t = s();',
+    's,',
+  ].filter((text) => mayUse(text, 's'));
+  expect(uses).toEqual(['return s(1);', 'const t = s();', 's,']);
 });
