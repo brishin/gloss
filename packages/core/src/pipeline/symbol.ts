@@ -314,7 +314,7 @@ export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines, exa
       ? `## Every line that names the symbol (complete, numbered${exact ? '; all of them are the clicked symbol, so skip is empty' : ''})\n${lines.map((use, index) => `[${index}] ${use.kind ? `${use.kind} ` : ''}${use.path}:${use.line}: ${use.text}`).join('\n')}`
       : '',
     code
-      ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses. Do not read these lines again; read or search only for what is not here.\n\n${code}`
+      ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses: these replace your first reads only. They show where the symbol is defined and used, not what makes a gate true, which entry points reach the clicked line, or what a caller's own callers pass. Still go the one hop with read_file and search_code before you answer, and do not read the lines below again.\n\n${code}`
       : '',
   ]
     .filter(Boolean)
