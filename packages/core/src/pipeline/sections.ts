@@ -31,11 +31,11 @@ import { clip, normalizeSnippet, normalizeTree } from './normalize.ts';
 import {
   collapsedReason,
   FILE_BUDGET,
+  groupBodies,
   header,
   isGuidance,
   manifestLine,
   renderNumberedHunk,
-  TOTAL_BUDGET,
 } from './prompts.ts';
 
 /**
@@ -340,15 +340,6 @@ export function uncoveredKeyHunks(
     .slice(0, KEY_HUNKS);
 }
 
-function numbered(file: FileChange, remaining: number): string {
-  const body = file.hunks.map(renderNumberedHunk).join('\n');
-  const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
-  if (body.length <= budget) {
-    return body;
-  }
-  return budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget; read_file it)';
-}
-
 function found(notes: GroupNotes, pathOf: (fileId: string) => string): string[] {
   const decisions = (notes.decisions ?? []).map(
     (decision, index) =>
@@ -423,14 +414,10 @@ export function buildSectionPrompt(
     );
   }
   parts.push('', '## Files');
-  let remaining = TOTAL_BUDGET;
-  for (const file of files) {
-    parts.push(`### ${manifestLine(file)}`);
-    if (!collapsedReason(file)) {
-      const body = numbered(file, remaining);
-      remaining -= body.length;
-      parts.push(body);
-    }
+  const bodies = groupBodies(files);
+  for (const [at, file] of files.entries()) {
+    const body = bodies[at];
+    parts.push(`### ${manifestLine(file)}`, ...(body === undefined ? [] : [body]));
   }
   return parts.join('\n');
 }

@@ -29,7 +29,9 @@ evals (`~/Programming/pulls.review-evals/typesafe-2026-10-26-round3/src`). Retun
 first. `QUESTIONS_VERSION` invalidates cached judgments.
 
 Prompts: `prompts.ts`. Result schemas carry field descriptions that the model sees in
-the submit tool. Budgets are 60k characters per prompt and 12k per file, and generated,
+the submit tool. Budgets are 60k characters per prompt and 12k per file. In a group's notes
+and walk prompts (`groupBodies`), a longer file also gets what the group's other files leave
+under 60k, so it is cut only when the group is over budget. Generated,
 binary and oversized files are collapsed to their manifest line. Notes prompts number
 each line, using new-file numbers for `+`/` ` lines and old-file numbers for `-` lines.
 

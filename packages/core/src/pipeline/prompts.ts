@@ -1131,23 +1131,51 @@ export function buildNotesPrompt(
     flaggedRisks(judgments[file.id]).map((risk) => `- ${file.id} ${file.path}: ${risk} (${RISK_LABELS[risk]})`),
   );
   parts.push('', '## Flagged risks', ...(risks.length ? risks : ['(none)']));
-  let remaining = TOTAL_BUDGET;
   parts.push('', '## Files');
-  for (const file of files) {
-    const reason = collapsedReason(file);
-    if (reason) {
-      parts.push(`### ${manifestLine(file)}`);
-      continue;
-    }
-    let body = file.hunks.map(renderNumberedHunk).join('\n');
-    const budget = Math.min(FILE_BUDGET, Math.max(remaining, 0));
-    if (body.length > budget) {
-      body = budget > 500 ? `${body.slice(0, budget)}\n... (truncated)` : '(omitted for budget; read_file it)';
-    }
-    remaining -= body.length;
-    parts.push(`### ${manifestLine(file)}`, body);
+  const bodies = groupBodies(files);
+  for (const [at, file] of files.entries()) {
+    const body = bodies[at];
+    parts.push(`### ${manifestLine(file)}`, ...(body === undefined ? [] : [body]));
   }
   return parts.join('\n');
+}
+
+/**
+ * Each body's character cap in a group prompt. A body gets `FILE_BUDGET`; a longer one also gets
+ * what the bodies before and after it leave unused under `TOTAL_BUDGET`, in order, so one long
+ * file is cut only when the group as a whole is over budget.
+ */
+export function fileCaps(lengths: readonly number[]): number[] {
+  let spare = TOTAL_BUDGET - lengths.reduce((sum, length) => sum + Math.min(length, FILE_BUDGET), 0);
+  return lengths.map((length) => {
+    const extra = Math.max(0, Math.min(length - FILE_BUDGET, spare));
+    spare -= extra;
+    return FILE_BUDGET + extra;
+  });
+}
+
+/**
+ * A group's files as numbered hunks within `TOTAL_BUDGET`, caps from `fileCaps`. A collapsed
+ * file has no body (undefined); a body over its cap is cut, and one with no room left is omitted.
+ */
+export function groupBodies(files: readonly FileChange[]): (string | undefined)[] {
+  const full = files.map((file) => (collapsedReason(file) ? undefined : file.hunks.map(renderNumberedHunk).join('\n')));
+  const caps = fileCaps(full.map((body) => body?.length ?? 0));
+  let remaining = TOTAL_BUDGET;
+  return full.map((body, at) => {
+    if (body === undefined) {
+      return undefined;
+    }
+    const budget = Math.min(caps[at]!, Math.max(remaining, 0));
+    const shown =
+      body.length <= budget
+        ? body
+        : budget > 500
+          ? `${body.slice(0, budget)}\n... (truncated)`
+          : '(omitted for budget; read_file it)';
+    remaining -= shown.length;
+    return shown;
+  });
 }
 
 export const ASK_SYSTEM = `You are the senior engineer who wrote this guided review tour of a code change. A reviewer reading the tour asks you questions about the change. Answer from the diff, the tour and, when you need more, the repository at the head of the change: call read_file for a whole changed file or any other file, and search_code to find where a name is defined or used outside the diff.
