@@ -185,4 +185,10 @@ test('a name defined inside a function, or not exported, is counted only where i
   };
   expect(await kinds(sources, 'copy', { path: 'a.tsx', line: 3 })).toEqual(['a.tsx:3 read']);
   expect(await kinds(sources, 'helper', { path: 'a.tsx', line: 10 })).toEqual(['a.tsx:10 call']);
+  // A name bound by a dynamic import is the module's export, not a local.
+  const lazy = {
+    'a.ts': "async function f() {\n  const { go } = await import('./go');\n  return go(1);\n}",
+    'b.ts': "async function g() {\n  const { go } = await import('./go');\n  return go(2);\n}",
+  };
+  expect(await kinds(lazy, 'go', { path: 'a.ts', line: 3 })).toEqual(['a.ts:3 call', 'b.ts:3 call']);
 });

@@ -147,7 +147,13 @@ function kindOf(node: Node): NameKind {
   const field = fieldOf(node);
   const upper = parent.parent;
   if (node.type === 'shorthand_property_identifier_pattern' || (parent.type === 'pair_pattern' && field === 'value')) {
-    return 'define';
+    // `const { name } = await import('./module')` and `= require('./module')` import the name.
+    let declared: Node | null = parent;
+    while (declared && declared.type !== 'variable_declarator' && !/parameter|statement/.test(declared.type)) {
+      declared = declared.parent;
+    }
+    const value = declared?.type === 'variable_declarator' ? declared.childForFieldName('value')?.text : undefined;
+    return value && /^(await\s+)?(import|require)\s*\(/.test(value) ? 'import' : 'define';
   }
   if (NAMED.has(parent.type) && field === 'name') {
     return 'define';
