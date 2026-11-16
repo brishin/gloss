@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { DecisionRuleSet, SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
+import type { DecisionRuleSet, GroupNotes, SourceRef, Tour, TourEventBody, TraceStep } from '@gloss/protocol';
 import { initialTourState, reduceTourEvent, tourFromState } from '@gloss/protocol';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import type * as v from 'valibot';
@@ -207,6 +207,9 @@ const fakeJudge = () =>
     }
     if (/^c\d_/.test(id)) {
       return { type: 'bool', probability: id === 'c3_accurate' || id === 'c1_whole' ? 0.2 : 0.8 };
+    }
+    if (id === 'same') {
+      return { type: 'bool', probability: String(state.b).startsWith('Repeats') ? 0.9 : 0.1 };
     }
     const path = (state.file as { path: string }).path;
     if (id === 'group') {
@@ -575,6 +578,45 @@ describe('runTour', () => {
     expect(asked.tier).toBe('notes');
     expect(asked.prompt).toContain('## Groups read before this one\n- Docs: Readme.');
     expect(asked.prompt).toContain('Decisions in this group:\n0. (high) src/auth.ts:2 Compare by name.');
+  });
+
+  it("hides a line note that one of its group's own stops repeats, once the walk is in", async () => {
+    const base = fakeModel();
+    const model: ModelClient['Service'] = {
+      ...base,
+      prompt: (request) =>
+        base.prompt(request).pipe(
+          Effect.map((response) => {
+            if (request.resultName !== 'notes') {
+              return response;
+            }
+            const notes = response.data as GroupNotes;
+            const [note] = notes.lineNotes;
+            if (!note) {
+              return response;
+            }
+            const lineNotes = [
+              note,
+              { ...note, text: 'Repeats the stop.' },
+              { ...note, text: 'Repeats the stop, and it is critical.', critical: true },
+            ];
+            return { ...response, data: { ...notes, lineNotes } };
+          }),
+        ),
+    };
+    const { events, tour: finished } = await tour({ model, judge: fakeJudge() });
+    const sent = events.flatMap((event) =>
+      event.type === 'group.notes' && event.groupKey === 'auth' ? [event.notes.lineNotes.map((note) => note.text)] : [],
+    );
+    // The notes go out whole; the walk takes back the one its stop already makes. A critical note stays.
+    expect(sent).toEqual([
+      ['Note.', 'Repeats the stop.', 'Repeats the stop, and it is critical.'],
+      ['Note.', 'Repeats the stop, and it is critical.'],
+    ]);
+    expect(finished.notes.auth!.lineNotes.map((note) => note.text)).toEqual([
+      'Note.',
+      'Repeats the stop, and it is critical.',
+    ]);
   });
 
   it('a failed walk call leaves the group its notes, with a warning', async () => {

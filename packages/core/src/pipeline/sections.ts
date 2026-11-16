@@ -276,6 +276,46 @@ export const KEY_HUNKS = 2;
 
 const HUNK_CHAR_CAP = 6_000;
 
+/**
+ * What Jev is asked about a line note and one of its group's own stops. The stop is `a`: a note
+ * that only says again what a stop says is not shown again on its line.
+ */
+export const SAME_POINT_QUESTIONS: Record<string, JudgeQuestion> = {
+  same: {
+    type: 'bool',
+    instructions:
+      'Do `a` and `b` make the same point about this code change, so that a reviewer who has read `a` learns nothing new from `b`?',
+    criteria: {
+      true: 'Both name the same choice, risk or behavior in the same code, even in different words.',
+      false:
+        'They are about different code, or about different choices or risks in the same code, or one adds a consequence, case or cost the other lacks.',
+    },
+  },
+};
+/** How sure Jev must be that a stop repeats a line note before the note is hidden. */
+export const SAME_POINT = 0.7;
+
+/**
+ * The (line note, own stop) pairs Jev reads for repeats: a critical note always stays on its line,
+ * and a change-wide stop is read in another group's terms, so it is never compared.
+ */
+export function notePairs(notes: GroupNotes, section: Section): { note: number; a: string; b: string }[] {
+  const stops = section.points.filter((entry) => entry.kind !== 'wide');
+  return notes.lineNotes.flatMap((note, index) =>
+    note.critical ? [] : stops.map((entry) => ({ note: index, a: `${entry.title}. ${entry.why}`, b: note.text })),
+  );
+}
+
+/** The group's line notes without those a stop repeats: `same` holds each pair's score, in `notePairs` order. */
+export function withoutRepeats(
+  notes: GroupNotes,
+  pairs: readonly { note: number }[],
+  same: readonly (number | undefined)[],
+): GroupNotes['lineNotes'] {
+  const repeated = new Set(pairs.flatMap((pair, index) => ((same[index] ?? 0) >= SAME_POINT ? [pair.note] : [])));
+  return notes.lineNotes.filter((_, index) => !repeated.has(index));
+}
+
 /** Whether Jev sees only the start of a hunk. Such a hunk never folds: its unread tail could hold anything. */
 export const hunkCut = (hunk: FileChange['hunks'][number]): boolean =>
   `${hunk.header}\n${hunk.patch}`.length > HUNK_CHAR_CAP;
@@ -838,6 +878,8 @@ export const SECTIONS_KEY = hashOf({
   KEY_STOPS_SYSTEM,
   HUNK_QUESTIONS,
   HUNK_WIDE_QUESTIONS,
+  SAME_POINT_QUESTIONS,
+  SAME_POINT,
   HUNK_SKIP,
   HUNK_SURE,
   KEY_HUNKS,
