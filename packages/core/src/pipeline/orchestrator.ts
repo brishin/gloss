@@ -281,15 +281,16 @@ const tourProgram = Effect.fnUntraced(function* (
     fileReader(tourDiff, (path) => runRead(Effect.tryPromise((signal) => readRepoFile(tourDiff, path, signal))));
 
   /**
-   * The walkthrough runs beside placement and notes, in the stream's scope so it outlives the
-   * visual pick and stops with the tour; the tour waits for it before it finishes.
+   * The walkthrough and the visual pick run beside placement and notes, in the stream's scope so
+   * they stop with the tour; the tour waits for them before it finishes.
    */
   let walking: Fiber.Fiber<void> | undefined;
+  let drawing: Fiber.Fiber<void> | undefined;
   let mapping: Fiber.Fiber<void> | undefined;
   let checking: Fiber.Fiber<void> | undefined;
   const finish = Effect.suspend(() =>
     Effect.all(
-      [walking, mapping, checking].map((fiber) => (fiber ? Fiber.join(fiber) : Effect.void)),
+      [walking, drawing, mapping, checking].map((fiber) => (fiber ? Fiber.join(fiber) : Effect.void)),
       {
         discard: true,
       },
@@ -1036,19 +1037,20 @@ const tourProgram = Effect.fnUntraced(function* (
         walking = fiber;
       }),
     );
+  /** Draws and picks the visual beside placement and notes; `finish` joins it. */
+  const startVisual = (defined: Effect.Success<typeof defineGroups>) =>
+    Effect.forkScoped(showVisual(defined)).pipe(
+      Effect.map((fiber) => {
+        drawing = fiber;
+      }),
+    );
   mapping = yield* Effect.forkScoped(mapAffected);
   const [definition] = yield* Effect.all(
     [
       defineGroups.pipe(
         Effect.tap(startWalkthrough),
-        Effect.tap((defined) =>
-          judge
-            ? Effect.all([judgeGroupChoice(judge, defined.groups), showVisual(defined)], {
-                concurrency: 'unbounded',
-                discard: true,
-              })
-            : showVisual(defined),
-        ),
+        Effect.tap(startVisual),
+        Effect.tap((defined) => (judge ? judgeGroupChoice(judge, defined.groups) : Effect.void)),
       ),
       judge ? judgeFiles(judge) : Effect.void,
     ],
