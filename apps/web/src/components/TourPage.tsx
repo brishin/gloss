@@ -332,6 +332,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   onJumpToFile={jumpToFile}
                   onSelectGroup={select}
                   homes={homes}
+                  walkStop={walkStop}
                 />
               ) : (
                 <Skeleton height={160} />
