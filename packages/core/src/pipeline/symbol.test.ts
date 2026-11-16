@@ -1,6 +1,13 @@
 import type { DiffPayload } from '@gloss/protocol';
 import { expect, test } from 'vitest';
-import { mayUse, normalizeSymbolCard, parseSymbolLines, symbolUses, type SymbolCardDraft } from './symbol.ts';
+import {
+  mayUse,
+  normalizeSymbolCard,
+  parseSymbolLines,
+  symbolCode,
+  symbolUses,
+  type SymbolCardDraft,
+} from './symbol.ts';
 
 const diff = {
   files: [
@@ -202,4 +209,23 @@ test('a name defined inside a function, or not exported, is counted only where i
     'README.md': 'pass start to f',
   };
   expect(await kinds(named, 'start', { path: 'a.py', line: 1 })).toEqual(['b.py:1 pass']);
+});
+
+test('the code read ahead is the definition, then the function around each use', async () => {
+  const sources: Record<string, string> = {
+    'a.ts': ['export function go(n: number) {', '  return n + 1;', '}', '', 'const top = go(1);'].join('\n'),
+    'b.ts': ['function caller() {', '  const x = 1;', '  return go(x);', '}'].join('\n'),
+  };
+  const found = await symbolUses(grep(sources, 'go'), 'go', { path: 'b.ts', line: 3 }, (path) =>
+    Promise.resolve(sources[path]),
+  );
+  expect(found.definitions.map((at) => `${at.path}:${at.line}`)).toEqual(['a.ts:1']);
+  const code = await symbolCode(found.definitions, found.lines, { path: 'b.ts', line: 3 }, (path) =>
+    Promise.resolve(sources[path]),
+  );
+  expect(code.split('\n').filter((row) => row.startsWith('###'))).toEqual([
+    '### a.ts:1-3',
+    '### b.ts:1-4',
+    '### a.ts:2-5',
+  ]);
 });

@@ -1,10 +1,10 @@
 import type { DiffPayload, FileChange, Tour } from '@gloss/protocol';
 import { Effect, FiberSet } from 'effect';
 import * as v from 'valibot';
-import { ModelClient, type ModelError } from '../adapters/types.ts';
+import { ModelClient, type ModelError, type ModelTier, type ModelUsage } from '../adapters/types.ts';
 import { RepoClones } from '../sources/clone.ts';
 import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
-import { namedAt, type UseKind } from '../sources/symbol-uses.ts';
+import { blocksAround, namedAt, type UseKind } from '../sources/symbol-uses.ts';
 import { codeSearcher, fileReader } from './read-file.ts';
 
 /**
@@ -133,6 +133,12 @@ export interface RunSymbolOptions {
   lines?: readonly SymbolLine[];
   /** Every listed line is a use of the clicked symbol for certain. */
   exact?: boolean;
+  /** Code read ahead of the model: the definition and the code around the uses, numbered. */
+  code?: string;
+  /** Experiment: the model tier that writes the card (default `notes`). */
+  tier?: ModelTier;
+  /** Experiment: read the definition and the code around the uses into the prompt. */
+  preload?: boolean;
 }
 
 /** More lines than this name the symbol: too common a name to list or count. */
@@ -207,7 +213,7 @@ export async function symbolUses(
   symbol: string,
   clicked: { path: string; line: number },
   read: (path: string) => Promise<string | undefined>,
-): Promise<{ lines: SymbolLine[]; exact: boolean }> {
+): Promise<{ lines: SymbolLine[]; exact: boolean; definitions: SymbolLine[] }> {
   const paths = [...new Set([clicked.path, ...named.map((use) => use.path)])];
   const trees = new Map(
     await Promise.all(
@@ -264,7 +270,14 @@ export async function symbolUses(
     }
     return [{ ...use, kind: entry.kind }];
   });
-  return { lines, exact: bare };
+  // Where the symbol is defined: a definition that is not a parameter, in a file that owns the name first.
+  const definitions = named
+    .filter((use) => {
+      const entry = trees.get(use.path)?.get(use.line);
+      return entry?.kind === 'define' && !entry.parameter;
+    })
+    .sort((a, b) => Number(b.path === clicked.path) - Number(a.path === clicked.path));
+  return { lines, exact: bare, definitions: bare || at?.parameter ? definitions : definitions.slice(0, 3) };
 }
 
 /** The hunk that shows new-side `line`, with new-side line numbers. */
@@ -282,7 +295,7 @@ function numberedHunk(file: FileChange, line: number): string {
     .join('\n');
 }
 
-export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines, exact }: RunSymbolOptions): string {
+export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines, exact, code }: RunSymbolOptions): string {
   const file = diff.files.find((candidate) => candidate.id === fileId);
   const group = tour.groups.find((candidate) => candidate.fileIds.includes(fileId));
   const notes = Object.values(tour.notes).flatMap((groupNotes) => [
@@ -299,6 +312,9 @@ export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines, exa
     file ? `## The hunk around it (new line numbers)\n${numberedHunk(file, line)}` : '',
     lines?.length
       ? `## Every line that names the symbol (complete, numbered${exact ? '; all of them are the clicked symbol, so skip is empty' : ''})\n${lines.map((use, index) => `[${index}] ${use.kind ? `${use.kind} ` : ''}${use.path}:${use.line}: ${use.text}`).join('\n')}`
+      : '',
+    code
+      ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses. Do not read these lines again; read or search only for what is not here.\n\n${code}`
       : '',
   ]
     .filter(Boolean)
@@ -378,17 +394,97 @@ export async function normalizeSymbolCard(
   return card;
 }
 
+/** Characters of code read ahead for one card, and lines of one block. */
+const PRELOAD_CHARS = 14_000;
+const PRELOAD_BLOCK = 60;
+const PRELOAD_AROUND = 12;
+const PRELOAD_USES = 10;
+
+/**
+ * The code a reader would open first, as numbered excerpts: the symbol's definition, then the
+ * function around the clicked line and around each use (uses outside tests first, one per
+ * function). A long function is cut to the lines around the use.
+ */
+export async function symbolCode(
+  definitions: readonly SymbolLine[],
+  uses: readonly SymbolLine[],
+  clicked: { path: string; line: number },
+  read: (path: string) => Promise<string | undefined>,
+): Promise<string> {
+  const ordered = [
+    ...definitions.slice(0, 2).map((at) => ({ ...at, whole: true })),
+    { ...clicked, whole: false },
+    ...[...uses]
+      .sort((a, b) => Number(TEST_PATH.test(a.path)) - Number(TEST_PATH.test(b.path)))
+      .map((at) => ({ path: at.path, line: at.line, whole: false })),
+  ];
+  const sources = new Map<string, string[] | undefined>();
+  const taken = new Map<string, { from: number; to: number }[]>();
+  const out: string[] = [];
+  let size = 0;
+  let count = 0;
+  for (const at of ordered) {
+    if (count >= PRELOAD_USES + 3 || size >= PRELOAD_CHARS) {
+      break;
+    }
+    if (!sources.has(at.path)) {
+      sources.set(at.path, (await read(at.path))?.replace(/\n$/, '').split('\n'));
+    }
+    const rows = sources.get(at.path);
+    if (!rows || at.line > rows.length) {
+      continue;
+    }
+    const block = (await blocksAround(at.path, rows.join('\n'), [at.line]).catch(() => undefined))?.get(at.line) ?? {
+      from: at.line,
+      to: at.line,
+    };
+    const limit = at.whole ? PRELOAD_BLOCK : PRELOAD_AROUND * 2 + 1;
+    let from = block.from === block.to ? Math.max(1, at.line - 3) : block.from;
+    let to = block.from === block.to ? Math.min(rows.length, at.line + 3) : block.to;
+    if (to - from + 1 > limit) {
+      from = at.whole ? from : Math.max(from, at.line - PRELOAD_AROUND);
+      to = Math.min(to, from + limit - 1);
+    }
+    const seen = taken.get(at.path) ?? [];
+    if (seen.some((range) => from >= range.from && to <= range.to)) {
+      continue;
+    }
+    seen.push({ from, to });
+    taken.set(at.path, seen);
+    const text = `### ${at.path}:${from}-${to}\n${rows
+      .slice(from - 1, to)
+      .map((row, index) => `${String(from + index).padStart(5)} ${row}`)
+      .join('\n')}`;
+    size += text.length;
+    out.push(text);
+    count += 1;
+  }
+  return out.join('\n\n');
+}
+
 /** One card for one clicked symbol, with what the model read on the way. */
-export function runSymbol(
-  options: RunSymbolOptions,
-): Effect.Effect<
-  { card: SymbolCard; checked: SymbolCardDraft['checked']; reads: string[]; model: string },
+export function runSymbol(options: RunSymbolOptions): Effect.Effect<
+  {
+    card: SymbolCard;
+    checked: SymbolCardDraft['checked'];
+    reads: string[];
+    model: string;
+    timing: {
+      prepare: number;
+      model: number;
+      first?: number;
+      steps: { tool: string; at: number }[];
+      usage?: ModelUsage;
+      preloaded: number;
+    };
+  },
   ModelError,
   ModelClient | RepoClones
 > {
   const { diff } = options;
   return Effect.scoped(
     Effect.gen(function* () {
+      const begun = Date.now();
       const model = yield* ModelClient;
       const tree = yield* (yield* RepoClones).tree(diff);
       const runPromise = yield* FiberSet.makeRuntimePromise<never>();
@@ -414,20 +510,50 @@ export function runSymbol(
         clickedPath
           ? symbolUses(parseSymbolLines(found), options.symbol, { path: clickedPath, line: options.line }, (path) =>
               read(path).catch(() => undefined),
-            ).catch(() => ({ lines: [], exact: false }))
-          : Promise.resolve({ lines: [], exact: false }),
+            ).catch(() => ({ lines: [], exact: false, definitions: [] }))
+          : Promise.resolve({ lines: [], exact: false, definitions: [] }),
       );
       // Past the cap the model is not shown the list: an exact count still stands, a loose one does not.
       const lines = named.lines.length > SYMBOL_LINES && !named.exact ? [] : named.lines;
       const listed = lines.length > SYMBOL_LINES ? [] : lines;
+      const code =
+        options.preload && clickedPath
+          ? yield* Effect.promise(() =>
+              symbolCode(named.definitions, listed, { path: clickedPath, line: options.line }, (path) =>
+                read(path).catch(() => undefined),
+              ).catch(() => ''),
+            )
+          : '';
+      // When each tool call started, and when the model first wrote, in ms from the start of the call.
+      const started = Date.now();
+      const steps: { tool: string; at: number }[] = [];
+      let first: number | undefined;
+      const timed = (tool: (typeof reader)['tool']) => ({
+        ...tool,
+        run: (input: unknown) => {
+          steps.push({ tool: tool.name, at: Date.now() - started });
+          return tool.run(input);
+        },
+      });
       const response = yield* model.prompt({
-        tier: 'notes',
+        tier: options.tier ?? 'notes',
         system: SYMBOL_SYSTEM,
-        prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact }),
+        prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code }),
         result: SymbolCardSchema,
         resultName: 'symbol',
-        tools: [reader.tool, searcher.tool],
+        tools: [timed(reader.tool), timed(searcher.tool)],
+        onDelta: () => {
+          first ??= Date.now() - started;
+        },
       });
+      const timing = {
+        prepare: started - begun,
+        model: Date.now() - started,
+        first,
+        steps,
+        usage: response.usage,
+        preloaded: code.length,
+      };
       const card = yield* Effect.promise(() =>
         normalizeSymbolCard(
           response.data,
@@ -443,6 +569,7 @@ export function runSymbol(
         checked: response.data.checked,
         reads: [...searcher.reads(), ...reader.reads()],
         model: response.model,
+        timing,
       };
     }),
   );

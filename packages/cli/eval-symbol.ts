@@ -2,6 +2,7 @@
 // node packages/cli/eval-symbol.ts <dir with tour.json diff.json> [out.json]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import process from 'node:process';
 import { runSymbol, type SymbolCard } from '@gloss/core';
 import type { DiffPayload, Tour } from '@gloss/protocol';
 import { Effect, ManagedRuntime } from 'effect';
@@ -23,6 +24,7 @@ interface Outcome {
   checked?: { place: string; does: string; gate: string }[];
   reads?: string[];
   model?: string;
+  timing?: unknown;
   error?: string;
 }
 
@@ -36,7 +38,16 @@ const results = await runtime.runPromise(
       if (!file) {
         return { ...c, ms: 0, error: 'no such file in the diff' } satisfies Outcome as Outcome;
       }
-      return yield* runSymbol({ tour, diff, fileId: file.id, line: c.line, symbol: c.symbol }).pipe(
+      return yield* runSymbol({
+        tour,
+        diff,
+        fileId: file.id,
+        line: c.line,
+        symbol: c.symbol,
+        // GLOSS_SYMBOL_TIER=followup, GLOSS_SYMBOL_PRELOAD=1: timing arms.
+        tier: (process.env.GLOSS_SYMBOL_TIER as 'notes' | 'followup' | undefined) ?? 'notes',
+        preload: process.env.GLOSS_SYMBOL_PRELOAD === '1',
+      }).pipe(
         Effect.map((result): Outcome => ({ ...c, ms: Date.now() - started, ...result })),
         Effect.catch((error) => Effect.succeed<Outcome>({ ...c, ms: Date.now() - started, error: error.message })),
       );

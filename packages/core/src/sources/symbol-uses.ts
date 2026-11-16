@@ -296,3 +296,53 @@ export async function namedAt(
     parser.delete();
   }
 }
+
+const BLOCKS = new Set([...FUNCTIONS, 'class_definition', 'class_declaration', 'decorated_definition']);
+
+/**
+ * The rows (from 1) of the function, method or class around each of `lines`: the code a reader
+ * opens to see what a line is part of. A line outside any is its own block. Undefined when the
+ * file's language has no grammar here.
+ */
+export async function blocksAround(
+  path: string,
+  source: string,
+  lines: readonly number[],
+): Promise<Map<number, { from: number; to: number }> | undefined> {
+  if (source.length > PARSE_CHARS) {
+    return undefined;
+  }
+  const parser = await parserFor(path).catch(() => undefined);
+  const tree = parser?.parse(source);
+  if (!parser || !tree) {
+    parser?.delete();
+    return undefined;
+  }
+  try {
+    const rows = source.split('\n');
+    const out = new Map<number, { from: number; to: number }>();
+    for (const line of lines) {
+      const text = rows[line - 1] ?? '';
+      let node: Node | null = tree.rootNode.descendantForPosition({
+        row: line - 1,
+        // The end of the line is inside the block a `def` or `function` line opens.
+        column: Math.max(text.trimEnd().length - 1, 0),
+      });
+      while (node && !BLOCKS.has(node.type)) {
+        node = node.parent;
+      }
+      // A decorated definition starts at its decorators.
+      if (node?.parent?.type === 'decorated_definition') {
+        node = node.parent;
+      }
+      out.set(
+        line,
+        node ? { from: node.startPosition.row + 1, to: node.endPosition.row + 1 } : { from: line, to: line },
+      );
+    }
+    return out;
+  } finally {
+    tree.delete();
+    parser.delete();
+  }
+}

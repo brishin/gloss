@@ -99,7 +99,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
   return {
     tiers,
     ask: askFor(tiers.notes, file.ask),
-    thinking: { ...DEFAULTS.thinking, ...file.thinking },
+    thinking: {
+      ...DEFAULTS.thinking,
+      ...file.thinking,
+      // Experiment: `GLOSS_THINKING_NOTES=low` and the like, for timing runs.
+      ...(env.GLOSS_THINKING_NOTES ? { notes: env.GLOSS_THINKING_NOTES as ThinkingLevel } : {}),
+      ...(env.GLOSS_THINKING_FOLLOWUP ? { followup: env.GLOSS_THINKING_FOLLOWUP as ThinkingLevel } : {}),
+    },
     judge:
       env.GLOSS_JUDGE === 'off' ? null : (env.GLOSS_JUDGE ?? (file.judge === undefined ? DEFAULTS.judge : file.judge)),
     providerPackages: [
