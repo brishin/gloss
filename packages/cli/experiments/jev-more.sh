@@ -46,6 +46,16 @@ case "${1:-}" in
     done
     for n in $FRESH; do tour "$n" f1-fastdiet early,roomy,keyhint,jevplace,diet --force; done
     ;;
+  precheck)
+    # Idea 3 as a pipeline arm. Fresh, one tour at a time, arms back to back.
+    for round in 1 2; do
+      for n in $ALL; do
+        tour "$n" "p$round-early" early --force
+        tour "$n" "p$round-pre" early,precheck --force
+        if [ "$round" = 1 ]; then tour "$n" "p$round-prejev" early,precheck,jevplace --force; fi
+      done
+    done
+    ;;
   *) echo "Usage: jev-more.sh content|analyze|diet|fresh" && exit 1 ;;
 esac
 echo "DONE ${1:-}"

@@ -8,6 +8,7 @@ const dir = process.env.OUT ?? join(homedir(), 'Programming/gloss/.eval-out/jev-
 const read = (name) => readFileSync(join(dir, name), 'utf8');
 const out = { tours: {}, traces: {}, stderr: {}, analysis: {} };
 for (const name of readdirSync(dir)) {
+  if (process.env.ONLY && !new RegExp(process.env.ONLY).test(name)) continue;
   try {
     if (name.endsWith('.trace.json')) {
       out.traces[name.replace('.trace.json', '')] = JSON.parse(read(name)).map((step) => ({
@@ -24,7 +25,9 @@ for (const name of readdirSync(dir)) {
         omitted: /omitted for budget: ([^.]*)\./.exec(step.prompt ?? '')?.[1],
         folded: (step.prompt?.match(/\(mechanical edit a classifier/g) ?? []).length,
         keyHints: /## Hunks where the main behavior is decided\n[^\n]*\n((?:- .*\n)*)/.exec(step.prompt ?? '')?.[1],
-        output: /^(define|followup|place|description-check|section|callpath|walkthrough)/.test(step.id) ? step.output : undefined,
+        output: /^(define|followup|place|description-check|section|callpath|walkthrough)/.test(step.id)
+          ? step.output
+          : undefined,
       }));
     } else if (name.endsWith('.stderr')) {
       out.stderr[name.replace('.stderr', '')] = read(name);
@@ -37,11 +40,17 @@ for (const name of readdirSync(dir)) {
         });
       }
       out.analysis[name.replace('.json', '')] = data;
-    } else if (/-(base|rk|dietarm)\.json$/.test(name)) {
+    } else if (/-(base|rk|dietarm|early|pre|prejev)\.json$/.test(name)) {
       const { files, judgments, placements, visuals, ...tour } = JSON.parse(read(name));
       out.tours[name.replace('.json', '')] = {
         ...tour,
-        files: files.map(({ id, path, additions, deletions, hunkIds }) => ({ id, path, additions, deletions, hunks: hunkIds?.length })),
+        files: files.map(({ id, path, additions, deletions, hunkIds }) => ({
+          id,
+          path,
+          additions,
+          deletions,
+          hunks: hunkIds?.length,
+        })),
         placements,
       };
     }
@@ -51,7 +60,7 @@ for (const name of readdirSync(dir)) {
 }
 const packed = gzipSync(JSON.stringify(out)).toString('base64');
 writeFileSync(
-  join(dir, 'bundle.html'),
+  join(dir, process.env.BUNDLE ?? 'bundle.html'),
   `<!doctype html><meta charset="utf-8"><title>Jev eval bundle</title><p>Jev exploration outputs, packed for analysis.</p><script id="d" type="application/octet-stream">${packed}</script>`,
 );
 console.log(`bundle.html ${Math.round(packed.length / 1024)} KB`);

@@ -5,6 +5,7 @@
  * - roomy: in notes and walk prompts, a long file uses budget the group's other files leave over.
  * - keyhint: Jev's key hunks are listed in the walk call's prompt; no key-hunk follow-up call.
  * - diet: Jev reads every hunk before define; hunks it is sure are mechanical show as one line in every prompt.
+ * - precheck: the description check starts with define; Jev drops the gaps define's decisions already make.
  * - jevplace: files Jev is unsure of keep Jev's best group; no placement follow-up call.
  */
 export function evalFlags(): ReadonlySet<string> {

@@ -528,6 +528,53 @@ const tourProgram = Effect.fnUntraced(function* (
     );
   });
 
+  /**
+   * EVAL ONLY (precheck): the description check starts with define, so it cannot be told define's
+   * decisions. Jev then drops each gap that one of those decisions already makes. A failed Jev
+   * call keeps the gap.
+   */
+  let prechecking: Fiber.Fiber<Decision[]> | undefined;
+  const COVERED = 0.6;
+  const uncovered = (gaps: Decision[], listed: readonly Decision[]) =>
+    !judge || gaps.length === 0 || listed.length === 0
+      ? Effect.succeed(gaps)
+      : Effect.forEach(
+          gaps,
+          (gap) => {
+            const client = judge;
+            const gapState = {
+              pr_title: meta.title,
+              gap: gap.text,
+              listed_decisions: listed.map((decision) => decision.text),
+            };
+            const questions: Record<string, JudgeQuestion> = {
+              covered: {
+                type: 'bool',
+                instructions: 'Does one of `listed_decisions` already make the point of `gap`, even in other words?',
+                criteria: {
+                  true: 'A listed decision names the same mismatch, risk or reach that the gap names.',
+                  false:
+                    'No listed decision says what the gap says, or one only touches the same code for another reason.',
+                },
+              },
+            };
+            return cached(
+              'judge-file',
+              { kind: 'gap-covered', model: client.model, state: gapState, questions },
+              client.judge({ state: gapState, questions }),
+              client.model,
+            ).pipe(
+              Effect.map(({ value }) => {
+                const covered = value.covered?.type === 'bool' ? value.covered.probability : 0;
+                evalLog('gap', { covered, text: gap.text });
+                return covered >= COVERED ? [] : [gap];
+              }),
+              Effect.catch(() => Effect.succeed([gap])),
+            );
+          },
+          { concurrency: 4 },
+        ).pipe(Effect.map((kept) => kept.flat()));
+
   const defineGroups = Effect.gen(function* () {
     const listFiles = !judge;
     stage('define', 'running');
@@ -590,7 +637,10 @@ const tourProgram = Effect.fnUntraced(function* (
     // The description check runs beside the rest of the tour; its gaps go last when they land, so
     // the walkthrough's decision numbers still point at define's.
     checking = yield* Effect.forkScoped(
-      checkDescription(defined).pipe(
+      (prechecking
+        ? Fiber.join(prechecking).pipe(Effect.flatMap((gaps) => uncovered(gaps, defined)))
+        : checkDescription(defined)
+      ).pipe(
         Effect.flatMap((gaps) =>
           gaps.length
             ? Effect.sync(() => resend({ decisions: [...(state.decisions ?? defined), ...gaps] }))
@@ -1370,6 +1420,9 @@ const tourProgram = Effect.fnUntraced(function* (
     evalLog('diet', { hunks: sure.length, folded: folded.size });
   }
   mapping = yield* Effect.forkScoped(mapAffected);
+  if (flags.has('precheck')) {
+    prechecking = yield* Effect.forkScoped(checkDescription([]));
+  }
   let drawing: Fiber.Fiber<void> | undefined;
   /** EVAL ONLY (early): the picture is drawn and picked beside placement and notes, not before them. */
   const showVisualBeside = (defined: Effect.Success<typeof defineGroups>) =>
