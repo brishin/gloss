@@ -86,6 +86,7 @@ test('uses are counted from the grep lines, less the ones the model skips', asyn
     tests: 1,
     added: 1,
     calls: 0,
+    exact: false,
     skipped: 1,
     summary: 'Two call it.',
     lines: lines.slice(1),
@@ -194,4 +195,11 @@ test('a name defined inside a function, or not exported, is counted only where i
     'c.ts': 'function h(go: number) {\n  return go;\n}',
   };
   expect(await kinds(lazy, 'go', { path: 'a.ts', line: 3 })).toEqual(['a.ts:3 call', 'b.ts:3 call']);
+  // Clicked as a parameter: the callers that pass it by name.
+  const named = {
+    'a.py': 'def f(*, start):\n    return start',
+    'b.py': 'f(start=1)\nstart = 2\nprint(start)',
+    'README.md': 'pass start to f',
+  };
+  expect(await kinds(named, 'start', { path: 'a.py', line: 1 })).toEqual(['b.py:1 pass']);
 });

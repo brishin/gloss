@@ -102,6 +102,8 @@ export interface SymbolCard {
     added: number;
     /** How many of the uses call it; the rest pass, set or read it. */
     calls: number;
+    /** Whether every counted line is the clicked symbol for certain; otherwise other things of the same name may be counted. */
+    exact: boolean;
     /** Lines whose syntax uses the name that the model said are some other thing. */
     skipped: number;
     summary?: string;
@@ -188,6 +190,7 @@ export function mayUse(text: string, symbol: string): boolean {
   );
 }
 
+const PROSE = /\.(md|mdx|txt|rst|json|ya?ml|toml|lock|snap|html?|csv|svg)$/i;
 /** Files parsed for one symbol; lines in files past this fall back to the line's text. */
 const PARSED_FILES = 150;
 
@@ -240,7 +243,8 @@ export async function symbolUses(
   const lines = named.flatMap((use) => {
     const entry = trees.get(use.path)?.get(use.line);
     if (!entry) {
-      return mayUse(use.text, symbol) ? [use] : [];
+      // No grammar for the file: prose and data are not code, the rest is judged by the line's text.
+      return !PROSE.test(use.path) && mayUse(use.text, symbol) ? [use] : [];
     }
     if (entry.kind === 'define' || entry.kind === 'import' || entry.kind === 'text') {
       return [];
@@ -249,6 +253,10 @@ export async function symbolUses(
       return [];
     }
     if (at?.member && !entry.member) {
+      return [];
+    }
+    // A parameter is used from outside by the callers that pass it by name.
+    if (at?.parameter && entry.kind !== 'pass') {
       return [];
     }
     if (bare && !fileOnly && !entry.member && !owns.has(use.path) && use.path !== clicked.path) {
@@ -325,6 +333,7 @@ export async function normalizeSymbolCard(
       tests: uses.filter((use) => TEST_PATH.test(use.path)).length,
       added: uses.filter((use) => lineAdded(diff, use.path, use.line)).length,
       calls: uses.filter((use) => use.kind === 'call').length,
+      exact,
       skipped: lines.length - uses.length,
       ...(summary && uses.length > 1 ? { summary } : {}),
       lines: uses,
