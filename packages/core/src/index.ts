@@ -17,4 +17,5 @@ export {
 } from './pipeline/orchestrator.ts';
 export { PROMPTS_VERSION } from './pipeline/prompts.ts';
 export { nameStack, STACK_NAME_VERSION } from './pipeline/stack-name.ts';
+export { runSymbol, type RunSymbolOptions, SYMBOL_SYSTEM, type SymbolCard } from './pipeline/symbol.ts';
 export * from './sources/index.ts';
