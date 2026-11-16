@@ -147,7 +147,7 @@ test('the syntax tree tells a use from an import, a definition, a comment and a 
       'type T = { s: string };',
       '// s',
     ].join('\n'),
-    'c.txt': 'import s\ns()',
+    'c.kt': 'import s\ns()',
   };
   expect(await kinds(sources, 's', { path: 'b.tsx', line: 3 })).toEqual([
     'a.py:2 read',
@@ -157,7 +157,7 @@ test('the syntax tree tells a use from an import, a definition, a comment and a 
     'b.tsx:3 call',
     'b.tsx:4 pass',
     'b.tsx:5 pass',
-    'c.txt:2 undefined',
+    'c.kt:2 undefined',
   ]);
   // Clicked as a member: only members count.
   expect(await kinds(sources, 's', { path: 'a.py', line: 6 })).toEqual([
@@ -165,7 +165,7 @@ test('the syntax tree tells a use from an import, a definition, a comment and a 
     'a.py:6 set',
     'b.tsx:4 pass',
     'b.tsx:5 pass',
-    'c.txt:2 undefined',
+    'c.kt:2 undefined',
   ]);
 });
 
