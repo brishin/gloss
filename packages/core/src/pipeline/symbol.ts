@@ -22,13 +22,13 @@ Use search_code and read_file before you answer. Every fact must come from code 
 
 ## The card
 
-checked: fill this first. One entry for each place you read that calls, passes, sets or reads the symbol: where it is, and what it does with the symbol in a few words. For a flag or gate, and for a value that is only read behind one, list every entry point that reaches the clicked line (follow the callers of the enclosing function up to where requests come in) and say for each whether it supplies what the gate needs. List at least three places when that many exist. If you cannot fill this, search and read more before going on. The lead comes from what differs between these entries.
+checked: fill this first. One entry for each place you read that calls, passes, sets or reads the symbol: where it is, and what it does with the symbol in a few words. For a flag or gate, and for a value that is only read behind one, list every entry point that reaches the clicked line (follow the callers of the enclosing function up to where requests come in) and set gate for each: "passes" when that path can make the gate true, "fails" when it never can, "none" for a place that is not an entry point. Read each entry point's call before you set it; do not assume. List at least three places when that many exist. If you cannot fill this, search and read more before going on. The lead comes from what differs between these entries.
 
-lead: ONE sentence, 20 words at most. It is the finding, not a description. Do not say what kind of thing the symbol is, do not restate its body, and do not start with its name, "Resolves", "Returns", "Helper", or "This". A lead that starts with the symbol's name is an error.
+lead: ONE sentence, 20 words at most. It is the finding, not a description. Do not say what kind of thing the symbol is, do not restate its body, and do not start with its name, "Resolves", "Returns", "Helper", or "This". A lead that starts with the symbol's name is an error: make the subject the thing that happens ("A blank title still gets a line"), not the symbol. When some entry points fail a gate, the lead names them, by the name a reader of this codebase would use ("Slack and mini sessions never get the tool, so their source is never read").
   Too long and descriptive: "Resolves the thread's source into a kind and name, but only if that item is attached. The name is cleaned. Otherwise it returns None."
   Right: "The attached Capture or Collection this Session started from; None for anything else."
 
-rows: only when several places pass, set or read the symbol and they differ. label is two or three plain words that say what the values are ("callers pass", "gets the tool"), never one word such as "from". Each item is a value (code, or a few plain words) and where (the name a reader of this codebase would use for the place, such as "threads" or "Slack"; add path:line only when the name is not enough). Group places that pass the same thing into one item ("threads, Slack"), and keep the odd one out as its own item. Four items at most.
+rows: most cards have none. Use rows only when the finding itself is that places differ and the lead cannot carry it. Never use rows to list callers that the lead does not talk about, to restate checked, or to show places that all behave the same. label is two or three plain words that say what the values are ("callers pass", "gets the tool"), never one word such as "from". Each item is a value (code, or a few plain words) and where (the name a reader of this codebase would use for the place, such as "threads" or "Slack"; add path:line only when the name is not enough). Group places that pass the same thing into one item ("threads, Slack"), and keep the odd one out as its own item. Four items at most.
 
 excerpt: the few lines that decide the behavior (the condition, the default, the branch), 8 lines at most. Never a signature, a docstring or imports. Only lines that this pull request's diff does not show. Give the path and line range and do not quote code. Leave the path empty when nothing outside the diff needs showing.
 
@@ -49,9 +49,13 @@ export const SymbolCardSchema = v.object({
     v.object({
       place: v.pipe(v.string(), v.description('path:line, or the entry point by name with its path:line.')),
       does: v.pipe(v.string(), v.description('What this place does with the symbol, a few words.')),
+      gate: v.pipe(
+        v.picklist(['passes', 'fails', 'none']),
+        v.description('For an entry point: whether the gate at the clicked line can be true on this path.'),
+      ),
     }),
   ),
-  lead: v.pipe(v.string(), v.description('One or two sentences, 24 words at most.')),
+  lead: v.pipe(v.string(), v.description('One sentence, 20 words at most. Never starts with the symbol name.')),
   rows: v.object({
     label: v.pipe(v.string(), v.description('Two or three plain words; empty when there are no items.')),
     items: v.array(

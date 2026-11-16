@@ -20,7 +20,7 @@ interface Outcome {
   symbol: string;
   ms: number;
   card?: SymbolCard;
-  checked?: { place: string; does: string }[];
+  checked?: { place: string; does: string; gate: string }[];
   reads?: string[];
   model?: string;
   error?: string;
