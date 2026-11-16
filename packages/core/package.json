@@ -10,6 +10,7 @@
   "dependencies": {
     "@gloss/protocol": "workspace:*",
     "@resvg/resvg-js": "catalog:",
+    "@vscode/tree-sitter-wasm": "catalog:",
     "beautiful-mermaid": "catalog:",
     "effect": "catalog:",
     "valibot": "catalog:"

@@ -1,6 +1,6 @@
 import type { DiffPayload } from '@gloss/protocol';
 import { expect, test } from 'vitest';
-import { mayUse, normalizeSymbolCard, parseSymbolLines, type SymbolCardDraft } from './symbol.ts';
+import { mayUse, normalizeSymbolCard, parseSymbolLines, symbolUses, type SymbolCardDraft } from './symbol.ts';
 
 const diff = {
   files: [
@@ -80,7 +80,15 @@ test('uses are counted from the grep lines, less the ones the model skips', asyn
     read,
     lines,
   );
-  expect(card.uses).toEqual({ count: 3, files: 3, tests: 1, added: 1, summary: 'Two call it.', lines: lines.slice(1) });
+  expect(card.uses).toEqual({
+    count: 3,
+    files: 3,
+    tests: 1,
+    added: 1,
+    calls: 0,
+    summary: 'Two call it.',
+    lines: lines.slice(1),
+  });
 });
 
 test('imports, comments and the defining line are not uses', () => {
@@ -97,4 +105,84 @@ test('imports, comments and the defining line are not uses', () => {
     's,',
   ].filter((text) => mayUse(text, 's'));
   expect(uses).toEqual(['return s(1);', 'const t = s();', 's,']);
+});
+
+const grep = (sources: Record<string, string>, symbol: string) =>
+  parseSymbolLines(
+    Object.entries(sources).flatMap(([path, source]) =>
+      source
+        .split('\n')
+        .flatMap((text, index) =>
+          new RegExp(`(?<![\\w$])${symbol}(?![\\w$])`).test(text) ? [`${path}:${index + 1}:${text}`] : [],
+        ),
+    ),
+  );
+const kinds = async (sources: Record<string, string>, symbol: string, clicked: { path: string; line: number }) =>
+  (await symbolUses(grep(sources, symbol), symbol, clicked, (path) => Promise.resolve(sources[path]))).map(
+    (use) => `${use.path}:${use.line} ${use.kind}`,
+  );
+
+test('the syntax tree tells a use from an import, a definition, a comment and a string', async () => {
+  const sources = {
+    'a.py': [
+      'from b import s',
+      'def f(s: int, *, t=s):',
+      '    # s here',
+      '    x = s(1)',
+      '    g(s=3)',
+      '    self.s = 4',
+      '    return "s"',
+      'class A:',
+      '    s: int | None = None',
+    ].join('\n'),
+    'b.tsx': [
+      "import { s } from './a';",
+      'export function s() {}',
+      'const y = s(1);',
+      'const v = <Rail s={1} onSaved={s} />;',
+      'f({ s: 1 });',
+      'const o = { s: vi.fn() };',
+      'type T = { s: string };',
+      '// s',
+    ].join('\n'),
+    'c.txt': 'import s\ns()',
+  };
+  expect(await kinds(sources, 's', { path: 'b.tsx', line: 3 })).toEqual([
+    'a.py:2 read',
+    'a.py:4 call',
+    'a.py:5 pass',
+    'a.py:6 set',
+    'b.tsx:3 call',
+    'b.tsx:4 pass',
+    'b.tsx:5 pass',
+    'c.txt:2 undefined',
+  ]);
+  // Clicked as a member: only members count.
+  expect(await kinds(sources, 's', { path: 'a.py', line: 6 })).toEqual([
+    'a.py:5 pass',
+    'a.py:6 set',
+    'b.tsx:4 pass',
+    'b.tsx:5 pass',
+    'c.txt:2 undefined',
+  ]);
+});
+
+test('a name defined inside a function, or not exported, is counted only where it can be seen', async () => {
+  const sources = {
+    'a.tsx': [
+      'function Card() {',
+      '  const { copy } = useCopy();',
+      '  return <b onClick={copy} />;',
+      '}',
+      'function Other() {',
+      '  const copy = 1;',
+      '  return copy + 1;',
+      '}',
+      'const helper = () => 1;',
+      'helper();',
+    ].join('\n'),
+    'b.ts': 'copy();\nhelper();',
+  };
+  expect(await kinds(sources, 'copy', { path: 'a.tsx', line: 3 })).toEqual(['a.tsx:3 read']);
+  expect(await kinds(sources, 'helper', { path: 'a.tsx', line: 10 })).toEqual(['a.tsx:10 call']);
 });

@@ -4,6 +4,7 @@ import * as v from 'valibot';
 import { ModelClient, type ModelError } from '../adapters/types.ts';
 import { RepoClones } from '../sources/clone.ts';
 import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
+import { namedAt, type UseKind } from '../sources/symbol-uses.ts';
 import { codeSearcher, fileReader } from './read-file.ts';
 
 /**
@@ -35,7 +36,8 @@ rows: most cards have none. Use rows only when the finding itself is that places
 excerpt: the few lines that decide the behavior (the condition, the default, the branch), 8 lines at most. Never a signature, a docstring or imports. Only lines that this pull request's diff does not show. Give the path and line range and do not quote code. Leave the path empty when nothing outside the diff needs showing.
 
 uses: the prompt may list every line at the head that names the symbol, numbered. The reader is shown a count made from that list ("7 uses in 4 files"), so never write a count yourself.
-  skip: the numbers of the lines that are not a use of the clicked symbol: its own definition, a parameter or field declaration of it, a line of a multi-line import, comments, docs and strings, and other things that only share the name. A line that passes, calls, reads or sets it is a use. Read a line's file when you cannot tell from the line.
+  The list holds only lines whose syntax uses the name (each is marked call, pass, set or read); imports, definitions, comments and strings are already gone.
+  skip: the numbers of the lines that use some other thing with the same name: a local variable, a method of another class, a field of another type. Read a line's file when you cannot tell from the line.
   summary: one line, 14 words at most, that tells the uses apart by what they do ("threads and Slack pass the thread's source; admin passes None"). Name places the way a reader of this codebase would, never by line number. Empty when there is at most one use, when the uses all do the same thing the clicked line does, or when the lead already says it. When summary says how places differ, leave rows empty.
 
 effect: ONE sentence, 20 words at most: what the finding means at the clicked line, when a reviewer would act on it or would not guess it. Empty otherwise.
@@ -93,7 +95,16 @@ export interface SymbolCard {
   /** Lines read from the repository at the head. */
   excerpt?: { path: string; from: number; lines: string[] };
   /** Counted from grep at the head, less the lines the model says are not uses; the summary is the model's. */
-  uses?: { count: number; files: number; tests: number; added: number; summary?: string; lines: SymbolLine[] };
+  uses?: {
+    count: number;
+    files: number;
+    tests: number;
+    added: number;
+    /** How many of the uses call it; the rest pass, set or read it. */
+    calls: number;
+    summary?: string;
+    lines: SymbolLine[];
+  };
   effect?: string;
   definition?: { path: string; line: number; inDiff: boolean };
 }
@@ -103,6 +114,8 @@ export interface SymbolLine {
   path: string;
   line: number;
   text: string;
+  /** What the line does with the symbol, from the file's syntax tree; absent when the file has no grammar. */
+  kind?: UseKind;
 }
 
 export interface RunSymbolOptions {
@@ -171,6 +184,60 @@ export function mayUse(text: string, symbol: string): boolean {
   );
 }
 
+/** Files parsed for one symbol; lines in files past this fall back to the line's text. */
+const PARSED_FILES = 150;
+
+/**
+ * The lines that use the symbol, out of every line that names it: each file is parsed, so imports,
+ * definitions, comments and strings are dropped by syntax. A name defined inside a function of the
+ * clicked file, or at the top of a module that does not export it, is counted only where it can be
+ * seen; a name clicked as a member (`router.invalidate`) is counted only where it is a member.
+ */
+export async function symbolUses(
+  named: readonly SymbolLine[],
+  symbol: string,
+  clicked: { path: string; line: number },
+  read: (path: string) => Promise<string | undefined>,
+): Promise<SymbolLine[]> {
+  const paths = [...new Set([clicked.path, ...named.map((use) => use.path)])];
+  const trees = new Map(
+    await Promise.all(
+      paths.slice(0, PARSED_FILES).map(async (path) => {
+        const source = await read(path);
+        const lines = named.filter((use) => use.path === path).map((use) => use.line);
+        return [
+          path,
+          source === undefined ? undefined : await namedAt(path, source, symbol, [...lines, clicked.line]),
+        ] as const;
+      }),
+    ),
+  );
+  const here = trees.get(clicked.path);
+  const at = here?.get(clicked.line);
+  const defined = here ? [...here.values()].filter((entry) => entry.kind === 'define') : [];
+  const local = defined.find(
+    (entry) => entry.within && clicked.line >= entry.within.from && clicked.line <= entry.within.to,
+  )?.within;
+  const fileOnly = !!local || defined.some((entry) => entry.unexported);
+  const bare = !!at && at.kind !== 'text' && !at.member;
+  return named.flatMap((use) => {
+    const entry = trees.get(use.path)?.get(use.line);
+    if (!entry) {
+      return mayUse(use.text, symbol) ? [use] : [];
+    }
+    if (entry.kind === 'define' || entry.kind === 'import' || entry.kind === 'text') {
+      return [];
+    }
+    if (bare && fileOnly && (use.path !== clicked.path || (local && (use.line < local.from || use.line > local.to)))) {
+      return [];
+    }
+    if (at?.member && !entry.member) {
+      return [];
+    }
+    return [{ ...use, kind: entry.kind }];
+  });
+}
+
 /** The hunk that shows new-side `line`, with new-side line numbers. */
 function numberedHunk(file: FileChange, line: number): string {
   const hunk = file.hunks.find(
@@ -202,7 +269,7 @@ export function buildSymbolPrompt({ tour, diff, fileId, line, symbol, lines }: R
     `## The click\nSymbol: \`${symbol}\`\nFile: ${file?.path ?? fileId}\nLine: ${line}${group ? `\nGroup: ${group.label}` : ''}`,
     file ? `## The hunk around it (new line numbers)\n${numberedHunk(file, line)}` : '',
     lines?.length
-      ? `## Every line that names the symbol (complete, numbered)\n${lines.map((use, index) => `[${index}] ${use.path}:${use.line}: ${use.text}`).join('\n')}`
+      ? `## Every line that names the symbol (complete, numbered)\n${lines.map((use, index) => `[${index}] ${use.kind ? `${use.kind} ` : ''}${use.path}:${use.line}: ${use.text}`).join('\n')}`
       : '',
   ]
     .filter(Boolean)
@@ -234,6 +301,7 @@ export async function normalizeSymbolCard(
       files: new Set(uses.map((use) => use.path)).size,
       tests: uses.filter((use) => TEST_PATH.test(use.path)).length,
       added: uses.filter((use) => lineAdded(diff, use.path, use.line)).length,
+      calls: uses.filter((use) => use.kind === 'call').length,
       ...(summary && uses.length > 1 ? { summary } : {}),
       lines: uses,
     };
@@ -305,10 +373,17 @@ export function runSymbol(
       );
       const found = yield* Effect.promise(() =>
         runPromise(
-          Effect.tryPromise((signal) => findSymbolLines(tree, options.symbol, SYMBOL_LINES * 2, signal)),
+          Effect.tryPromise((signal) => findSymbolLines(tree, options.symbol, SYMBOL_LINES * 4, signal)),
         ).catch(() => []),
       );
-      const named = parseSymbolLines(found).filter((use) => mayUse(use.text, options.symbol));
+      const clickedPath = diff.files.find((candidate) => candidate.id === options.fileId)?.path;
+      const named = yield* Effect.promise(() =>
+        clickedPath
+          ? symbolUses(parseSymbolLines(found), options.symbol, { path: clickedPath, line: options.line }, (path) =>
+              read(path).catch(() => undefined),
+            ).catch(() => [])
+          : Promise.resolve([]),
+      );
       const lines = named.length > SYMBOL_LINES ? [] : named;
       const response = yield* model.prompt({
         tier: 'notes',
