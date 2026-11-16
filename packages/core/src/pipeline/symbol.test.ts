@@ -86,6 +86,7 @@ test('uses are counted from the grep lines, less the ones the model skips', asyn
     tests: 1,
     added: 1,
     calls: 0,
+    skipped: 1,
     summary: 'Two call it.',
     lines: lines.slice(1),
   });
