@@ -32,8 +32,6 @@ function dedent(lines: readonly string[]): string[] {
   return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0));
 }
 
-const seconds = (ms: number | undefined) => (ms === undefined ? '' : `${(ms / 1000).toFixed(1)} s`);
-
 /**
  * Experiment: the card under a cmd-clicked symbol. The uses line shows first (counted from the
  * code), then what the model is reading, then the lead as it streams, then the rest.
@@ -42,11 +40,6 @@ export function SymbolPeek({ open }: { open: NonNullable<SymbolModel['open']> })
   const { peek, symbol } = open;
   const card = peek.card;
   const lead = card?.lead ?? peek.lead;
-  const times = [
-    peek.at.uses !== undefined && `uses ${seconds(peek.at.uses)}`,
-    peek.at.lead !== undefined && `lead ${seconds(peek.at.lead)}`,
-    peek.at.done !== undefined && `card ${seconds(peek.at.done)}`,
-  ].filter(Boolean);
   return (
     <div className="sym sym-peek" style={{ left: open.left, top: open.top }} role="dialog" aria-label={symbol}>
       <div className="sym-head">
@@ -88,11 +81,7 @@ export function SymbolPeek({ open }: { open: NonNullable<SymbolModel['open']> })
       )}
       {card?.effect && <div>{inline(card.effect)}</div>}
       {peek.state === 'failed' && <div className="sym-muted">{peek.error ?? 'The card failed.'}</div>}
-      {(peek.state === 'loading' || times.length > 0) && (
-        <div className="sym-foot">
-          {peek.state === 'loading' ? (peek.reading ?? 'Reading the code') + '…' : times.join(' · ')}
-        </div>
-      )}
+      {peek.state === 'loading' && <div className="sym-foot">{peek.reading ?? 'Reading the code'}…</div>}
     </div>
   );
 }

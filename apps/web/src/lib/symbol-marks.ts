@@ -14,7 +14,7 @@ const SHEET = `
   ::highlight(sym-hover) { text-decoration: underline; text-underline-offset: 3px; }
   ::highlight(sym-known) {
     text-decoration: underline dotted;
-    text-decoration-color: light-dark(oklch(50% 0.17 285), oklch(78% 0.12 285));
+    text-decoration-color: light-dark(oklch(45% 0.02 285 / 0.32), oklch(85% 0.02 285 / 0.32));
     text-underline-offset: 3px;
   }
 `;
