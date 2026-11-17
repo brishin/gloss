@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { symbolSites, synthSystem } from './symbol-fanout.ts';
-import { SYMBOL_SYSTEM } from './symbol.ts';
+import { callerCode, SYMBOL_SYSTEM } from './symbol.ts';
 
 const files: Record<string, string> = {
   'app/a.py': [
@@ -41,4 +41,28 @@ test('the card call keeps the card rules and drops the reading and checked', () 
   expect(system).toContain('## Leave out');
   expect(system).not.toContain('checked:');
   expect(system).not.toContain('## Look first');
+});
+
+test('callerCode walks two hops up the call chain, outside tests, marking the calls', async () => {
+  const files: Record<string, string> = {
+    'app/core.py': 'def build(start):\n    if start:\n        return [start]\n    return []\n',
+    'app/web.py': 'def web_entry(req):\n    out = build(req.start)\n    return out\n',
+    'app/slack.py': 'def slack_entry(event):\n    out = build(None)\n    return out\n',
+    'app/routes.py': 'def route(req):\n    handled = web_entry(req)\n    return handled\n',
+    'tests/test_core.py': 'def test_build():\n    assert build(1)\n',
+  };
+  const grep = async (name: string) =>
+    Object.entries(files).flatMap(([path, text]) =>
+      text
+        .split('\n')
+        .flatMap((row, index) => (new RegExp(`\\b${name}\\b`).test(row) ? [`${path}:${index + 1}:${row}`] : [])),
+    );
+  const { text, functions } = await callerCode([{ path: 'app/core.py', line: 2 }], async (path) => files[path], grep);
+  expect(functions).toEqual(['build', 'web_entry']);
+  expect(text).toContain('app/web.py:1-3 calls `build`');
+  expect(text).toContain('app/slack.py:1-3 calls `build`');
+  expect(text).toContain('>    2     out = build(None)');
+  expect(text).toContain('### Their callers');
+  expect(text).toContain('app/routes.py:1-3 calls `web_entry`');
+  expect(text).not.toContain('tests/');
 });

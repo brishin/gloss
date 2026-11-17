@@ -58,6 +58,7 @@ const results = await runtime.runPromise(
         // GLOSS_SYMBOL_TIER=followup, GLOSS_SYMBOL_PRELOAD=1: timing arms.
         tier: (process.env.GLOSS_SYMBOL_TIER as 'notes' | 'followup' | undefined) ?? 'notes',
         preload: process.env.GLOSS_SYMBOL_PRELOAD === '1',
+        callers: process.env.GLOSS_SYMBOL_CALLERS === '1',
         lean: process.env.GLOSS_SYMBOL_LEAN === '1',
         // GLOSS_SYMBOL_FANOUT=1: parallel readers, then one card call; _SUB_ and _SYNTH_ pick their models.
         ...(process.env.GLOSS_SYMBOL_FANOUT === '1' ? { fanout: fanoutFromEnv() } : {}),

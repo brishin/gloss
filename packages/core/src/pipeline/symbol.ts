@@ -4,7 +4,7 @@ import * as v from 'valibot';
 import { type ChatTool, ModelClient, type ModelError, type ModelTier, type ModelUsage } from '../adapters/types.ts';
 import { RepoClones } from '../sources/clone.ts';
 import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
-import { blocksAround, namedAt, type UseKind } from '../sources/symbol-uses.ts';
+import { blocksAround, enclosingFunctions, namedAt, type UseKind } from '../sources/symbol-uses.ts';
 import { codeSearcher, fileReader } from './read-file.ts';
 import {
   buildSitePrompt,
@@ -169,6 +169,8 @@ export interface RunSymbolOptions {
   tier?: ModelTier;
   /** Experiment: read the definition and the code around the uses into the prompt. */
   preload?: boolean;
+  /** Experiment: with `preload`, also read the callers of the functions around the uses, two hops up. */
+  callers?: boolean;
   /** Experiment: a short prompt (no summary, file list or notes, the first uses only) with tools that fetch the rest. */
   lean?: boolean;
   /** Experiment: the model writes the lead as plain text before it submits, and it is handed on as it streams. */
@@ -398,6 +400,7 @@ export function buildSymbolPrompt({
   exact,
   code,
   lean,
+  callers,
 }: RunSymbolOptions): string {
   const file = diff.files.find((candidate) => candidate.id === fileId);
   const group = tour.groups.find((candidate) => candidate.fileIds.includes(fileId));
@@ -418,9 +421,11 @@ export function buildSymbolPrompt({
     lines?.length
       ? `## ${more > 0 ? `The first ${shown.length} of ${lines.length} lines that name the symbol (list_uses returns all of them` : 'Every line that names the symbol (complete, numbered'}${exact ? '; all of them are the clicked symbol, so skip is empty' : ''})\n${shown.map(useLine).join('\n')}`
       : '',
-    code
-      ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses: these replace your first reads only. They show where the symbol is defined and used, not what makes a gate true, which entry points reach the clicked line, or what a caller's own callers pass. Still go the one hop with read_file and search_code before you answer, and do not read the lines below again.\n\n${code}`
-      : '',
+    code && callers
+      ? `## Code already read for you (at the head, numbered)\nThe definition, the code around the uses, the lines that call the functions around them, and the callers of those, two hops up the call chain. Lines marked ">" are the calls. Start from this code: read or search only for what it does not show, such as an entry point further up or a file it cuts off, and do not read the lines below again.\n\n${code}`
+      : code
+        ? `## Code already read for you (at the head, numbered)\nThe definition and the code around the uses: these replace your first reads only. They show where the symbol is defined and used, not what makes a gate true, which entry points reach the clicked line, or what a caller's own callers pass. Still go the one hop with read_file and search_code before you answer, and do not read the lines below again.\n\n${code}`
+        : '',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -567,6 +572,117 @@ export async function symbolCode(
   return out.join('\n\n');
 }
 
+/** Caller read-ahead: hops up the call chain, functions followed per hop, callers per function, characters. */
+const CALLER_HOPS = 2;
+const CALLER_FUNCTIONS = 6;
+const CALLER_SITES = 4;
+const CALLER_CHARS = 18_000;
+/** A function named this often is too common to follow. */
+const CALLER_COMMON = 25;
+const CALLER_SKIP = new Set([
+  '__init__',
+  'main',
+  'run',
+  'get',
+  'set',
+  'call',
+  'handle',
+  'render',
+  'default',
+  'constructor',
+]);
+
+/**
+ * Experiment: the second and third reads done ahead. From the clicked line and the uses outside
+ * tests, the function around each, then the lines that call that function (by name, outside tests),
+ * then the functions around those and their callers: the chain a reader walks to see who passes a
+ * value and which entry points reach a line. Each call site is shown with the code around it.
+ */
+export async function callerCode(
+  starts: readonly { path: string; line: number }[],
+  read: (path: string) => Promise<string | undefined>,
+  grep: (name: string) => Promise<string[]>,
+  shown: readonly { path: string; from: number; to: number }[] = [],
+): Promise<{ text: string; functions: string[] }> {
+  const sources = new Map<string, string | undefined>();
+  const source = async (path: string) => {
+    if (!sources.has(path)) {
+      sources.set(path, (await read(path).catch(() => undefined))?.replace(/\n$/, ''));
+    }
+    return sources.get(path);
+  };
+  const taken: { path: string; from: number; to: number }[] = [...shown];
+  const followed = new Set<string>();
+  const out: string[] = [];
+  const functions: string[] = [];
+  let size = 0;
+  let frontier = starts.filter((at) => !TEST_PATH.test(at.path));
+  for (let hop = 1; hop <= CALLER_HOPS && frontier.length && size < CALLER_CHARS; hop++) {
+    // The named functions around this hop's lines, in order, each once.
+    const named: { name: string; path: string }[] = [];
+    for (const at of frontier) {
+      const text = await source(at.path);
+      const around = text
+        ? (await enclosingFunctions(at.path, text, [at.line]).catch(() => undefined))?.get(at.line)
+        : undefined;
+      if (around && !followed.has(around.name) && !CALLER_SKIP.has(around.name) && around.name.length >= 4) {
+        followed.add(around.name);
+        named.push({ name: around.name, path: at.path });
+      }
+    }
+    const next: { path: string; line: number }[] = [];
+    const sections: string[] = [];
+    for (const fn of named.slice(0, CALLER_FUNCTIONS)) {
+      if (size >= CALLER_CHARS) {
+        break;
+      }
+      const rows = parseSymbolLines(await grep(fn.name).catch(() => []));
+      const calls = rows.filter(
+        (row) =>
+          !TEST_PATH.test(row.path) &&
+          mayUse(row.text, fn.name) &&
+          new RegExp(`(?<![\\w$])${escaped(fn.name)}\\s*\\(`).test(row.text),
+      );
+      if (rows.length > CALLER_COMMON || !calls.length) {
+        continue;
+      }
+      functions.push(fn.name);
+      for (const call of calls.slice(0, CALLER_SITES)) {
+        const text = await source(call.path);
+        if (!text || size >= CALLER_CHARS) {
+          continue;
+        }
+        const lines = text.split('\n');
+        const block = (await blocksAround(call.path, text, [call.line]).catch(() => undefined))?.get(call.line);
+        // A call inside a short lambda shows the lines around it instead.
+        const whole = block && block.to - block.from >= 6;
+        let from = whole ? block.from : Math.max(1, call.line - 6);
+        let to = whole ? block.to : Math.min(lines.length, call.line + 6);
+        if (to - from + 1 > PRELOAD_AROUND * 2 + 1) {
+          from = Math.max(from, call.line - PRELOAD_AROUND);
+          to = Math.min(to, call.line + PRELOAD_AROUND);
+        }
+        next.push({ path: call.path, line: call.line });
+        if (taken.some((range) => range.path === call.path && call.line >= range.from && call.line <= range.to)) {
+          continue;
+        }
+        taken.push({ path: call.path, from, to });
+        const piece = `#### ${call.path}:${from}-${to} calls \`${fn.name}\`\n${lines
+          .slice(from - 1, to)
+          .map((row, index) => `${from + index === call.line ? '>' : ' '}${String(from + index).padStart(5)} ${row}`)
+          .join('\n')}`;
+        size += piece.length;
+        sections.push(piece);
+      }
+    }
+    if (sections.length) {
+      out.push(`### ${hop === 1 ? 'Callers of the functions above' : 'Their callers'}\n${sections.join('\n\n')}`);
+    }
+    frontier = next;
+  }
+  return { text: out.join('\n\n'), functions };
+}
+
 /** One card for one clicked symbol, with what the model read on the way. */
 export function runSymbol(options: RunSymbolOptions): Effect.Effect<
   {
@@ -585,6 +701,8 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       steps: { tool: string; at: number }[];
       usage?: ModelUsage;
       preloaded: number;
+      /** Caller read-ahead: the functions whose callers were read. */
+      callers?: string[];
       /** Fan-out only: each reader's time, and when the card call started. */
       readers?: { place: string; ms: number; tools: number; ok: boolean; model: string }[];
       synthAt?: number;
@@ -629,7 +747,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       const lines = named.lines.length > SYMBOL_LINES && !named.exact ? [] : named.lines;
       const listed = lines.length > SYMBOL_LINES ? [] : lines;
       options.onUses?.(lines, named.exact);
-      const code =
+      const ahead =
         options.preload && clickedPath
           ? yield* Effect.promise(() =>
               symbolCode(named.definitions, listed, { path: clickedPath, line: options.line }, (path) =>
@@ -637,6 +755,18 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
               ).catch(() => ''),
             )
           : '';
+      const chain =
+        options.preload && options.callers && clickedPath
+          ? yield* Effect.promise(() =>
+              callerCode(
+                [{ path: clickedPath, line: options.line }, ...listed],
+                (path) => read(path),
+                (name) =>
+                  runPromise(Effect.tryPromise((signal) => findSymbolLines(tree, name, CALLER_COMMON + 1, signal))),
+              ).catch(() => ({ text: '', functions: [] as string[] })),
+            )
+          : undefined;
+      const code = chain?.text ? `${ahead}\n\n${chain.text}` : ahead;
       // When each tool call started, and when the model first wrote, in ms from the start of the call.
       const started = Date.now();
       const steps: { tool: string; at: number }[] = [];
@@ -771,6 +901,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
         steps,
         usage: response.usage,
         preloaded: code.length,
+        ...(chain ? { callers: chain.functions } : {}),
         ...(readers ? { readers, synthAt } : {}),
       };
       const card = yield* Effect.promise(() =>

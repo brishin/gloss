@@ -346,3 +346,56 @@ export async function blocksAround(
     parser.delete();
   }
 }
+
+/**
+ * The named function or method around each of `lines` (from 1), with its rows: the name a caller
+ * would call. An arrow function or function expression takes the name it is assigned to. Lines
+ * outside any named function are left out. Undefined when the file's language has no grammar here.
+ */
+export async function enclosingFunctions(
+  path: string,
+  source: string,
+  lines: readonly number[],
+): Promise<Map<number, { name: string; from: number; to: number }> | undefined> {
+  if (source.length > PARSE_CHARS) {
+    return undefined;
+  }
+  const parser = await parserFor(path).catch(() => undefined);
+  const tree = parser?.parse(source);
+  if (!parser || !tree) {
+    parser?.delete();
+    return undefined;
+  }
+  try {
+    const rows = source.split('\n');
+    const out = new Map<number, { name: string; from: number; to: number }>();
+    for (const line of lines) {
+      const text = rows[line - 1] ?? '';
+      let node: Node | null = tree.rootNode.descendantForPosition({
+        row: line - 1,
+        column: Math.max(text.length - text.trimStart().length, 0),
+      });
+      while (node) {
+        if (FUNCTIONS.has(node.type)) {
+          const named =
+            node.childForFieldName('name') ??
+            (node.parent?.type === 'variable_declarator' || node.parent?.type === 'assignment'
+              ? (node.parent.childForFieldName('name') ?? node.parent.childForFieldName('left'))
+              : null) ??
+            (node.parent?.type === 'pair' ? node.parent.childForFieldName('key') : null);
+          const name = named?.text.split('.').pop();
+          if (name && /^[A-Za-z_$][\w$]*$/.test(name)) {
+            const outer = node.parent?.type === 'decorated_definition' ? node.parent : node;
+            out.set(line, { name, from: outer.startPosition.row + 1, to: outer.endPosition.row + 1 });
+            break;
+          }
+        }
+        node = node.parent;
+      }
+    }
+    return out;
+  } finally {
+    tree.delete();
+    parser.delete();
+  }
+}

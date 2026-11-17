@@ -313,6 +313,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           line,
           symbol,
           preload: true,
+          callers: process.env.GLOSS_SYMBOL_CALLERS === '1',
           // Experiment: GLOSS_SYMBOL_FANOUT=1 serves cards from parallel readers; _SUB_MODEL and _SYNTH_MODEL pick models.
           ...(process.env.GLOSS_SYMBOL_FANOUT === '1'
             ? {
