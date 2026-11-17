@@ -35,6 +35,7 @@ import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchem
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { PullStateSchema, type Stack, StackNameSchema, StackSchema } from './stack.ts';
+import { parseSymbolEvent, type SymbolEvent, type SymbolRequest } from './symbol.ts';
 import { type Trace, TraceSchema } from './trace.ts';
 import { type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
@@ -103,6 +104,8 @@ export interface GlossClient {
   abort(jobId: string): Promise<void>;
   /** Asks the model that wrote a finished tour about it; the answer streams until done or failed. Abort to stop it. */
   ask(request: AskRequest, options?: { signal?: AbortSignal }): AsyncIterable<AskEvent>;
+  /** Experiment: a card for a symbol clicked in a finished tour's diff; streams until done or failed. Abort to stop it. */
+  symbol(request: SymbolRequest, options?: { signal?: AbortSignal }): AsyncIterable<SymbolEvent>;
   diff(diffId: string): Promise<DiffPayload>;
   /** What each pipeline step of the job read and returned, for the pipeline debug view. */
   trace(jobId: string): Promise<Trace>;
@@ -247,6 +250,25 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       }
       // A dropped connection ends the body without an error; the answer must not hang as streaming.
       throw new Error('The answer stream ended early');
+    },
+
+    async *symbol(body, options = {}) {
+      const response = await request('/api/symbol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+        signal: options.signal,
+      });
+      if (!response.body) {
+        throw new Error('Symbol stream has no body');
+      }
+      for await (const event of parseSseStream(response.body, parseSymbolEvent)) {
+        yield event;
+        if (event.type === 'symbol.done' || event.type === 'symbol.failed') {
+          return;
+        }
+      }
+      throw new Error('The symbol stream ended early');
     },
 
     async abort(jobId) {

@@ -14,6 +14,7 @@ export * from './snapshot.ts';
 export * from './source-ref.ts';
 export * from './stack.ts';
 export * from './svg-sanitize.ts';
+export * from './symbol.ts';
 export * from './tour.ts';
 export * from './trace.ts';
 export * from './update.ts';

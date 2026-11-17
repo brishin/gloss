@@ -71,7 +71,9 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
               ? 'title'
               : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
                 ? 'ask'
-                : undefined,
+                : cmd.type === 'StartSymbol' || cmd.type === 'StopSymbol'
+                  ? 'symbol'
+                  : undefined,
     subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
@@ -103,6 +105,10 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       );
     case 'StartAsk':
       return answer(cmd.turnId, cmd.request);
+    case 'StartSymbol':
+      return symbolCard(cmd.key, cmd.request);
+    case 'StopSymbol':
+      return Stream.empty;
     case 'StopAsk':
       // Keyed with `StartAsk`: running it interrupts the answer, which aborts its request.
       return Stream.empty;
@@ -348,6 +354,32 @@ function answer(turnId: string, body: Parameters<GlossClient['ask']>[0]): Stream
   ).pipe(
     Stream.catch((error) =>
       Stream.succeed<Msg>({ type: 'AskStreamFailed', turnId, error: describeError(error).message }),
+    ),
+  );
+}
+
+/** Streams one symbol card; each event carries the time since the click. Interrupting aborts the request. */
+function symbolCard(key: string, body: Parameters<GlossClient['symbol']>[0]): Stream.Stream<Msg, never, Gloss> {
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const client = yield* Gloss;
+      const started = performance.now();
+      const controller = yield* Effect.acquireRelease(
+        Effect.sync(() => new AbortController()),
+        (controller) => Effect.sync(() => controller.abort()),
+      );
+      return Stream.fromAsyncIterable(client.symbol(body, { signal: controller.signal }), (error) => error).pipe(
+        Stream.map((event): Msg => ({
+          type: 'SymbolEventReceived',
+          key,
+          event,
+          ms: Math.round(performance.now() - started),
+        })),
+      );
+    }),
+  ).pipe(
+    Stream.catch((error) =>
+      Stream.succeed<Msg>({ type: 'SymbolStreamFailed', key, error: describeError(error).message }),
     ),
   );
 }

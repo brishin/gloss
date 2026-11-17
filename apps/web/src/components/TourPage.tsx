@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
+import { symbolClick } from '../lib/symbol-click.ts';
 import { openThreads } from '../lib/threads-model.ts';
 import {
   canAsk,
@@ -42,6 +43,7 @@ import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
 import { ShortcutHelp } from './ShortcutHelp.tsx';
+import { SymbolPeek } from './SymbolPeek.tsx';
 import { CommentsPanel, type ThreadControls } from './Threads.tsx';
 import { Walkthrough } from './Walkthrough.tsx';
 
@@ -124,7 +126,26 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
-    <div className="app" data-ask-open={model.ask.open}>
+    <div
+      className="app"
+      data-ask-open={model.ask.open}
+      // Experiment: cmd-click (ctrl-click) on a name in a diff opens its card; any other click outside the card closes it.
+      onClickCapture={(event) => {
+        const inCard = (event.target as HTMLElement).closest?.('.sym-peek');
+        if (askable && (event.metaKey || event.ctrlKey) && !inCard) {
+          const click = symbolClick(event.nativeEvent);
+          if (click) {
+            event.preventDefault();
+            event.stopPropagation();
+            dispatch({ type: 'SymbolClicked', ...click });
+            return;
+          }
+        }
+        if (model.symbol.open && !inCard) {
+          dispatch({ type: 'SymbolClosed' });
+        }
+      }}
+    >
       <header className="topbar">
         {model.exported ? (
           <span className="brand">
@@ -358,6 +379,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         />
       )}
       {model.ask.open && <AskPanel ask={model.ask} files={state.files} enabled={askable} dispatch={dispatch} />}
+      {model.symbol.open && <SymbolPeek open={model.symbol.open} />}
       <ShortcutHelp isOpen={helpOpen} onOpenChange={(open) => dispatch({ type: 'HelpSet', open })} />
     </div>
   );

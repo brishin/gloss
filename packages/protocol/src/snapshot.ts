@@ -208,6 +208,10 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     async *ask() {
       throw new NotInSnapshotError('Ask');
     },
+    // oxlint-disable-next-line require-yield
+    async *symbol() {
+      throw new NotInSnapshotError('The symbol card');
+    },
     diff: (diffId) => found(snapshot.diffs[diffId], 'That diff'),
     trace: (jobId) => found(jobId === snapshot.jobId ? snapshot.trace : undefined, 'The trace'),
     fileContents: (diffId, fileId) => found(snapshot.files[fileKey(diffId, fileId)], 'That file'),

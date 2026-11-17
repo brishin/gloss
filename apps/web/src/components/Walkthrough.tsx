@@ -229,7 +229,7 @@ function ExcerptView({
   }
   const { dir, base, lines } = excerptLabel(file);
   return (
-    <figure className="walk-excerpt">
+    <figure className="walk-excerpt" data-file-id={file.id}>
       <figcaption className="walk-excerpt-head">
         <button
           type="button"
@@ -469,7 +469,7 @@ function SnippetView({
   }
   const { dir, base, lines } = excerptLabel(file);
   return (
-    <figure className="walk-excerpt">
+    <figure className="walk-excerpt" data-file-id={file.id}>
       <figcaption className="walk-excerpt-head">
         <span className="walk-caption">{inlineCode(snippet.caption)}</span>
         <button

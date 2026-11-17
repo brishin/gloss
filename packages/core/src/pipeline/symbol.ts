@@ -161,6 +161,10 @@ export interface RunSymbolOptions {
   lean?: boolean;
   /** Experiment: the model writes the lead as plain text before it submits, and it is handed on as it streams. */
   onLead?: (lead: string) => void;
+  /** The uses found in the code, before the model is asked. */
+  onUses?: (lines: readonly SymbolLine[], exact: boolean) => void;
+  /** Each read or search the model starts, as `read_file path` or `search_code text`. */
+  onTool?: (name: string, input: unknown) => void;
 }
 
 /** More lines than this name the symbol: too common a name to list or count. */
@@ -599,6 +603,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       // Past the cap the model is not shown the list: an exact count still stands, a loose one does not.
       const lines = named.lines.length > SYMBOL_LINES && !named.exact ? [] : named.lines;
       const listed = lines.length > SYMBOL_LINES ? [] : lines;
+      options.onUses?.(lines, named.exact);
       const code =
         options.preload && clickedPath
           ? yield* Effect.promise(() =>
@@ -617,6 +622,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
         ...tool,
         run: (input: unknown) => {
           steps.push({ tool: tool.name, at: Date.now() - started });
+          options.onTool?.(tool.name, input);
           return tool.run(input);
         },
       });

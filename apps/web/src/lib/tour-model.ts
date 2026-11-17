@@ -38,6 +38,7 @@ import {
   STACK_NODE,
   toggleNode,
 } from './sidebar-tree.ts';
+import { emptySymbol, type SymbolCmd, type SymbolModel, type SymbolMsg, updateSymbol } from './symbol-model.ts';
 import { emptyThreads, type ThreadsCmd, type ThreadsModel, type ThreadsMsg, updateThreads } from './threads-model.ts';
 import { defaultExpanded, isGeneratedFile, lfsImageOids, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
 
@@ -101,6 +102,8 @@ export interface Model {
   stack?: Stack;
   /** Questions about the finished tour, answered by the model that wrote it. */
   ask: AskModel;
+  /** Experiment: the card for a symbol cmd-clicked in a diff. */
+  symbol: SymbolModel;
   /** The PR's comment threads already on GitHub (PRs only). */
   threads: ThreadsModel;
   /** The page is a static export (`gloss export`): no backend, so nothing can run, ask or review. */
@@ -178,6 +181,7 @@ export type Msg =
   /** The comment box's Ask: its lines become the question's context, and its text the question. */
   | { type: 'CommentAsked' }
   | AskMsg
+  | SymbolMsg
   | ThreadsMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
@@ -231,6 +235,7 @@ export type Cmd =
   | { type: 'OpenRef'; ref: SourceRef }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
   | AskCmd
+  | SymbolCmd
   | ThreadsCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
@@ -250,6 +255,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
     sidebar: initialSidebar,
     review: emptyReview,
     ask: emptyAsk,
+    symbol: emptySymbol,
     threads: emptyThreads,
     exported,
   };
@@ -412,13 +418,15 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
     case 'c':
       return model.threads.list?.length || model.threads.open ? { type: 'CommentsToggled' } : undefined;
     case 'Escape':
-      return model.ask.open
-        ? { type: 'AskClosed' }
-        : model.threads.open
-          ? { type: 'CommentsClosed' }
-          : model.navOpen
-            ? { type: 'NavClosed' }
-            : undefined;
+      return model.symbol.open
+        ? { type: 'SymbolClosed' }
+        : model.ask.open
+          ? { type: 'AskClosed' }
+          : model.threads.open
+            ? { type: 'CommentsClosed' }
+            : model.navOpen
+              ? { type: 'NavClosed' }
+              : undefined;
     default:
       return undefined;
   }
@@ -431,6 +439,13 @@ export function update(model: Model, msg: Msg): Next {
 
 function step(model: Model, msg: Msg): Next {
   switch (msg.type) {
+    case 'SymbolClicked':
+    case 'SymbolEventReceived':
+    case 'SymbolStreamFailed':
+    case 'SymbolClosed': {
+      const [symbol, cmds] = updateSymbol(model.symbol, msg, canAsk(model) ? tourFromState(model.tour) : undefined);
+      return symbol === model.symbol ? [model, cmds] : [{ ...model, symbol }, cmds];
+    }
     case 'AskToggled':
     case 'AskOpened':
     case 'AskClosed':

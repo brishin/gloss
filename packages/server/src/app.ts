@@ -8,6 +8,8 @@ import {
   type RepoClones,
   Repos,
   runAsk,
+  runSymbol,
+  type SymbolLine,
   TourCache,
 } from '@gloss/core';
 import type {
@@ -39,6 +41,8 @@ import {
   serializeRef,
   SourceRefSchema,
   StackSchema,
+  type SymbolEvent,
+  SymbolRequestSchema,
   StartLoginRequestSchema,
 } from '@gloss/protocol';
 import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
@@ -271,6 +275,73 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
         ),
         controller.signal,
       ).catch(() => {});
+    });
+  });
+
+  // Experiment: a card for a symbol clicked in the diff. The count streams first, then what the model reads, the lead, the card.
+  app.post('/api/symbol', async (c) => {
+    const parsed = v.safeParse(SymbolRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', issues: v.flatten(parsed.issues) }, 400);
+    }
+    const { tour, fileId, line, symbol } = parsed.output;
+    const diff = await run(TourCache.use((cache) => Effect.sync(() => cache.get<DiffPayload>(tour.diffId))));
+    if (!diff) {
+      return c.json({ error: 'Unknown diff: re-run the tour' }, 404);
+    }
+    return streamSSE(c, async (out) => {
+      const controller = new AbortController();
+      out.onAbort(() => controller.abort());
+      const started = Date.now();
+      // Events are written in the order they happen, one at a time.
+      let last: Promise<unknown> = Promise.resolve();
+      const send = (event: SymbolEvent) => {
+        last = last.then(() => out.writeSSE({ event: event.type, data: JSON.stringify(event) })).catch(() => {});
+      };
+      const count = (lines: readonly SymbolLine[], exact: boolean) => ({
+        count: lines.length,
+        files: new Set(lines.map((use) => use.path)).size,
+        calls: lines.filter((use) => use.kind === 'call').length,
+        exact,
+      });
+      await run(
+        runSymbol({
+          tour,
+          diff,
+          fileId,
+          line,
+          symbol,
+          preload: true,
+          onUses: (lines, exact) => lines.length > 0 && send({ type: 'symbol.uses', uses: count(lines, exact) }),
+          onTool: (name, input) => {
+            const { path, text } = (input ?? {}) as { path?: unknown; text?: unknown };
+            const target = typeof path === 'string' ? path.split('/').at(-1) : typeof text === 'string' ? text : '';
+            send({
+              type: 'symbol.reading',
+              what: `${name === 'read_file' ? 'Reading' : 'Searching'} ${target}`.trim(),
+            });
+          },
+          onLead: (lead) => send({ type: 'symbol.lead', lead }),
+        }).pipe(
+          Effect.match({
+            onSuccess: ({ card, model }) => {
+              const { uses, ...rest } = card;
+              send({
+                type: 'symbol.done',
+                card: {
+                  ...rest,
+                  ...(uses ? { uses: { ...count(uses.lines, uses.exact), summary: uses.summary } } : {}),
+                },
+                model,
+                ms: Date.now() - started,
+              });
+            },
+            onFailure: (error) => send({ type: 'symbol.failed', message: error.message }),
+          }),
+        ),
+        controller.signal,
+      ).catch(() => {});
+      await last;
     });
   });
 
