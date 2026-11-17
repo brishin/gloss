@@ -7,6 +7,7 @@ import {
   symbolCode,
   symbolUses,
   type SymbolCardDraft,
+  streamedLead,
 } from './symbol.ts';
 
 const diff = {
@@ -228,4 +229,10 @@ test('the code read ahead is the definition, then the function around each use',
     '### b.ts:1-4',
     '### a.ts:2-5',
   ]);
+});
+
+test('the streamed lead is what follows the last LEAD: on its line', () => {
+  expect(streamedLead('Reading the callers.')).toBeUndefined();
+  expect(streamedLead('LEAD: Slack never')).toBe('Slack never');
+  expect(streamedLead('LEAD: first try\nmore\nLEAD: Slack never gets the line.\n')).toBe('Slack never gets the line.');
 });

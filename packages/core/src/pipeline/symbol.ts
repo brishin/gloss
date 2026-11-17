@@ -52,6 +52,24 @@ definition: the path and line where the symbol is defined.
 
 A card that is only a lead is a good card. Plain words, present tense. Backticks around code names in lead and effect only. Before you submit, count the words in lead and effect and cut them to the limit.`;
 
+/** Added to the system prompt when the lead streams: text is the only output that reaches the reader before submit. */
+export const SYMBOL_LEAD_FIRST = `
+
+## Say the lead first
+
+The reader sees your text as you write it. When you have finished reading and know the finding, write one line of plain text: "LEAD: " and then the lead sentence, word for word as you will submit it. Then call submit, with that same lead. Write no other text: nothing before a tool call, nothing between tool calls, nothing after the lead.`;
+
+/** The lead in the text streamed so far: what follows the last "LEAD:", up to the end of its line. */
+export function streamedLead(text: string): string | undefined {
+  const at = text.lastIndexOf('LEAD:');
+  return at === -1
+    ? undefined
+    : text
+        .slice(at + 5)
+        .split('\n')[0]!
+        .trim();
+}
+
 export const SymbolCardSchema = v.object({
   checked: v.array(
     v.object({
@@ -141,6 +159,8 @@ export interface RunSymbolOptions {
   preload?: boolean;
   /** Experiment: a short prompt (no summary, file list or notes, the first uses only) with tools that fetch the rest. */
   lean?: boolean;
+  /** Experiment: the model writes the lead as plain text before it submits, and it is handed on as it streams. */
+  onLead?: (lead: string) => void;
 }
 
 /** More lines than this name the symbol: too common a name to list or count. */
@@ -532,6 +552,10 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       prepare: number;
       model: number;
       first?: number;
+      /** Streamed lead: its first and last characters, and what was streamed. */
+      leadFirst?: number;
+      leadLast?: number;
+      lead?: string;
       steps: { tool: string; at: number }[];
       usage?: ModelUsage;
       preloaded: number;
@@ -587,6 +611,8 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       const started = Date.now();
       const steps: { tool: string; at: number }[] = [];
       let first: number | undefined;
+      let text = '';
+      let lead: { first: number; last: number; text: string } | undefined;
       const timed = (tool: (typeof reader)['tool']) => ({
         ...tool,
         run: (input: unknown) => {
@@ -596,19 +622,30 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       });
       const response = yield* model.prompt({
         tier: options.tier ?? 'notes',
-        system: SYMBOL_SYSTEM,
+        system: options.onLead ? SYMBOL_SYSTEM + SYMBOL_LEAD_FIRST : SYMBOL_SYSTEM,
         prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code }),
         result: SymbolCardSchema,
         resultName: 'symbol',
         tools: [reader.tool, searcher.tool, ...(options.lean ? leanTools(options, listed) : [])].map(timed),
-        onDelta: () => {
-          first ??= Date.now() - started;
+        onDelta: (delta) => {
+          const at = Date.now() - started;
+          first ??= at;
+          if (!options.onLead || delta.kind !== 'text') {
+            return;
+          }
+          text += delta.text;
+          const said = streamedLead(text);
+          if (said && said !== lead?.text) {
+            lead = { first: lead?.first ?? at, last: at, text: said };
+            options.onLead(said);
+          }
         },
       });
       const timing = {
         prepare: started - begun,
         model: Date.now() - started,
         first,
+        ...(lead ? { leadFirst: lead.first, leadLast: lead.last, lead: lead.text } : {}),
         steps,
         usage: response.usage,
         preloaded: code.length,
