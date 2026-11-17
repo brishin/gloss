@@ -3040,12 +3040,11 @@
   /* A code name in the tour's prose that the diff shows: a click opens its card (symbol-marks.ts). */
   code[data-symbol] {
     cursor: pointer;
-    text-decoration: underline dotted;
-    text-decoration-color: light-dark(oklch(45% 0.02 285 / 0.32), oklch(85% 0.02 285 / 0.32));
-    text-underline-offset: 3px;
   }
   code[data-symbol]:hover {
-    text-decoration-style: solid;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklch, currentColor 60%, transparent);
+    text-underline-offset: 3px;
   }
   /* The lead's place while the model reads. */
   .sym-wait {
