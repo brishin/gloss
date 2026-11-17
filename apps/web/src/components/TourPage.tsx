@@ -19,9 +19,10 @@ import {
   SquareIcon,
   WorkflowIcon,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
 import { symbolClick } from '../lib/symbol-click.ts';
+import { installSymbolMarks } from '../lib/symbol-marks.ts';
 import { openThreads } from '../lib/threads-model.ts';
 import {
   canAsk,
@@ -78,6 +79,15 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   );
   const reviewable = canReview(model);
   const askable = canAsk(model);
+  // Experiment: the cues that names can be clicked, once the tour can answer for them.
+  const appRef = useRef<HTMLDivElement>(null);
+  const pressed = useRef({ x: 0, y: 0 });
+  const diffRef = useRef(diff);
+  diffRef.current = diff;
+  useEffect(
+    () => (askable && appRef.current ? installSymbolMarks(appRef.current, () => diffRef.current) : undefined),
+    [askable],
+  );
   const { review } = model;
   const reviewer = useMemo<Reviewer | undefined>(
     () =>
@@ -128,12 +138,18 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   return (
     <div
       className="app"
+      ref={appRef}
       data-ask-open={model.ask.open}
-      // Experiment: cmd-click (ctrl-click) on a name in a diff opens its card; any other click outside the card closes it.
+      onMouseDownCapture={(event) => {
+        pressed.current = { x: event.clientX, y: event.clientY };
+      }}
+      // Experiment: a click on a name in a diff, or on a code name in the prose, opens its card; any other click outside the card closes it.
       onClickCapture={(event) => {
         const inCard = (event.target as HTMLElement).closest?.('.sym-peek');
-        if (askable && (event.metaKey || event.ctrlKey) && !inCard) {
-          const click = symbolClick(event.nativeEvent);
+        // A drag selects text: only a click that stayed in place asks for a card.
+        const still = Math.hypot(event.clientX - pressed.current.x, event.clientY - pressed.current.y) < 4;
+        if (askable && still && !inCard && event.button === 0 && !event.shiftKey && !event.altKey) {
+          const click = symbolClick(event.nativeEvent, diff);
           if (click) {
             event.preventDefault();
             event.stopPropagation();

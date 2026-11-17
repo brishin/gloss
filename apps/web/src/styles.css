@@ -3037,6 +3037,16 @@
     font-size: 12px;
     text-align: right;
   }
+  /* A code name in the tour's prose that the diff shows: a click opens its card (symbol-marks.ts). */
+  code[data-symbol] {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-decoration-color: light-dark(oklch(50% 0.17 285), oklch(78% 0.12 285));
+    text-underline-offset: 3px;
+  }
+  code[data-symbol]:hover {
+    text-decoration-style: solid;
+  }
   /* The lead's place while the model reads. */
   .sym-wait {
     height: 14px;
