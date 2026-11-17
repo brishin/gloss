@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {
   checkDecisionRules,
   DecisionRules,
@@ -312,6 +313,15 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           line,
           symbol,
           preload: true,
+          // Experiment: GLOSS_SYMBOL_FANOUT=1 serves cards from parallel readers; _SUB_MODEL and _SYNTH_MODEL pick models.
+          ...(process.env.GLOSS_SYMBOL_FANOUT === '1'
+            ? {
+                fanout: {
+                  ...(process.env.GLOSS_SYMBOL_SUB_MODEL ? { model: process.env.GLOSS_SYMBOL_SUB_MODEL } : {}),
+                  ...(process.env.GLOSS_SYMBOL_SYNTH_MODEL ? { synthModel: process.env.GLOSS_SYMBOL_SYNTH_MODEL } : {}),
+                },
+              }
+            : {}),
           onUses: (lines, exact) => lines.length > 0 && send({ type: 'symbol.uses', uses: count(lines, exact) }),
           onTool: (name, input) => {
             const { path, text } = (input ?? {}) as { path?: unknown; text?: unknown };

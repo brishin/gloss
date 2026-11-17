@@ -28,6 +28,17 @@ interface Outcome {
   error?: string;
 }
 
+type Thinking = 'off' | 'minimal' | 'low' | 'medium' | 'high';
+function fanoutFromEnv() {
+  const env = process.env;
+  return {
+    ...(env.GLOSS_SYMBOL_SUB_MODEL ? { model: env.GLOSS_SYMBOL_SUB_MODEL } : {}),
+    ...(env.GLOSS_SYMBOL_SUB_THINKING ? { thinking: env.GLOSS_SYMBOL_SUB_THINKING as Thinking } : {}),
+    ...(env.GLOSS_SYMBOL_SYNTH_MODEL ? { synthModel: env.GLOSS_SYMBOL_SYNTH_MODEL } : {}),
+    ...(env.GLOSS_SYMBOL_SYNTH_THINKING ? { synthThinking: env.GLOSS_SYMBOL_SYNTH_THINKING as Thinking } : {}),
+  };
+}
+
 const runtime = ManagedRuntime.make(BackendLayer);
 const results = await runtime.runPromise(
   Effect.forEach(
@@ -48,6 +59,8 @@ const results = await runtime.runPromise(
         tier: (process.env.GLOSS_SYMBOL_TIER as 'notes' | 'followup' | undefined) ?? 'notes',
         preload: process.env.GLOSS_SYMBOL_PRELOAD === '1',
         lean: process.env.GLOSS_SYMBOL_LEAN === '1',
+        // GLOSS_SYMBOL_FANOUT=1: parallel readers, then one card call; _SUB_ and _SYNTH_ pick their models.
+        ...(process.env.GLOSS_SYMBOL_FANOUT === '1' ? { fanout: fanoutFromEnv() } : {}),
         // GLOSS_SYMBOL_STREAM=1: the lead is written as text before submit; timing.leadFirst is when it shows.
         ...(process.env.GLOSS_SYMBOL_STREAM === '1' ? { onLead: () => {} } : {}),
       }).pipe(
@@ -55,7 +68,8 @@ const results = await runtime.runPromise(
         Effect.catch((error) => Effect.succeed<Outcome>({ ...c, ms: Date.now() - started, error: error.message })),
       );
     }),
-    { concurrency: 3 },
+    // GLOSS_SYMBOL_CONCURRENCY=1 times one card at a time, as a reader clicks them.
+    { concurrency: Number(process.env.GLOSS_SYMBOL_CONCURRENCY ?? 3) },
   ),
 );
 writeFileSync(out, JSON.stringify(results, null, 1));

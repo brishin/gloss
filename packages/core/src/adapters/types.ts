@@ -13,6 +13,9 @@ export interface ModelUsage {
 
 export interface ModelRequest<S extends v.GenericSchema> {
   tier: ModelTier;
+  /** Experiment: a `provider/model` and thinking level for this call instead of the tier's. */
+  model?: string;
+  thinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
   /** Stable instructions; kept identical across calls so provider prompt caches hit. */
   system: string;
   prompt: string;

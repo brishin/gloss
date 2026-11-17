@@ -150,9 +150,10 @@ async function promptStage<S extends v.GenericSchema>(
   const onAbort = () => void handle.abort().catch(() => {});
   signal.addEventListener('abort', onAbort, { once: true });
   try {
+    const model = request.model ?? config.tiers[tier];
     const initialData: StageInit = {
-      model: config.tiers[tier],
-      thinkingLevel: config.thinking[tier],
+      model,
+      thinkingLevel: request.thinking ?? config.thinking[tier],
       system: request.system,
       schemaId,
       resultName: request.resultName,
@@ -170,10 +171,10 @@ async function promptStage<S extends v.GenericSchema>(
     const written = reply.data.result?.at(-1);
     if (written === undefined) {
       throw new StageResultError(
-        `${config.tiers[tier]} did not submit a ${request.resultName} result${reply.text ? `: ${reply.text.slice(0, 200)}` : ''}`,
+        `${model} did not submit a ${request.resultName} result${reply.text ? `: ${reply.text.slice(0, 200)}` : ''}`,
       );
     }
-    return { data: v.parse(request.result, written) as v.InferOutput<S>, model: config.tiers[tier] };
+    return { data: v.parse(request.result, written) as v.InferOutput<S>, model };
   } finally {
     signal.removeEventListener('abort', onAbort);
     stageSchemas.delete(schemaId);

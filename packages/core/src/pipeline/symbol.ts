@@ -6,6 +6,15 @@ import { RepoClones } from '../sources/clone.ts';
 import { findSymbolLines, readRepoFile, readTreeFile, repoPath, searchRepo } from '../sources/contents.ts';
 import { blocksAround, namedAt, type UseKind } from '../sources/symbol-uses.ts';
 import { codeSearcher, fileReader } from './read-file.ts';
+import {
+  buildSitePrompt,
+  readerReports,
+  type SiteReport,
+  SiteReportSchema,
+  SITE_SYSTEM,
+  symbolSites,
+  synthSystem,
+} from './symbol-fanout.ts';
 
 /**
  * Experiment: what a reviewer learns by opening a clicked symbol's definition and usages, as one
@@ -106,6 +115,9 @@ export const SymbolCardSchema = v.object({
 });
 export type SymbolCardDraft = v.InferOutput<typeof SymbolCardSchema>;
 
+/** The card call after parallel readers: their reports stand in for `checked`. */
+const SymbolSynthSchema = v.omit(SymbolCardSchema, ['checked']);
+
 export interface SymbolCard {
   symbol: string;
   lead: string;
@@ -161,6 +173,16 @@ export interface RunSymbolOptions {
   lean?: boolean;
   /** Experiment: the model writes the lead as plain text before it submits, and it is handed on as it streams. */
   onLead?: (lead: string) => void;
+  /**
+   * Experiment: parallel readers, one per place that defines or uses the symbol, then one call
+   * with no tools writes the card from their reports. Models default to the notes tier's.
+   */
+  fanout?: {
+    model?: string;
+    thinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
+    synthModel?: string;
+    synthThinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
+  };
   /** The uses found in the code, before the model is asked. */
   onUses?: (lines: readonly SymbolLine[], exact: boolean) => void;
   /** Each read or search the model starts, as `read_file path` or `search_code text`. */
@@ -563,6 +585,9 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
       steps: { tool: string; at: number }[];
       usage?: ModelUsage;
       preloaded: number;
+      /** Fan-out only: each reader's time, and when the card call started. */
+      readers?: { place: string; ms: number; tools: number; ok: boolean; model: string }[];
+      synthAt?: number;
     };
   },
   ModelError,
@@ -626,27 +651,118 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
           return tool.run(input);
         },
       });
-      const response = yield* model.prompt({
-        tier: options.tier ?? 'notes',
-        system: options.onLead ? SYMBOL_SYSTEM + SYMBOL_LEAD_FIRST : SYMBOL_SYSTEM,
-        prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code }),
-        result: SymbolCardSchema,
-        resultName: 'symbol',
-        tools: [reader.tool, searcher.tool, ...(options.lean ? leanTools(options, listed) : [])].map(timed),
-        onDelta: (delta) => {
-          const at = Date.now() - started;
-          first ??= at;
-          if (!options.onLead || delta.kind !== 'text') {
-            return;
-          }
-          text += delta.text;
-          const said = streamedLead(text);
-          if (said && said !== lead?.text) {
-            lead = { first: lead?.first ?? at, last: at, text: said };
-            options.onLead(said);
-          }
-        },
-      });
+      const onDelta = (delta: { kind: 'text' | 'reasoning'; text: string }) => {
+        const at = Date.now() - started;
+        first ??= at;
+        if (!options.onLead || delta.kind !== 'text') {
+          return;
+        }
+        text += delta.text;
+        const said = streamedLead(text);
+        if (said && said !== lead?.text) {
+          lead = { first: lead?.first ?? at, last: at, text: said };
+          options.onLead(said);
+        }
+      };
+      let readers: { place: string; ms: number; tools: number; ok: boolean; model: string }[] | undefined;
+      let synthAt: number | undefined;
+      let response: { data: SymbolCardDraft; model: string; usage?: ModelUsage };
+      if (options.fanout && clickedPath) {
+        const fan = options.fanout;
+        const sites = yield* Effect.promise(() =>
+          symbolSites(named.definitions, listed, { path: clickedPath, line: options.line }, (path) =>
+            read(path).catch(() => undefined),
+          ).catch(() => []),
+        );
+        const file = diff.files.find((candidate) => candidate.id === options.fileId);
+        const context = {
+          title: diff.meta.title,
+          symbol: options.symbol,
+          clicked: `${clickedPath}:${options.line}`,
+          hunk: file ? numberedHunk(file, options.line) : '',
+        };
+        const done = yield* Effect.forEach(
+          sites,
+          (site) => {
+            const own = fileReader(diff, read);
+            const search = codeSearcher(diff, (text, path) =>
+              runPromise(Effect.tryPromise((signal) => searchRepo(diff, tree, text, path, signal))),
+            );
+            const began = Date.now();
+            return model
+              .prompt({
+                tier: options.tier ?? 'notes',
+                ...(fan.model ? { model: fan.model } : {}),
+                thinking: fan.thinking ?? 'low',
+                system: SITE_SYSTEM,
+                prompt: buildSitePrompt(context, site),
+                result: SiteReportSchema,
+                resultName: 'report',
+                tools: [own.tool, search.tool].map(timed),
+              })
+              .pipe(
+                Effect.map((answer) => ({
+                  report: answer.data as SiteReport | undefined,
+                  ms: Date.now() - began,
+                  model: answer.model,
+                })),
+                Effect.catch((error) =>
+                  Effect.succeed({
+                    report: undefined,
+                    ms: Date.now() - began,
+                    model: `failed: ${error.message.slice(0, 120)}`,
+                  }),
+                ),
+                Effect.map((result) => ({ ...result, tools: own.reads().length + search.reads().length })),
+              );
+          },
+          { concurrency: 'unbounded' },
+        );
+        readers = done.map((result, index) => ({
+          place: `${sites[index]!.path}:${sites[index]!.from}`,
+          ms: result.ms,
+          tools: result.tools,
+          ok: Boolean(result.report),
+          model: result.model,
+        }));
+        const reports = done.map((result) => result.report);
+        synthAt = Date.now() - started;
+        const synth = yield* model.prompt({
+          tier: options.tier ?? 'notes',
+          ...(fan.synthModel ? { model: fan.synthModel } : {}),
+          thinking: fan.synthThinking ?? 'low',
+          system: synthSystem(SYMBOL_SYSTEM) + (options.onLead ? SYMBOL_LEAD_FIRST : ''),
+          prompt: [
+            buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code: '' }),
+            `## What the readers found\n${readerReports(sites, reports)}`,
+            `## The code the readers started from (at the head, numbered)\n${sites
+              .map((site) => `### ${site.path}:${site.from}-${site.to}\n${site.code}`)
+              .join('\n\n')}`,
+          ].join('\n\n'),
+          result: SymbolSynthSchema,
+          resultName: 'symbol',
+          onDelta,
+        });
+        response = {
+          ...synth,
+          data: {
+            ...synth.data,
+            checked: reports.flatMap((report) =>
+              report ? [{ place: report.place, does: report.does, gate: report.gate }] : [],
+            ),
+          },
+        };
+      } else {
+        response = yield* model.prompt({
+          tier: options.tier ?? 'notes',
+          system: options.onLead ? SYMBOL_SYSTEM + SYMBOL_LEAD_FIRST : SYMBOL_SYSTEM,
+          prompt: buildSymbolPrompt({ ...options, lines: listed, exact: named.exact, code }),
+          result: SymbolCardSchema,
+          resultName: 'symbol',
+          tools: [reader.tool, searcher.tool, ...(options.lean ? leanTools(options, listed) : [])].map(timed),
+          onDelta,
+        });
+      }
       const timing = {
         prepare: started - begun,
         model: Date.now() - started,
@@ -655,6 +771,7 @@ export function runSymbol(options: RunSymbolOptions): Effect.Effect<
         steps,
         usage: response.usage,
         preloaded: code.length,
+        ...(readers ? { readers, synthAt } : {}),
       };
       const card = yield* Effect.promise(() =>
         normalizeSymbolCard(
