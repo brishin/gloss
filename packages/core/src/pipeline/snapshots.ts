@@ -1,6 +1,6 @@
 import type { FileChange } from '@gloss/protocol';
 import { isAgentGuidance, isDocumentation } from './guidance.ts';
-import { looksLikeTest } from './heuristics.ts';
+import { looksLikeConfig, looksLikeTest } from './heuristics.ts';
 
 /**
  * Folders snapshot tests write to: `__snapshots__` (Jest, Vitest, syrupy), `__Snapshots__`
@@ -83,12 +83,18 @@ function sharedFolders(a: string, b: string): number {
  * its matches only those nearest the snapshot in the tree (the same component on another
  * platform is a twin, not the subject). Code files come first, so a snapshot reads with the code
  * that draws it rather than the story or test that renders it; a story or test is the subject only
- * when no code file has the name. Docs and other snapshots never are. A snapshot with no subject
+ * when no code file has the name. Docs, config, manifests and other snapshots never are. A snapshot with no subject
  * is left out.
  */
 export function snapshotSubjects(files: readonly FileChange[]): Record<string, string[]> {
   const candidates = files
-    .filter((file) => !isSnapshot(file.path) && !isAgentGuidance(file.path) && !isDocumentation(file.path))
+    .filter(
+      (file) =>
+        !isSnapshot(file.path) &&
+        !isAgentGuidance(file.path) &&
+        !isDocumentation(file.path) &&
+        !looksLikeConfig(file.path),
+    )
     .map((file) => ({
       id: file.id,
       path: file.path,

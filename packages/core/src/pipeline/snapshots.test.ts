@@ -108,6 +108,8 @@ describe('snapshotSubjects', () => {
       file('template', 'svc/app/templates/prompts/suggestTopics.jinja'),
       file('card', 'app/snapshots/collections/CompactCollectionCard/empty.png'),
       file('styles', 'ui/src/collections/CompactCollectionCard/platformStyles.ts'),
+      file('editor', 'app/snapshots/components/RichTextEditor/tables.png'),
+      file('manifest', 'app/modules/rich-text-editor/Package.swift'),
     ];
     expect(snapshotSubjects(files)).toEqual({ prompt: ['template'], card: ['styles'] });
   });
