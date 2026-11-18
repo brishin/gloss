@@ -16,6 +16,11 @@ export function looksGenerated(path: string): boolean {
   return GENERATED_RE.test(path);
 }
 
+/** Build, CI and package manifests: they configure code but draw nothing. */
+export function looksLikeConfig(path: string): boolean {
+  return CONFIG_RE.test(path) || MANIFEST_RE.test(path);
+}
+
 export function looksLikeTest(path: string): boolean {
   return TEST_RE.test(path);
 }
@@ -87,7 +92,7 @@ export function provisionalGroups(files: readonly (FileChange | FileSummary)[]):
       add('tests', () => SYNTHETIC_GROUPS.tests, file.id);
     } else if (isAgentGuidance(file.path) || isDocumentation(file.path)) {
       add('guidance', () => SYNTHETIC_GROUPS.guidance, file.id);
-    } else if (CONFIG_RE.test(file.path) || MANIFEST_RE.test(file.path)) {
+    } else if (looksLikeConfig(file.path)) {
       add('config', () => ({ key: 'config', label: 'Config & build', summary: '', category: 'config' }), file.id);
     } else {
       const key = area(file.path);

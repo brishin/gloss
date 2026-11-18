@@ -4,6 +4,7 @@ import { isAgentGuidance, isDocumentation } from './guidance.ts';
 import { looksLikeTest } from './heuristics.ts';
 import { NO, YES } from './judge-questions.ts';
 import { flaggedRisks } from './prompts.ts';
+import { isSnapshot, snapshotSubjects } from './snapshots.ts';
 
 /** Below these, Jev's group choice goes back to the LLM. */
 export const MIN_CONFIDENCE = 0.5;
@@ -15,6 +16,8 @@ export interface PlaceOutcome {
   placements: Record<string, Placement>;
   /** Files Jev was unsure about; the LLM places them in one follow-up turn. */
   uncertain: string[];
+  /** Snapshots and the code files they capture; each joins its code's group once that is known. */
+  snapshots?: Record<string, string[]>;
 }
 
 function margin(probabilities: Record<string, number>): number {
@@ -57,9 +60,15 @@ export function placeFiles(
   const keys = new Set(definitions.map((group) => group.key));
   const placements: Record<string, Placement> = {};
   const uncertain: string[] = [];
+  const snapshots = snapshotSubjects(files);
   for (const file of files) {
+    if (snapshots[file.id]) {
+      continue;
+    }
     const judgment = judgments[file.id] ?? {};
-    if (file.generated === 'gitattributes') {
+    // A snapshot with no code file of its name still reads with code: Jev or the LLM picks the group.
+    const snapshot = isSnapshot(file.path);
+    if (file.generated === 'gitattributes' && !snapshot) {
       placements[file.id] = { groupKey: SYNTHETIC_GROUPS.generated.key, reason: 'gitattributes' };
       continue;
     }
@@ -68,11 +77,11 @@ export function placeFiles(
       placements[file.id] = guidance;
       continue;
     }
-    if ((judgment.generated ?? 0) >= YES) {
+    if ((judgment.generated ?? 0) >= YES && !snapshot) {
       placements[file.id] = { groupKey: SYNTHETIC_GROUPS.generated.key, reason: 'jev', confidence: judgment.generated };
       continue;
     }
-    if ((judgment.testsOnly ?? 0) >= YES) {
+    if ((judgment.testsOnly ?? 0) >= YES && !snapshot) {
       placements[file.id] = { groupKey: testsGroupKey(definitions), reason: 'jev', confidence: judgment.testsOnly };
       continue;
     }
@@ -89,7 +98,7 @@ export function placeFiles(
     }
     placements[file.id] = { groupKey: choice.choice, reason: 'jev', confidence: choice.confidence };
   }
-  return { placements, uncertain };
+  return { placements, uncertain, snapshots };
 }
 
 /**
@@ -112,18 +121,26 @@ export function reconcileListedFiles(
       }
     }
   }
+  const snapshots = snapshotSubjects(files);
   for (const file of files) {
     const guidance = guidancePlacement(file, undefined, groups);
-    if (file.generated === 'gitattributes') {
+    if (snapshots[file.id]) {
+      delete placements[file.id];
+    } else if (file.generated === 'gitattributes' && !isSnapshot(file.path)) {
       placements[file.id] = { groupKey: SYNTHETIC_GROUPS.generated.key, reason: 'gitattributes' };
     } else if (guidance) {
       placements[file.id] = guidance;
     }
   }
-  return { placements, uncertain: files.filter((file) => !placements[file.id]).map((file) => file.id), unknownIds };
+  const uncertain = files.filter((file) => !placements[file.id] && !snapshots[file.id]).map((file) => file.id);
+  return { placements, uncertain, snapshots, unknownIds };
 }
 
-/** Folds the follow-up turn's answers in; anything still unplaced goes to `uncategorized`. Never drops a file. */
+/**
+ * Folds the follow-up turn's answers in, then puts each snapshot in the group most of its code
+ * files landed in (the nearest one on a tie). Anything still unplaced goes to `uncategorized`.
+ * Never drops a file.
+ */
 export function applyFollowup(
   outcome: PlaceOutcome,
   definitions: readonly GroupDefinition[],
@@ -141,7 +158,38 @@ export function applyFollowup(
   for (const fileId of pending) {
     placements[fileId] = { groupKey: SYNTHETIC_GROUPS.uncategorized.key, reason: 'uncategorized' };
   }
+  for (const [fileId, subjects] of Object.entries(outcome.snapshots ?? {})) {
+    const votes = new Map<string, number>();
+    for (const subject of subjects) {
+      const key = placements[subject]?.groupKey;
+      if (key) {
+        votes.set(key, (votes.get(key) ?? 0) + 1);
+      }
+    }
+    const [groupKey] = [...votes].reduce<[string | undefined, number]>(
+      (best, [key, count]) => (count > best[1] ? [key, count] : best),
+      [undefined, 0],
+    );
+    placements[fileId] = groupKey
+      ? { groupKey, reason: 'snapshot' }
+      : { groupKey: SYNTHETIC_GROUPS.uncategorized.key, reason: 'uncategorized' };
+  }
   return placements;
+}
+
+/** Each snapshot right after the last code file it captures in the same list; the rest stay in order. */
+function besideSubjects(fileIds: readonly string[], subjects: Record<string, string[]>): string[] {
+  const after = new Map<string, string[]>();
+  const order: string[] = [];
+  for (const fileId of fileIds) {
+    const anchor = (subjects[fileId] ?? []).findLast((subject) => fileIds.includes(subject));
+    if (anchor) {
+      after.set(anchor, [...(after.get(anchor) ?? []), fileId]);
+    } else {
+      order.push(fileId);
+    }
+  }
+  return order.flatMap((fileId) => [fileId, ...(after.get(fileId) ?? [])]);
 }
 
 const SYNTHETIC_TRAILING = [SYNTHETIC_GROUPS.tests, SYNTHETIC_GROUPS.generated, SYNTHETIC_GROUPS.uncategorized];
@@ -168,6 +216,10 @@ export function resolveGroups(
       placements[file.id] = { groupKey: key, reason: 'uncategorized' };
     }
     members.set(key, [...(members.get(key) ?? []), file.id]);
+  }
+  const subjects = snapshotSubjects(files);
+  for (const [key, fileIds] of members) {
+    members.set(key, besideSubjects(fileIds, subjects));
   }
   /** Tests and generated files flag what the code beside them does, so only code files count. */
   const critical = (fileIds: readonly string[]) =>
