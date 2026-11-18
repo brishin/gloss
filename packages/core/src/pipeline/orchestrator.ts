@@ -96,6 +96,7 @@ import {
   WalkthroughResultSchema,
 } from './prompts.ts';
 import { codeSearcher, fileReader, importerFinder } from './read-file.ts';
+import { isSnapshot, snapshotSubjects } from './snapshots.ts';
 import { createTracer, judgePrompt, promptSections } from './trace.ts';
 import { visualPng } from './visual-image.ts';
 
@@ -863,11 +864,13 @@ const tourProgram = Effect.fnUntraced(function* (
       );
     });
 
+  const snapshotsOf = snapshotSubjects(files);
   const judgeGroupChoice = (client: JudgeClient['Service'], definitions: readonly GroupDefinition[]) => {
     const questions = groupQuestions(definitions);
     return judgeEach(
       client,
-      files.filter((file) => file.generated !== 'gitattributes'),
+      // A snapshot of a changed code file follows that file, so only the others need a group.
+      files.filter((file) => (isSnapshot(file.path) ? !snapshotsOf[file.id] : file.generated !== 'gitattributes')),
       'judge-group',
       { id: 'judge-groups', inputs: ['define'], questions },
       (fileState) => ({
