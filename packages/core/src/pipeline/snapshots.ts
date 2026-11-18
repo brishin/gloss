@@ -89,7 +89,12 @@ function sharedFolders(a: string, b: string): number {
 export function snapshotSubjects(files: readonly FileChange[]): Record<string, string[]> {
   const candidates = files
     .filter((file) => !isSnapshot(file.path) && !isAgentGuidance(file.path) && !isDocumentation(file.path))
-    .map((file) => ({ id: file.id, path: file.path, stem: normalize(bare(file.path.split('/').at(-1)!)) }));
+    .map((file) => ({
+      id: file.id,
+      path: file.path,
+      // A component folder names its files too: `CompactCollectionCard/platformStyles.ts`.
+      stems: [file.path.split('/').at(-2) ?? '', file.path.split('/').at(-1)!].map((name) => normalize(bare(name))),
+    }));
   const code = candidates.filter((candidate) => !looksLikeTest(candidate.path));
   const subjects: Record<string, string[]> = {};
   for (const file of files) {
@@ -113,11 +118,18 @@ export function snapshotSubjects(files: readonly FileChange[]): Record<string, s
   return subjects;
 }
 
-function firstMatch<T extends { stem: string }>(names: readonly string[], candidates: readonly T[]): T[] | undefined {
-  for (const name of names) {
-    const matches = candidates.filter((candidate) => sameSubject(name, candidate.stem));
-    if (matches.length) {
-      return matches;
+/** File names first, then the folders files sit in; within each, the longest (most specific) snapshot name first. */
+function firstMatch<T extends { stems: string[] }>(
+  names: readonly string[],
+  candidates: readonly T[],
+): T[] | undefined {
+  const specific = names.toSorted((a, b) => b.length - a.length);
+  for (const level of [1, 0]) {
+    for (const name of specific) {
+      const matches = candidates.filter((candidate) => sameSubject(name, candidate.stems[level]!));
+      if (matches.length) {
+        return matches;
+      }
     }
   }
   return undefined;

@@ -101,6 +101,17 @@ describe('snapshotSubjects', () => {
     expect(snapshotSubjects(files)).toEqual({ shot: ['story'], shared: ['card'] });
   });
 
+  it('tries file names before folders, and the most specific snapshot name first', () => {
+    const files = [
+      file('prompt', 'svc/tests/__snapshots__/test_prompt_snapshots/test_suggest_topics__seed.json'),
+      file('prompts', 'svc/app/ai/prompts.py'),
+      file('template', 'svc/app/templates/prompts/suggestTopics.jinja'),
+      file('card', 'app/snapshots/collections/CompactCollectionCard/empty.png'),
+      file('styles', 'ui/src/collections/CompactCollectionCard/platformStyles.ts'),
+    ];
+    expect(snapshotSubjects(files)).toEqual({ prompt: ['template'], card: ['styles'] });
+  });
+
   it('needs a long shared start for a near name', () => {
     const files = [
       file('shot', 'snapshots/Card/x.png'),
