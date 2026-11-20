@@ -285,15 +285,17 @@ export function pathHome(groups: readonly GroupView[]): string | undefined {
 }
 
 /**
- * The code path with each excerpt cut to its first `rows` lines: above open diffs the
- * excerpt only points at the code, which is in full right below.
+ * The code path above open diffs: each step keeps its first excerpt, cut to its first `rows`
+ * lines. There the excerpt only points at the code, which is in full right below.
  */
-export function shortPath<P extends Pick<Walkthrough, 'frames' | 'steps'>>(path: P, rows = 8): P {
+export function shortPath<P extends Pick<Walkthrough, 'frames' | 'steps'>>(path: P, rows = 6): P {
   return {
     ...path,
     steps: path.steps.map((step) => ({
       ...step,
-      excerpts: step.excerpts.map((excerpt) => ({ ...excerpt, to: Math.min(excerpt.to, excerpt.from + rows - 1) })),
+      excerpts: step.excerpts
+        .slice(0, 1)
+        .map((excerpt) => ({ ...excerpt, to: Math.min(excerpt.to, excerpt.from + rows - 1) })),
     })),
   };
 }

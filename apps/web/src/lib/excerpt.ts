@@ -106,18 +106,16 @@ export function snippetHosts(rows: readonly { snippet?: number }[]): Map<number,
   return hosts;
 }
 
-/** The frames a step covers plus their callers, in tree order. */
+/** The frames a step covers plus the caller each is reached from, in tree order. */
 export function stepFrames(
   frames: readonly CallFrame[],
   parents: readonly number[],
   picked: readonly number[],
 ): number[] {
-  const keep = new Set<number>();
-  for (const index of picked) {
-    for (let at = index; at >= 0; at = parents[at]!) {
-      keep.add(at);
-    }
-  }
+  const own = picked.filter((index) => index >= 0 && index < frames.length);
+  // One caller above each picked frame, so a step shows where it is called from without the
+  // whole chain up to the entry point.
+  const keep = new Set([...own, ...own.map((index) => parents[index]!).filter((caller) => caller >= 0)]);
   return frames.map((_, index) => index).filter((index) => keep.has(index));
 }
 

@@ -63,10 +63,12 @@ describe('snippetHosts', () => {
 });
 
 describe('stepFrames', () => {
-  it('keeps the picked frames and their callers, in tree order', () => {
+  it('keeps the picked frames and one caller each, not the chain to the entry point, in tree order', () => {
     const frame = (depth: number, name: string): CallFrame => ({ depth, name, status: 'new' });
-    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(1, 'd'), frame(0, 'e')];
-    expect(stepFrames(frames, callParents(frames), [3, 2])).toEqual([0, 1, 2, 3]);
+    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(3, 'd'), frame(2, 'e'), frame(0, 'f')];
+    expect(stepFrames(frames, callParents(frames), [3])).toEqual([2, 3]);
+    expect(stepFrames(frames, callParents(frames), [4, 3])).toEqual([1, 2, 3, 4]);
+    expect(stepFrames(frames, callParents(frames), [0, 1])).toEqual([0, 1]);
     expect(stepFrames(frames, callParents(frames), [])).toEqual([]);
   });
 });

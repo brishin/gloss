@@ -360,7 +360,7 @@ function ExcerptView({
 }
 
 /**
- * Part of the path's call tree with connectors: `only` keeps a subset (with its callers), and
+ * Part of the path's call tree with connectors: `only` keeps a subset (with a caller each), and
  * frames outside `active` dim, so a step shows where it sits on the path.
  */
 function PathTree({
@@ -372,7 +372,9 @@ function PathTree({
   only: readonly number[];
   active: ReadonlySet<number>;
 }) {
-  const rows = only.map((index) => frames[index]!);
+  // A step's slice starts at the left edge, however deep in the path it sits.
+  const top = Math.min(...only.map((index) => frames[index]!.depth));
+  const rows = only.map((index) => ({ ...frames[index]!, depth: frames[index]!.depth - top }));
   const parents = callParents(rows);
   const locations = callLocations(rows);
   const mid = (row: number) => row * ROW + ROW / 2;
