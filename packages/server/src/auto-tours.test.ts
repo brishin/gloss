@@ -66,8 +66,22 @@ function harness(enabled: boolean) {
         ),
       ),
     );
-  const box = { inbox: { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], authored: [pr(4)] } as Inbox };
-  const repos = Layer.succeed(Repos, { inbox: Effect.sync(() => box.inbox) } as unknown as Repos['Service']);
+  // The notifications change once each time `notified` is set, and ask for a look every minute.
+  const box = {
+    inbox: { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], authored: [pr(4)] } as Inbox,
+    notified: false,
+    checks: 0,
+  };
+  const repos = Layer.succeed(Repos, {
+    inbox: Effect.sync(() => box.inbox),
+    notifications: () =>
+      Effect.sync(() => {
+        box.checks += 1;
+        const changed = box.notified;
+        box.notified = false;
+        return { changed, pollMs: 60_000 };
+      }),
+  } as unknown as Repos['Service']);
   const jobs = Jobs.layer({ run, idleAbortMs: 1_000 }).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -105,6 +119,20 @@ describe('AutoTours', () => {
       yield* TestClock.adjust(5 * 60_000);
       yield* TestClock.adjust(60_000);
       expect(toured).toEqual([1, 2, 2]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect('reads the inbox within a minute of a new notification, not at the next five-minute read', () => {
+    const { toured, box, layer } = harness(true);
+    return Effect.gen(function* () {
+      yield* TestClock.adjust(1);
+      yield* TestClock.adjust(2 * 60_000);
+      expect(toured).toEqual([1, 2]);
+      box.inbox = { ...box.inbox, reviewRequested: [pr(5), ...box.inbox.reviewRequested] };
+      box.notified = true;
+      yield* TestClock.adjust(2 * 60_000);
+      expect(toured).toEqual([1, 2, 5]);
+      expect(box.checks).toBeGreaterThan(1);
     }).pipe(Effect.provide(layer));
   });
 

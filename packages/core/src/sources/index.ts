@@ -36,6 +36,7 @@ export {
   StaleFileError,
 } from './contents.ts';
 export { readLfsObject } from './lfs.ts';
+export { githubNotifications, type NotificationsCheck } from './notifications.ts';
 export { RepoError, Repos } from './repos.ts';
 export {
   EMPTY_REPO_CONFIG,
