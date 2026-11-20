@@ -4,6 +4,22 @@ export const PORTS = Array.from({ length: 10 }, (_, index) => 4777 + index);
 /** The native messaging host `gloss extension install` registers to start the server. */
 export const NATIVE_HOST = 'dev.gloss.launcher';
 
+/**
+ * The base URL of a configured gloss server (scheme, host, port and any path, without a
+ * trailing slash), or undefined when the value is empty or not an http(s) URL.
+ * @param {unknown} value
+ */
+export function serverBase(value) {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return undefined;
+  }
+}
+
 const PR_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#]|$)/;
 
 /**

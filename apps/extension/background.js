@@ -1,4 +1,4 @@
-import { findServer, NATIVE_HOST, tourPath } from './gloss.js';
+import { findServer, NATIVE_HOST, serverBase, tourPath } from './gloss.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   // The button lights up on pull request pages only.
@@ -49,9 +49,16 @@ async function startServer() {
   }
 }
 
+/** The server URL set on the options page, or undefined to use gloss on this computer. */
+async function configuredServer() {
+  const { serverUrl } = await chrome.storage.sync.get('serverUrl');
+  return serverBase(serverUrl);
+}
+
 /**
- * Opens the pull request at `url` in the running gloss server, starting it through the native
- * host when none is running. Without the host, a page explains how to start it and waits.
+ * Opens the pull request at `url` in gloss: the server set on the options page when there is
+ * one, else the local server, which the native host starts when none is running. Without the
+ * host, a page explains how to start it and waits.
  * @param {string | undefined} url
  * @param {{ index: number, id?: number } | undefined} from  the tab it was opened from
  */
@@ -60,7 +67,7 @@ export async function openInGloss(url, from) {
   if (!path) {
     return;
   }
-  const server = (await findServer()) ?? (await startServer());
+  const server = (await configuredServer()) ?? (await findServer()) ?? (await startServer());
   const target = server ? `${server}${path}` : chrome.runtime.getURL(`start.html?path=${encodeURIComponent(path)}`);
   await chrome.tabs.create({ url: target, index: from ? from.index + 1 : undefined, openerTabId: from?.id });
 }

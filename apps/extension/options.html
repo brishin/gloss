@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>gloss options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        min-width: 22rem;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      input:invalid {
+        outline: 1px solid #d1242f;
+      }
+      p {
+        margin: 6px 0 0;
+        color: color-mix(in srgb, currentColor 65%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <label for="server">Server URL</label>
+    <input id="server" type="url" placeholder="https://gloss.example.com" spellcheck="false" />
+    <p>Leave empty to use gloss on this computer.</p>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
