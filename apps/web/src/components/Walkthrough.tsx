@@ -31,6 +31,7 @@ import {
   excerptFile,
   excerptLabel,
   excerptShows,
+  sliceTree,
   snippetHosts,
   stepFrames,
 } from '../lib/excerpt.ts';
@@ -372,10 +373,7 @@ function PathTree({
   only: readonly number[];
   active: ReadonlySet<number>;
 }) {
-  // A step's slice starts at the left edge, however deep in the path it sits.
-  const top = Math.min(...only.map((index) => frames[index]!.depth));
-  const rows = only.map((index) => ({ ...frames[index]!, depth: frames[index]!.depth - top }));
-  const parents = callParents(rows);
+  const { rows, parents } = sliceTree(frames, only);
   const locations = callLocations(rows);
   const mid = (row: number) => row * ROW + ROW / 2;
   return (

@@ -119,6 +119,26 @@ export function stepFrames(
   return frames.map((_, index) => index).filter((index) => keep.has(index));
 }
 
+/**
+ * Rows `only` of a call tree, each under its own caller from the full tree when that caller is
+ * kept, else a root: a slice starts at the left edge however deep it sits, and never hangs a
+ * frame under one from another branch.
+ */
+export function sliceTree(
+  frames: readonly CallFrame[],
+  only: readonly number[],
+): { rows: CallFrame[]; parents: number[] } {
+  const callers = callParents(frames);
+  const rowOf = new Map(only.map((index, row) => [index, row]));
+  const parents = only.map((index) => rowOf.get(callers[index]!) ?? -1);
+  const rows: CallFrame[] = [];
+  only.forEach((index, row) => {
+    const parent = parents[row]!;
+    rows.push({ ...frames[index]!, depth: parent < 0 ? 0 : rows[parent]!.depth + 1 });
+  });
+  return { rows, parents };
+}
+
 /** Where each frame's definition is: the file only when it differs from the frame above. */
 export function callLocations(frames: readonly CallFrame[]): string[] {
   return frames.map((frame, index) => {
