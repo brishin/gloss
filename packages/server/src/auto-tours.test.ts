@@ -6,7 +6,7 @@ import type { RecentTour, SourceRef, TourEventBody } from '@gloss/protocol';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, test } from 'vitest';
-import { autoToursLayer, dueTours } from './auto-tours.ts';
+import { AutoTours, dueTours } from './auto-tours.ts';
 import { Jobs, type RunTour } from './jobs.ts';
 
 const NOW = Date.parse('2026-11-20T12:00:00Z');
@@ -47,58 +47,84 @@ const started = (ref: SourceRef): TourEventBody => ({
   cached: false,
 });
 
-describe('autoToursLayer', () => {
-  it.effect('tours each review request once, one at a time, and again when it changes', () => {
-    const toured: number[] = [];
-    let running = 0;
-    let most = 0;
-    // Each tour takes a minute of test time and is never watched, so only the poller keeps it alive.
-    const run: RunTour = ({ ref }) =>
-      Stream.make(started(ref)).pipe(
-        Stream.concat(
-          Stream.fromEffect(
-            Effect.gen(function* () {
-              running += 1;
-              most = Math.max(most, running);
-              yield* Effect.sleep(60_000);
-              running -= 1;
-              toured.push((ref as { number: number }).number);
-              return { type: 'job.error', code: 'internal', message: 'done', fatal: true } as TourEventBody;
-            }),
-          ),
-        ),
-      );
-    let inbox: Inbox = { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], authored: [pr(4)] };
-    const repos = Layer.succeed(Repos, {
-      inbox: Effect.sync(() => inbox),
-    } as unknown as Repos['Service']);
-    const jobs = Jobs.layer({ run, idleAbortMs: 1_000 }).pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          TourCache.memory,
-          Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
-          DiffSources.layer,
-          RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
+/** A review inbox of #1, #2 and a draft #3, and tours that take a minute of test time each and are never watched. */
+function harness(enabled: boolean) {
+  const toured: number[] = [];
+  const saved: boolean[] = [];
+  const state = { running: 0, most: 0 };
+  const run: RunTour = ({ ref }) =>
+    Stream.make(started(ref)).pipe(
+      Stream.concat(
+        Stream.fromEffect(
+          Effect.gen(function* () {
+            state.running += 1;
+            state.most = Math.max(state.most, state.running);
+            yield* Effect.sleep(60_000).pipe(Effect.ensuring(Effect.sync(() => (state.running -= 1))));
+            toured.push((ref as { number: number }).number);
+            return { type: 'job.error', code: 'internal', message: 'done', fatal: true } as TourEventBody;
+          }),
         ),
       ),
     );
-    const layer = autoToursLayer({ intervalMs: 5 * 60_000, startDelayMs: 0, maxAgeMs: Infinity }).pipe(
-      Layer.provide(Layer.mergeAll(jobs, repos)),
-    );
+  const box = { inbox: { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], authored: [pr(4)] } as Inbox };
+  const repos = Layer.succeed(Repos, { inbox: Effect.sync(() => box.inbox) } as unknown as Repos['Service']);
+  const jobs = Jobs.layer({ run, idleAbortMs: 1_000 }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        TourCache.memory,
+        Layer.succeed(ModelClient, createFakeModelClient({ answers: {} })),
+        DiffSources.layer,
+        RepoClones.layer(join(tmpdir(), 'gloss-test-clones')),
+      ),
+    ),
+  );
+  const layer = AutoTours.layer({
+    enabled,
+    save: (on) => saved.push(on),
+    intervalMs: 5 * 60_000,
+    startDelayMs: 0,
+    maxAgeMs: Infinity,
+  }).pipe(Layer.provide(Layer.mergeAll(jobs, repos)));
+  return { toured, saved, state, box, layer };
+}
+
+describe('AutoTours', () => {
+  it.effect('tours each review request once, one at a time, and again when it changes', () => {
+    const { toured, state, box, layer } = harness(true);
     return Effect.gen(function* () {
       yield* TestClock.adjust(1);
       yield* TestClock.adjust(60_000);
       expect(toured).toEqual([1]);
       yield* TestClock.adjust(60_000);
       expect(toured).toEqual([1, 2]);
-      expect(most).toBe(1);
+      expect(state.most).toBe(1);
       // The next poll finds nothing new; then #2 is pushed to.
       yield* TestClock.adjust(5 * 60_000);
       expect(toured).toEqual([1, 2]);
-      inbox = { ...inbox, reviewRequested: [pr(2, { updatedAt: new Date(NOW).toISOString() }), pr(1)] };
+      box.inbox = { ...box.inbox, reviewRequested: [pr(2, { updatedAt: new Date(NOW).toISOString() }), pr(1)] };
       yield* TestClock.adjust(5 * 60_000);
       yield* TestClock.adjust(60_000);
       expect(toured).toEqual([1, 2, 2]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect('tours nothing while off, starts at once when switched on, and stops when switched off', () => {
+    const { toured, saved, state, layer } = harness(false);
+    return Effect.gen(function* () {
+      const auto = yield* AutoTours;
+      yield* TestClock.adjust(10 * 60_000);
+      expect(toured).toEqual([]);
+      yield* auto.set(true);
+      expect(yield* auto.enabled).toBe(true);
+      yield* TestClock.adjust(1);
+      yield* TestClock.adjust(60_000);
+      expect(toured).toEqual([1]);
+      // Off while #2 runs: it is no longer followed, so the idle timeout aborts it.
+      yield* auto.set(false);
+      yield* TestClock.adjust(10 * 60_000);
+      expect(toured).toEqual([1]);
+      expect(state.running).toBe(0);
+      expect(saved).toEqual([true, false]);
     }).pipe(Effect.provide(layer));
   });
 });

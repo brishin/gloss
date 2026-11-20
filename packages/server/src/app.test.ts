@@ -751,3 +751,22 @@ describe('ask API', () => {
     }).rejects.toThrow(/Invalid request/);
   });
 });
+
+describe('auto tours API', () => {
+  it('reads and flips the switch through the client, and refuses a flip that is not JSON from the app', async () => {
+    let enabled = false;
+    const { client, app } = setup(scripted().run, {
+      autoTours: { enabled: async () => enabled, set: async (next) => void (enabled = next) },
+    });
+    expect(await client.autoTours()).toEqual({ enabled: false });
+    expect(await client.setAutoTours(true)).toEqual({ enabled: true });
+    const form = await app.request('/api/auto-tours', { method: 'PUT', body: 'enabled=false' });
+    expect(form.status).toBe(403);
+    expect(enabled).toBe(true);
+  });
+
+  it('answers 404 when the backend does not tour in the background', async () => {
+    const { client } = setup(scripted().run);
+    await expect(client.autoTours()).rejects.toMatchObject({ status: 404 });
+  });
+});

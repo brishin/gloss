@@ -36,7 +36,7 @@ import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import { PullStateSchema, type Stack, StackNameSchema, StackSchema } from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
-import { type UpdateStatus, UpdateStatusSchema } from './update.ts';
+import { type AutoToursState, AutoToursStateSchema, type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:4777';
 
@@ -150,6 +150,10 @@ export interface GlossClient {
   updateStatus(): Promise<UpdateStatus>;
   /** Pulls, installs and builds on the backend, then restarts it; resolves before the restart. */
   update(): Promise<void>;
+  /** Whether the backend tours review requests in the background; fails (404) when it cannot. */
+  autoTours(): Promise<AutoToursState>;
+  /** Switches the background tours on or off; the backend saves the choice. */
+  setAutoTours(enabled: boolean): Promise<AutoToursState>;
 }
 
 export interface HttpGlossClientOptions {
@@ -355,5 +359,12 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
     async update() {
       await request('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     },
+    autoTours: () => json(AutoToursStateSchema, '/api/auto-tours'),
+    setAutoTours: (enabled) =>
+      json(AutoToursStateSchema, '/api/auto-tours', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
   };
 }

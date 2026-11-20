@@ -113,6 +113,16 @@ export const updateAtom = glossRuntime.fn((running: string | undefined) =>
   }),
 );
 
+/** Whether the backend tours review requests in the background; a failure means it offers no switch. */
+export const autoToursAtom: Atom.Atom<AsyncResult.AsyncResult<boolean, GlossRequestError>> = glossRuntime.atom(
+  request((client) => client.autoTours()).pipe(Effect.map((state) => state.enabled)),
+);
+
+/** Switches the background tours on or off; resolves with the backend's state after the change. */
+export const setAutoToursAtom = glossRuntime.fn((enabled: boolean) =>
+  request((client) => client.setAutoTours(enabled)).pipe(Effect.map((state) => state.enabled)),
+);
+
 /**
  * A provider login, written `{ subscription, method }` to start one: starts it on the backend,
  * then polls it until it ends. Resetting the atom (or starting another) cancels it there.
