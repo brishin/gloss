@@ -2419,6 +2419,101 @@
     }
   }
 
+  /*
+   * Touch screens (a foldable open or shut, a tablet): every target is at least 44pt, Apple's
+   * minimum, and nothing waits for a hover. A mouse or trackpad never matches, so desktop is as it was.
+   */
+  @media (pointer: coarse) {
+    .app {
+      --topbar-h: 52px;
+      --subbar-h: 44px;
+    }
+
+    /* Icon buttons have no chrome until pressed, so they grow; a labelled button keeps its look and grows only its tap. */
+    .topbar .astryx-button[aria-label],
+    .subbar .astryx-button[aria-label] {
+      min-width: 44px !important;
+      min-height: 44px !important;
+    }
+
+    .topbar .astryx-button:not([aria-label])::after,
+    .subbar .astryx-button:not([aria-label])::after {
+      content: '';
+      position: absolute;
+      inset: calc(50% - 22px) 0;
+    }
+
+    .sidebar {
+      --side-tools-h: 56px;
+      /* The small viewport: the rail's last rows stay above Safari's toolbar. */
+      max-height: calc(100dvh - var(--topbar-h));
+    }
+
+    .side-tools input {
+      min-height: 40px;
+    }
+
+    .side-tools .astryx-segmented-control-item {
+      min-height: 36px !important;
+    }
+
+    .nav-item {
+      min-height: 44px;
+    }
+
+    .tree-chevron {
+      width: 28px;
+      height: 44px;
+    }
+
+    .file-link {
+      height: 44px;
+    }
+
+    .file-head {
+      height: 44px;
+    }
+
+    .viewed input {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Short links read the same but take a taller tap. */
+    .viewed,
+    .crumb,
+    .decision-ref,
+    .pull-head a {
+      padding-block: 12px;
+      margin-block: -12px;
+    }
+  }
+
+  /* No hover to see what a key does, and usually no keys. */
+  @media (any-hover: none) {
+    .shortcuts-button {
+      display: none;
+    }
+  }
+
+  /*
+   * A short touch screen, like a foldable opened flat in landscape: the PR's head scrolls away
+   * instead of pinning, so the bars keep under a fifth of the height.
+   */
+  @media (pointer: coarse) and (max-height: 720px) {
+    .app {
+      --sticky-h: calc(var(--topbar-h) + var(--subbar-h));
+    }
+
+    .pull-head {
+      position: static;
+    }
+
+    .subbar {
+      top: var(--topbar-h);
+    }
+  }
+
   /* The DAG is laid out 420px wide: shrink it to fit a phone, not crop it. */
   @media (max-width: 440px) {
     .graph {
@@ -2911,6 +3006,13 @@
       height: 75vh;
       border-width: 1px 0 0;
       border-radius: var(--radius-container) var(--radius-container) 0 0;
+    }
+  }
+
+  /* An unfolded foldable or a small tablet: Ask takes the right half, its edge on the fold. */
+  @media (pointer: coarse) and (min-width: 768px) and (max-width: 1199px) {
+    .ask-panel {
+      width: calc(50vw - var(--spacing-3));
     }
   }
 }

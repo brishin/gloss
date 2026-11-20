@@ -23,8 +23,13 @@ import {
 } from './tour-model.ts';
 import { OVERVIEW, STICKY_OFFSET } from './tour-view.ts';
 
-/** The line a file or note must cross to count as "current": just below the sticky bars. */
-const READING_LINE = STICKY_OFFSET + 16;
+/**
+ * The line a file or note must cross to count as "current": just below the sticky bars. Read from
+ * the sub-bar, the last of them, since a short touch screen lets the PR head scroll away.
+ */
+function readingLine(): number {
+  return (document.querySelector('.subbar')?.getBoundingClientRect().bottom ?? STICKY_OFFSET) + 16;
+}
 
 /** Input that means the reader is moving on their own, so a restored position stops being held. */
 const RELEASE_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
@@ -450,14 +455,14 @@ function spy(): Spied {
   const page = main();
   const groups = [...(page?.querySelectorAll<HTMLElement>('[data-group-key]') ?? [])];
   const files = [...(page?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])];
-  const crossed = (sections: HTMLElement[]) =>
-    sections.findLast((el) => el.getBoundingClientRect().top <= READING_LINE);
+  const line = readingLine();
+  const crossed = (sections: HTMLElement[]) => sections.findLast((el) => el.getBoundingClientRect().top <= line);
   const atBottom =
     window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
   const onScreen = (sections: HTMLElement[]) =>
     sections.filter((el) => {
       const rect = el.getBoundingClientRect();
-      return rect.bottom > READING_LINE && rect.top < window.innerHeight;
+      return rect.bottom > line && rect.top < window.innerHeight;
     });
   const groupKey = crossed(groups)?.dataset.groupKey;
   return {
@@ -475,9 +480,10 @@ function spy(): Spied {
 function stepNote(by: number) {
   const notes = [...(main()?.querySelectorAll<HTMLElement>('.note') ?? [])];
   const tops = notes.map((note) => note.getBoundingClientRect().top);
-  const target = by > 0 ? tops.find((top) => top > READING_LINE + 1) : tops.findLast((top) => top < READING_LINE - 1);
+  const line = readingLine();
+  const target = by > 0 ? tops.find((top) => top > line + 1) : tops.findLast((top) => top < line - 1);
   if (target !== undefined) {
-    window.scrollBy({ top: target - READING_LINE });
+    window.scrollBy({ top: target - line });
   }
 }
 
