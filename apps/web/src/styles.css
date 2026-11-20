@@ -160,7 +160,7 @@
     flex-direction: column;
   }
 
-  /* Filter and nesting switch, pinned above the tree. */
+  /* The filter, pinned above the tree. */
   .side-tools {
     position: sticky;
     top: 0;
@@ -2450,6 +2450,39 @@
     }
   }
 
+  /* Touch screens (a foldable open or shut, a tablet). A mouse or trackpad never matches. */
+  @media (pointer: coarse) {
+    /* The small viewport: the rail's last rows stay above Safari's toolbar. */
+    .sidebar {
+      max-height: calc(100dvh - var(--topbar-h));
+    }
+  }
+
+  /* No hover to see what a key does, and usually no keys. */
+  @media (any-hover: none) {
+    .shortcuts-button {
+      display: none;
+    }
+  }
+
+  /*
+   * A short touch screen, like a foldable opened flat in landscape: the PR's head scrolls away
+   * instead of pinning, so the bars keep under a fifth of the height.
+   */
+  @media (pointer: coarse) and (max-height: 720px) {
+    .app {
+      --sticky-h: calc(var(--topbar-h) + var(--subbar-h));
+    }
+
+    .pull-head {
+      position: static;
+    }
+
+    .subbar {
+      top: var(--topbar-h);
+    }
+  }
+
   /* The DAG is laid out 420px wide: shrink it to fit a phone, not crop it. */
   @media (max-width: 440px) {
     .graph {
@@ -2942,6 +2975,13 @@
       height: 75vh;
       border-width: 1px 0 0;
       border-radius: var(--radius-container) var(--radius-container) 0 0;
+    }
+  }
+
+  /* An unfolded foldable or a small tablet: Ask takes the right half, its edge on the fold. */
+  @media (pointer: coarse) and (min-width: 768px) and (max-width: 1199px) {
+    .ask-panel {
+      width: calc(50vw - var(--spacing-3));
     }
   }
 }

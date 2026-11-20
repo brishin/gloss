@@ -12,7 +12,7 @@ import {
   type ReviewThread,
   type RiskNote,
 } from '@gloss/protocol';
-import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from '@pierre/diffs';
+import type { DiffLineAnnotation, FileDiffMetadata, OnDiffLineClickProps, SelectedLineRange } from '@pierre/diffs';
 import { processFile } from '@pierre/diffs';
 import { FileDiff } from '@pierre/diffs/react';
 import { Effect } from 'effect';
@@ -216,6 +216,12 @@ export const FileView = memo(function FileView({
       enableGutterUtility: Boolean(reviewer),
       onGutterUtilityClick: reviewer
         ? (range: Parameters<typeof anchorFromRange>[1]) => reviewer.start(anchorFromRange(summary.id, range))
+        : undefined,
+      // A touch has no hover to show the "+": tapping a line number starts the comment instead.
+      onLineNumberClick: reviewer
+        ? ({ lineNumber, annotationSide, event }: OnDiffLineClickProps) =>
+            event.pointerType !== 'mouse' &&
+            reviewer.start(anchorFromRange(summary.id, { start: lineNumber, end: lineNumber, side: annotationSide }))
         : undefined,
       // The separators between hunks expand unchanged lines; pierre fetches the whole file on the first one.
       // Not while hunks are folded: the lines between the shown hunks would read as unchanged.

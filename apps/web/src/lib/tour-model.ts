@@ -28,10 +28,8 @@ import {
   toReviewComments,
 } from './review-draft.ts';
 import {
-  categoryNode,
   groupNode,
   initialSidebar,
-  type Nesting,
   PR_NODE,
   setNodesOpen,
   type SidebarState,
@@ -159,7 +157,6 @@ export type Msg =
   | { type: 'SidebarToggled'; node: string; deep: boolean }
   /** A click on a PR or group row: jumps there and unfolds it. */
   | { type: 'SidebarActivated'; node: string; key: string }
-  | { type: 'NestingChanged'; nesting: Nesting }
   | { type: 'QueryChanged'; query: string }
   /**
    * A key outside any text field, read against the model when it is handled: the second key
@@ -621,8 +618,6 @@ function step(model: Model, msg: Msg): Next {
       const [selected, cmds] = select(model, msg.key);
       return [{ ...selected, sidebar: setNodesOpen(selected.sidebar, [msg.node], true) }, cmds];
     }
-    case 'NestingChanged':
-      return [{ ...model, sidebar: { ...model.sidebar, nesting: msg.nesting } }, []];
     case 'QueryChanged':
       return [{ ...model, sidebar: { ...model.sidebar, query: msg.query } }, []];
     case 'KeyPressed': {
@@ -884,7 +879,7 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[], fro
       ...next,
       sidebar: setNodesOpen(
         next.sidebar,
-        current ? [STACK_NODE, PR_NODE, categoryNode(current.category), groupNode(current.key)] : [STACK_NODE, PR_NODE],
+        current ? [STACK_NODE, PR_NODE, groupNode(current.key)] : [STACK_NODE, PR_NODE],
         true,
       ),
     };
