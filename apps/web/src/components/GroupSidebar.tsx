@@ -1,4 +1,3 @@
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
@@ -10,14 +9,11 @@ import { AsyncResult } from 'effect/reactivity';
 import { Fragment, type KeyboardEvent, type ReactNode } from 'react';
 import { recentToursAtom, stackNameAtom } from '../lib/client.ts';
 import {
-  byCategory,
   CATEGORY_LABEL,
-  categoryNode,
   countViewed,
   filterGroups,
   groupNode,
   isNodeOpen,
-  type Nesting,
   PR_NODE,
   closedNode,
   isClosed,
@@ -69,7 +65,7 @@ export function GroupSidebar({
   sidebar: SidebarState;
   dispatch: (msg: Msg) => void;
 }) {
-  const { nesting, query } = sidebar;
+  const { query } = sidebar;
   const recent = AsyncResult.getOrElse(useAtomValue(recentToursAtom), (): RecentTours => ({ tours: [] }));
   const { viewer } = recent;
   const currentKey = serializeRef(sourceRef);
@@ -156,11 +152,9 @@ export function GroupSidebar({
           onClick={() => activate(id, group.key)}
         >
           <span className="nav-index">{index + 1}</span>
-          {nesting === 'tour' && (
-            <span className="tree-lead tree-lead-category" title={CATEGORY_LABEL[group.category]}>
-              <CategoryIcon category={group.category} />
-            </span>
-          )}
+          <span className="tree-lead tree-lead-category" title={CATEGORY_LABEL[group.category]}>
+            <CategoryIcon category={group.category} />
+          </span>
           <span className="nav-label">{group.label}</span>
           {group.critical && (
             // A dot, not a pill: a pill truncates the group name at narrow widths.
@@ -195,46 +189,7 @@ export function GroupSidebar({
     );
   };
 
-  const groupRows =
-    nesting === 'tour'
-      ? groups.map((group, index) => renderGroup(group, index, PR_NODE))
-      : byCategory(groups).map(({ category, groups: members }) => {
-          if (kept && !members.some(({ group }) => kept.has(group.key))) {
-            return null;
-          }
-          const id = categoryNode(category);
-          const open = isOpen(id);
-          const fileCount = members.reduce((sum, { group }) => sum + group.fileIds.length, 0);
-          return (
-            <div key={category} className="tree-node">
-              <TreeRow
-                id={id}
-                parent={PR_NODE}
-                current={false}
-                expanded={open}
-                label={CATEGORY_LABEL[category]}
-                onToggle={(deep) => toggle(id, deep)}
-                onClick={() => toggle(id, false)}
-              >
-                <span className="tree-lead tree-lead-category">
-                  <CategoryIcon category={category} />
-                </span>
-                <span className="nav-label">{CATEGORY_LABEL[category]}</span>
-                {!open && members.some(({ group }) => group.critical) && (
-                  <span className="marker marker-critical" role="img" aria-label="Contains a critical group" />
-                )}
-                <span className="nav-count">
-                  {fileCount} {fileCount === 1 ? 'file' : 'files'}
-                </span>
-              </TreeRow>
-              {open && (
-                <div className="tree-kids" role="group">
-                  {members.map(({ group, index }) => renderGroup(group, index, id))}
-                </div>
-              )}
-            </div>
-          );
-        });
+  const groupRows = groups.map((group, index) => renderGroup(group, index, PR_NODE));
 
   const prNode = (
     <div className="tree-node">
@@ -410,15 +365,6 @@ export function GroupSidebar({
           value={query}
           onChange={(value) => dispatch({ type: 'QueryChanged', query: value })}
         />
-        <SegmentedControl
-          label="Group order"
-          size="sm"
-          value={nesting}
-          onChange={(value) => dispatch({ type: 'NestingChanged', nesting: value as Nesting })}
-        >
-          <SegmentedControlItem value="tour" label="Tour" />
-          <SegmentedControlItem value="category" label="Category" />
-        </SegmentedControl>
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
         {!home && currentBlock(undefined)}

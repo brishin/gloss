@@ -1,7 +1,6 @@
 import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import {
-  byCategory,
   countViewed,
   filterGroups,
   findEntry,
@@ -32,35 +31,6 @@ const FILES = new Map(
     ['f5', 'packages/core/src/sources/gh-stack.test.ts'],
   ].map(([id, path]) => [id!, { id, path } as FileSummary]),
 );
-
-describe('byCategory', () => {
-  test('orders categories by their first group and keeps tour indexes', () => {
-    expect(
-      byCategory(GROUPS).map((bucket) => [
-        bucket.category,
-        bucket.groups.map(({ group, index }) => [group.key, index]),
-      ]),
-    ).toEqual([
-      [
-        'api',
-        [
-          ['discovery', 0],
-          ['client', 2],
-        ],
-      ],
-      ['core', [['parents', 1]]],
-      ['tests', [['tests', 3]]],
-    ]);
-  });
-
-  test('keeps every group exactly once', () => {
-    expect(
-      byCategory(GROUPS)
-        .flatMap((bucket) => bucket.groups.map(({ group }) => group.key))
-        .toSorted(),
-    ).toEqual(GROUPS.map((g) => g.key).toSorted());
-  });
-});
 
 describe('filterGroups', () => {
   test.each([

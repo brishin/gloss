@@ -155,7 +155,7 @@
     flex-direction: column;
   }
 
-  /* Filter and nesting switch, pinned above the tree. */
+  /* The filter, pinned above the tree. */
   .side-tools {
     position: sticky;
     top: 0;
@@ -2424,11 +2424,6 @@
     /* The small viewport: the rail's last rows stay above Safari's toolbar. */
     .sidebar {
       max-height: calc(100dvh - var(--topbar-h));
-    }
-
-    /* The rail keeps the tour's order: the filter alone fills the row. */
-    .side-tools > :not(:first-child) {
-      display: none;
     }
   }
 
