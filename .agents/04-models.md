@@ -37,7 +37,7 @@
 - **Config** (`config.ts`): defaults → `~/.gloss/config.json` (`profile`, `tiers`,
   `thinking`, `judge`, `providerPackages`, `decisionRules`, `autoTours`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
   `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`).
-  `autoTours` (off by default) is the Auto-tour switch in the tour page's header. While on, the
+  `autoTours` (off by default) is the Watch PRs switch in the tour page's header. While on, the
   server on the default port tours each open, non-draft PR that asks for the `gh` login's review
   in the background (`AutoTours` in `packages/server/src/auto-tours.ts`). It looks at the
   notifications each minute (conditional, so a 304 is free) and reads the inbox when they change,

@@ -29,7 +29,7 @@ export function AutoToursSwitch() {
     <span className="auto-tours" title="Tour PRs that request your review in the background">
       <Switch
         size="sm"
-        label="Auto-tour"
+        label="Watch PRs"
         labelPosition="start"
         value={value}
         onChange={(next) => {
