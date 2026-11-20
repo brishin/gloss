@@ -58,6 +58,7 @@ nothing. `--force` (or Re-run in the app) skips the cache.
 
 The Chrome extension in `apps/extension` (also works in Arc, Dia, Brave and Edge) adds an
 "Open in gloss" button to pull request pages, and can start the server if it is not
-running. The setup page shows how to load it.
+running. The setup page shows how to load it. To open pull requests in a gloss server on
+another machine, set its URL on the extension's options page.
 
 See [AGENTS.md](AGENTS.md) and [.agents/](.agents) for the architecture.

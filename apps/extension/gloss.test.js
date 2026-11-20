@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findServer, tourPath } from './gloss.js';
+import { findServer, serverBase, tourPath } from './gloss.js';
 
 describe('tourPath', () => {
   it.each([
@@ -31,5 +31,22 @@ describe('findServer', () => {
 
   it('is undefined when nothing answers', async () => {
     expect(await findServer(fake({}))).toBeUndefined();
+  });
+});
+
+describe('serverBase', () => {
+  it.each([
+    ['https://gloss.example.com', 'https://gloss.example.com'],
+    ['  https://gloss.example.com/  ', 'https://gloss.example.com'],
+    ['http://10.0.0.5:4777/', 'http://10.0.0.5:4777'],
+    ['https://example.com/gloss/', 'https://example.com/gloss'],
+    ['https://example.com/gloss?x=1#y', 'https://example.com/gloss'],
+    ['', undefined],
+    ['   ', undefined],
+    ['gloss.example.com', undefined],
+    ['ftp://example.com', undefined],
+    [undefined, undefined],
+  ])('%j → %s', (value, base) => {
+    expect(serverBase(value)).toBe(base);
   });
 });
