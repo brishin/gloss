@@ -27,6 +27,17 @@ import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 import { type ThreadControls, ThreadCard } from './Threads.tsx';
 
+/** What every diff in a tour shares. */
+export const DIFF_OPTIONS = {
+  diffStyle: 'unified' as const,
+  disableFileHeader: true,
+  overflow: 'wrap' as const,
+  themeType: 'system' as const,
+  // Changed words stand out in a changed line, also in long prose lines (pierre stops at 1,000 characters).
+  // Words in two unrelated lines of 4,000 characters take about 0.1 s to compare.
+  maxLineDiffLength: 4000,
+};
+
 export function unifiedText(file: FileChange, skip?: ReadonlySet<string>): string {
   const oldPath = file.previousPath ?? file.path;
   const lines = [`diff --git a/${oldPath} b/${file.path}`];
@@ -208,10 +219,7 @@ export const FileView = memo(function FileView({
   );
   const options = useMemo(
     () => ({
-      diffStyle: 'unified' as const,
-      disableFileHeader: true,
-      overflow: 'wrap' as const,
-      themeType: 'system' as const,
+      ...DIFF_OPTIONS,
       // The gutter's "+" (drag it for several lines) starts a review comment.
       enableGutterUtility: Boolean(reviewer),
       onGutterUtilityClick: reviewer

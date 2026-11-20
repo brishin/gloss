@@ -37,7 +37,7 @@ import {
 } from '../lib/excerpt.ts';
 import { anchorFromRange, type Composing, type DraftComment } from '../lib/review-draft.ts';
 import { decisionFlag, splitPath } from '../lib/tour-view.ts';
-import { unifiedText } from './FileView.tsx';
+import { DIFF_OPTIONS, unifiedText } from './FileView.tsx';
 import { FlagIcon } from './icons.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 
@@ -47,10 +47,7 @@ const INDENT = 22;
 const MARK = 9;
 
 const EXCERPT_OPTIONS = {
-  diffStyle: 'unified' as const,
-  disableFileHeader: true,
-  overflow: 'wrap' as const,
-  themeType: 'system' as const,
+  ...DIFF_OPTIONS,
   hunkSeparators: 'simple' as const,
 };
 
