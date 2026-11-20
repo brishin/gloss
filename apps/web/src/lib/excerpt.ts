@@ -106,19 +106,37 @@ export function snippetHosts(rows: readonly { snippet?: number }[]): Map<number,
   return hosts;
 }
 
-/** The frames a step covers plus their callers, in tree order. */
+/** The frames a step covers plus the caller each is reached from, in tree order. */
 export function stepFrames(
   frames: readonly CallFrame[],
   parents: readonly number[],
   picked: readonly number[],
 ): number[] {
-  const keep = new Set<number>();
-  for (const index of picked) {
-    for (let at = index; at >= 0; at = parents[at]!) {
-      keep.add(at);
-    }
-  }
+  const own = picked.filter((index) => index >= 0 && index < frames.length);
+  // One caller above each picked frame, so a step shows where it is called from without the
+  // whole chain up to the entry point.
+  const keep = new Set([...own, ...own.map((index) => parents[index]!).filter((caller) => caller >= 0)]);
   return frames.map((_, index) => index).filter((index) => keep.has(index));
+}
+
+/**
+ * Rows `only` of a call tree, each under its own caller from the full tree when that caller is
+ * kept, else a root: a slice starts at the left edge however deep it sits, and never hangs a
+ * frame under one from another branch.
+ */
+export function sliceTree(
+  frames: readonly CallFrame[],
+  only: readonly number[],
+): { rows: CallFrame[]; parents: number[] } {
+  const callers = callParents(frames);
+  const rowOf = new Map(only.map((index, row) => [index, row]));
+  const parents = only.map((index) => rowOf.get(callers[index]!) ?? -1);
+  const rows: CallFrame[] = [];
+  only.forEach((index, row) => {
+    const parent = parents[row]!;
+    rows.push({ ...frames[index]!, depth: parent < 0 ? 0 : rows[parent]!.depth + 1 });
+  });
+  return { rows, parents };
 }
 
 /** Where each frame's definition is: the file only when it differs from the frame above. */

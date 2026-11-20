@@ -212,9 +212,8 @@ describe("the walkthrough read in the groups' walks", () => {
     expect(pathHome([group('a', []), group('b', [], true)])).toBe('b');
     expect(pathHome([group('a', []), group('b')])).toBeUndefined();
     const walkthrough = { decisions: [], frames: [], steps };
-    expect(shortPath(walkthrough as never as Pick<Walkthrough, 'frames' | 'steps'>).steps[1]!.excerpts).toEqual([
-      { ...at('f3'), to: 8 },
-    ]);
+    const short = shortPath(walkthrough as never as Pick<Walkthrough, 'frames' | 'steps'>);
+    expect(short.steps.map((step) => step.excerpts)).toEqual([[{ ...at('f1'), to: 6 }], [{ ...at('f3'), to: 6 }]]);
   });
 
   test.each([

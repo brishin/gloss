@@ -1,6 +1,6 @@
 import type { CallFrame, DiffHunk, FileChange } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { callParents, excerptShows, sliceHunk, snippetHosts, stepFrames } from './excerpt.ts';
+import { callParents, excerptShows, sliceHunk, sliceTree, snippetHosts, stepFrames } from './excerpt.ts';
 
 describe('sliceHunk', () => {
   const hunk: DiffHunk = {
@@ -63,10 +63,24 @@ describe('snippetHosts', () => {
 });
 
 describe('stepFrames', () => {
-  it('keeps the picked frames and their callers, in tree order', () => {
+  it('keeps the picked frames and one caller each, not the chain to the entry point, in tree order', () => {
     const frame = (depth: number, name: string): CallFrame => ({ depth, name, status: 'new' });
-    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(1, 'd'), frame(0, 'e')];
-    expect(stepFrames(frames, callParents(frames), [3, 2])).toEqual([0, 1, 2, 3]);
+    const frames = [frame(0, 'a'), frame(1, 'b'), frame(2, 'c'), frame(3, 'd'), frame(2, 'e'), frame(0, 'f')];
+    expect(stepFrames(frames, callParents(frames), [3])).toEqual([2, 3]);
+    expect(stepFrames(frames, callParents(frames), [4, 3])).toEqual([1, 2, 3, 4]);
+    expect(stepFrames(frames, callParents(frames), [0, 1])).toEqual([0, 1]);
     expect(stepFrames(frames, callParents(frames), [])).toEqual([]);
+  });
+});
+
+describe('sliceTree', () => {
+  it('keeps each frame under its own caller, and starts a frame whose caller is left out as a root', () => {
+    const frame = (depth: number, name: string): CallFrame => ({ depth, name, status: 'new' });
+    const frames = [0, 1, 2, 1, 2, 3, 4].map((depth, index) => frame(depth, String(index)));
+    const only = stepFrames(frames, callParents(frames), [2, 6]);
+    expect(only).toEqual([1, 2, 5, 6]);
+    const { rows, parents } = sliceTree(frames, only);
+    expect(parents).toEqual([-1, 0, -1, 2]);
+    expect(rows.map((row) => row.depth)).toEqual([0, 1, 0, 1]);
   });
 });

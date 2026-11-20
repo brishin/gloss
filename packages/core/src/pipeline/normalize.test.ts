@@ -696,7 +696,7 @@ describe('normalizeWalkthrough call paths', () => {
       },
       [spread],
     );
-    expect(walkthrough!.steps).toHaveLength(5);
+    expect(walkthrough!.steps).toHaveLength(4);
     expect(walkthrough!.steps[0]!.excerpts).toEqual([{ fileId: 'f2', hunkId: 'h2', from: 1, to: 29 }]);
   });
 

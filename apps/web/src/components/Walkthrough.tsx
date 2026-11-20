@@ -31,6 +31,7 @@ import {
   excerptFile,
   excerptLabel,
   excerptShows,
+  sliceTree,
   snippetHosts,
   stepFrames,
 } from '../lib/excerpt.ts';
@@ -360,7 +361,7 @@ function ExcerptView({
 }
 
 /**
- * Part of the path's call tree with connectors: `only` keeps a subset (with its callers), and
+ * Part of the path's call tree with connectors: `only` keeps a subset (with a caller each), and
  * frames outside `active` dim, so a step shows where it sits on the path.
  */
 function PathTree({
@@ -372,8 +373,7 @@ function PathTree({
   only: readonly number[];
   active: ReadonlySet<number>;
 }) {
-  const rows = only.map((index) => frames[index]!);
-  const parents = callParents(rows);
+  const { rows, parents } = sliceTree(frames, only);
   const locations = callLocations(rows);
   const mid = (row: number) => row * ROW + ROW / 2;
   return (

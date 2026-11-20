@@ -695,7 +695,7 @@ function normalizeDecisionWalks(
 }
 
 /** Most frames a path's call tree keeps before it stops reading at a glance. */
-const MAX_FRAMES = 16;
+const MAX_FRAMES = 12;
 
 type RawFrame = v.InferOutput<typeof CallPathResultSchema>['frames'][number];
 
@@ -749,7 +749,7 @@ function normalizeFrames(
   return { frames, kept };
 }
 
-const MAX_STEPS = 5;
+const MAX_STEPS = 4;
 const MAX_EXCERPTS = 3;
 /** Context kept around an excerpt's changed lines, and the most lines one may show. */
 const EXCERPT_CONTEXT = 3;
