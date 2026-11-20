@@ -35,8 +35,11 @@
   configured. 16 in flight, with retry on 429/529. TypeSafe refuses browser requests,
   so Jev runs only on the backend.
 - **Config** (`config.ts`): defaults → `~/.gloss/config.json` (`profile`, `tiers`,
-  `thinking`, `judge`, `providerPackages`, `decisionRules`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
-  `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`). The `small` tier
+  `thinking`, `judge`, `providerPackages`, `decisionRules`, `autoTours`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
+  `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`, `GLOSS_AUTO_TOURS=off|on`).
+  `autoTours` (on by default) has the server on the default port tour each open, non-draft PR
+  that asks for the `gh` login's review in the background (`packages/server/src/auto-tours.ts`):
+  the inbox every 5 min, one tour at a time, again when the PR's `updatedAt` moves. The `small` tier
   (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
   Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the

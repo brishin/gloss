@@ -1,3 +1,4 @@
 export { type AppOptions, createApp, type SetupHooks, type UpdateHooks } from './app.ts';
 export { type Job, Jobs, type JobsOptions, type JobState, type RunTour } from './jobs.ts';
 export { type LoginInteraction, Logins, LoginSessions, type RunLogin } from './logins.ts';
+export { type AutoToursOptions, autoToursLayer, dueTours } from './auto-tours.ts';

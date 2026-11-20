@@ -93,3 +93,13 @@ describe('ask models', () => {
     expect(ask.models).toHaveLength(count);
   });
 });
+
+describe('auto tours', () => {
+  test.each([
+    ['on by default', {}, true],
+    ['off with GLOSS_AUTO_TOURS=off', { GLOSS_AUTO_TOURS: 'off' }, false],
+    ['on with GLOSS_AUTO_TOURS=on', { GLOSS_AUTO_TOURS: 'on' }, true],
+  ])('%s', (_, env, on) => {
+    expect(loadConfig(env).autoTours).toBe(on);
+  });
+});

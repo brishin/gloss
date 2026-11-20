@@ -18,6 +18,8 @@ export interface GlossConfig {
   providerPackages: string[];
   /** The user's own rules for which decisions to flag, each set scoped by a files pattern (settings page). */
   decisionRules: DecisionRuleSet[];
+  /** Tour PRs that ask for the user's review in the background, so they are ready when opened. */
+  autoTours: boolean;
 }
 
 /**
@@ -62,6 +64,7 @@ const DEFAULTS: GlossConfig = {
   judge: 'typesafe/jev-latest',
   providerPackages: [],
   decisionRules: [],
+  autoTours: true,
 };
 
 type ConfigFile = Partial<Omit<GlossConfig, 'tiers' | 'thinking' | 'ask'>> & {
@@ -109,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
         .filter(Boolean) ?? []),
     ],
     decisionRules: readDecisionRules(file),
+    autoTours: env.GLOSS_AUTO_TOURS ? env.GLOSS_AUTO_TOURS !== 'off' : (file.autoTours ?? DEFAULTS.autoTours),
   };
 }
 

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
+import process from 'node:process';
 import { Repos } from '@gloss/core';
-import { createApp, Jobs, Logins } from '@gloss/server';
+import { loadConfig } from '@gloss/models';
+import { autoToursLayer, createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
@@ -37,12 +39,22 @@ function shellHtml(): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether this server tours review requests in the background (`autoTours` in the config, or
+ * GLOSS_AUTO_TOURS). Only the server on the default port does unless GLOSS_AUTO_TOURS=on, so a
+ * second checkout served on another port does not pay for the same tours again.
+ */
+function autoTours(port: number): boolean {
+  return loadConfig().autoTours && (port === DEFAULT_PORT || process.env.GLOSS_AUTO_TOURS === 'on');
+}
+
 /** Serves the API and the web app; closing it aborts every running tour and closes the cache. */
 export async function startServer(
   options: ServeOptions,
 ): Promise<{ url: string; judge?: string; close: () => Promise<void> }> {
+  const services = Layer.mergeAll(Jobs.layer(), Logins.layer(), Repos.layer).pipe(Layer.provideMerge(BackendLayer));
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(Jobs.layer(), Logins.layer(), Repos.layer).pipe(Layer.provideMerge(BackendLayer)),
+    autoTours(options.port) ? autoToursLayer().pipe(Layer.provideMerge(services)) : services,
   );
   const info = await runtime.runPromise(
     Effect.gen(function* () {
