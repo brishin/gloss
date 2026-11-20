@@ -38,10 +38,9 @@
   `thinking`, `judge`, `providerPackages`, `decisionRules`, `autoTours`) → env (`GLOSS_PROFILE`, `GLOSS_MODEL`,
   `GLOSS_MODEL_{DEFINE,FOLLOWUP,NOTES,SMALL}`, `GLOSS_JUDGE=off`).
   `autoTours` (off by default) is the Watch PRs switch in the tour page's header. While on, the
-  server on the default port tours each open, non-draft PR that asks for the `gh` login's review
-  in the background (`AutoTours` in `packages/server/src/auto-tours.ts`). It looks at the
-  notifications each minute (conditional, so a 304 is free) and reads the inbox when they change,
-  and at least every 5 min for pushes; one tour at a time, again when the PR's `updatedAt` moves. `saveAutoTours` rewrites only that key. The `small` tier
+  server tours each open, non-draft PR that asks for the `gh` login's review
+  in the background (`AutoTours` in `packages/server/src/auto-tours.ts`): the inbox every 5 min,
+  one tour at a time, again when the PR's `updatedAt` moves. `saveAutoTours` rewrites only that key. The `small` tier
   (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
   Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the

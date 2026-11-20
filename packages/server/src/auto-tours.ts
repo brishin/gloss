@@ -1,6 +1,6 @@
 import { Repos } from '@gloss/core';
 import { type RecentTour, serializeRef } from '@gloss/protocol';
-import { Cause, Clock, Context, Effect, Fiber, Layer, Stream } from 'effect';
+import { Cause, Clock, Context, Effect, Fiber, Layer, Schedule, Stream } from 'effect';
 import { Jobs } from './jobs.ts';
 
 export interface AutoToursOptions {
@@ -8,7 +8,7 @@ export interface AutoToursOptions {
   enabled: boolean;
   /** Saves a change of the switch. */
   save?: (enabled: boolean) => void;
-  /** The longest the review inbox goes unread; a pushed PR shows up no later than this. */
+  /** How often to read the review inbox. */
   intervalMs?: number;
   /** PRs with no activity for longer than this are left alone. */
   maxAgeMs?: number;
@@ -42,10 +42,8 @@ export function dueTours(
 
 /**
  * Tours every PR that asks for the `gh` login's review in the background while it is switched
- * on, so the tour is ready (cached for its head) when it is opened. Looks at the notifications
- * as often as GitHub allows (a minute; an unchanged answer is free) and reads the inbox when they
- * change, so a new review request is toured within about a minute. GitHub sends no notification
- * for a push, so the inbox is also read every `intervalMs`. Runs one tour at a time, newest first. Each tour is an ordinary job:
+ * on, so the tour is ready (cached for its head) when it is opened. Reads the inbox every
+ * `intervalMs` and runs one tour at a time, newest PR first. Each tour is an ordinary job:
  * opening the PR while it runs attaches to it. A failed tour is not retried until the PR changes.
  * Switching it off stops following the current tour, which then runs on only if it is past
  * placement or someone watches it (see `Jobs`).
@@ -110,31 +108,18 @@ const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
     }
   });
 
-  /**
-   * Looks at the notifications, reads the inbox when they changed or `intervalMs` has passed,
-   * then waits as long as GitHub asks. Without notifications (no `gh`, or an error) it waits a
-   * minute and still reads the inbox every `intervalMs`.
-   */
-  const watch = Effect.gen(function* () {
-    let since: string | undefined;
-    let lastRead = -Infinity;
-    while (true) {
-      const check = yield* repos.notifications(since);
-      since = check?.lastModified ?? since;
-      const now = yield* Clock.currentTimeMillis;
-      if (check?.changed || now - lastRead >= intervalMs) {
-        lastRead = now;
-        yield* poll.pipe(
-          Effect.catchCause((cause) => Effect.logWarning('auto tours: inbox poll failed', Cause.pretty(cause))),
-        );
-      }
-      yield* Effect.sleep(check?.pollMs ?? MINUTE);
-    }
-  });
-
   const start = (delayMs: number) =>
     Effect.gen(function* () {
-      loop = yield* Effect.sleep(delayMs).pipe(Effect.andThen(watch), Effect.asVoid, Effect.forkIn(scope));
+      loop = yield* Effect.sleep(delayMs).pipe(
+        Effect.andThen(
+          poll.pipe(
+            Effect.catchCause((cause) => Effect.logWarning('auto tours: inbox poll failed', Cause.pretty(cause))),
+            Effect.repeat(Schedule.spaced(intervalMs)),
+          ),
+        ),
+        Effect.asVoid,
+        Effect.forkIn(scope),
+      );
     });
 
   if (enabled) {

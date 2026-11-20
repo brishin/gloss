@@ -86,7 +86,6 @@ const reposOnly = (contents: Repos['Service']['contents']) =>
     pulls: () => Effect.succeed(new Map()),
     viewer: Effect.succeed(undefined),
     inbox: Effect.succeed(undefined),
-    notifications: () => Effect.succeed(undefined),
     asset: () => Effect.succeed(undefined),
     stack: () => Effect.fail(new RepoError({ message: 'no' })),
     review: () => Effect.fail(new RepoError({ message: 'no' })),

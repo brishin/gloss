@@ -24,7 +24,6 @@ import { resolveGithubStack } from './github-stack.ts';
 import { fetchReviewThreads, replyToGithubThread, resolveGithubThread } from './github-threads.ts';
 import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
 import { readLfsObject } from './lfs.ts';
-import { githubNotifications, type NotificationsCheck } from './notifications.ts';
 
 /** A `gh` or git call failed; `message` is what the API answers with. */
 export class RepoError extends Data.TaggedError('RepoError')<{ message: string; cause?: unknown }> {}
@@ -45,11 +44,6 @@ export class Repos extends Context.Service<
     pulls(refs: readonly Extract<SourceRef, { kind: 'github-pr' }>[]): Effect.Effect<ReadonlyMap<string, PullSummary>>;
     /** Open PRs waiting on the `gh` login's review, and its own; undefined when GitHub won't say. */
     inbox: Effect.Effect<Inbox | undefined>;
-    /**
-     * Whether the `gh` login's notifications changed since `since` (the last answer's
-     * `lastModified`); a 304 is free against the rate limit. Undefined when GitHub won't say.
-     */
-    notifications(since: string | undefined): Effect.Effect<NotificationsCheck | undefined>;
     /** The `gh` login, kept for an hour once known; undefined when `gh` is not signed in. */
     viewer: Effect.Effect<string | undefined>;
     /** The stack a PR sits in (a stack of one when it has no neighbours). */
@@ -84,8 +78,6 @@ export class Repos extends Context.Service<
         pulls: (refs) =>
           Effect.tryPromise((signal) => githubPulls(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
         inbox: Effect.tryPromise((signal) => githubInbox(signal)).pipe(Effect.orElseSucceed(() => undefined)),
-        notifications: (since) =>
-          Effect.tryPromise((signal) => githubNotifications(since, signal)).pipe(Effect.orElseSucceed(() => undefined)),
         viewer: viewer.pipe(Effect.orElseSucceed(() => undefined)),
         asset: (url) =>
           Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),

@@ -4,7 +4,7 @@ import { loadConfig, saveAutoTours } from '@gloss/models';
 import { AutoTours, createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Effect, Layer, ManagedRuntime, Option } from 'effect';
+import { Effect, Layer, ManagedRuntime } from 'effect';
 import { BackendInfo, BackendLayer } from './backend.ts';
 import { restartDetached } from './daemon.ts';
 import { createSetup } from './setup.ts';
@@ -43,20 +43,12 @@ export async function startServer(
   options: ServeOptions,
 ): Promise<{ url: string; judge?: string; close: () => Promise<void> }> {
   const services = Layer.mergeAll(Jobs.layer(), Logins.layer(), Repos.layer).pipe(Layer.provideMerge(BackendLayer));
-  // Only the server on the default port tours in the background, so a second checkout served on
-  // another port does not pay for the same tours again; the others offer no switch.
-  const background = options.port === DEFAULT_PORT;
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
       services,
-      background
-        ? AutoTours.layer({ enabled: loadConfig().autoTours, save: saveAutoTours }).pipe(Layer.provide(services))
-        : Layer.empty,
+      AutoTours.layer({ enabled: loadConfig().autoTours, save: saveAutoTours }).pipe(Layer.provide(services)),
     ),
   );
-  // The runtime has the service exactly when `background` is set.
-  const withAutoTours = <A>(f: (auto: AutoTours['Service']) => Effect.Effect<A>) =>
-    runtime.runPromise(Effect.serviceOption(AutoTours).pipe(Effect.flatMap((auto) => f(Option.getOrThrow(auto)))));
   const info = await runtime.runPromise(
     Effect.gen(function* () {
       return yield* BackendInfo;
@@ -69,12 +61,10 @@ export async function startServer(
     token: options.token,
     corsOrigins: options.corsOrigins,
     setup: createSetup(options),
-    autoTours: background
-      ? {
-          enabled: () => withAutoTours((auto) => auto.enabled),
-          set: (enabled) => withAutoTours((auto) => auto.set(enabled)),
-        }
-      : undefined,
+    autoTours: {
+      enabled: () => runtime.runPromise(AutoTours.use((auto) => auto.enabled)),
+      set: (enabled) => runtime.runPromise(AutoTours.use((auto) => auto.set(enabled))),
+    },
     update: commit ? createUpdater(commit, () => restartDetached(options.port, options)) : undefined,
   });
   const shell = shellHtml();
