@@ -2442,12 +2442,21 @@
     }
   }
 
-  /* iOS zooms into any field under 16px when it takes focus. */
+  /*
+   * iOS zooms into any field under 16px when it takes focus, and stays zoomed after. Ask's
+   * composer is a contenteditable whose size Astryx sets unlayered, hence !important.
+   */
   @media (pointer: coarse) {
     input:not([type='checkbox'], [type='radio']),
-    textarea {
-      font-size: 16px;
+    textarea,
+    [contenteditable]:not([contenteditable='false']) {
+      font-size: 16px !important;
     }
+  }
+
+  /* A double tap is two taps, not a zoom: quick taps on the group arrows stay taps. Pinch still zooms. */
+  html {
+    touch-action: manipulation;
   }
 
   /* Touch screens (a foldable open or shut, a tablet). A mouse or trackpad never matches. */
