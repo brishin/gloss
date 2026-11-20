@@ -6,7 +6,7 @@ import { autoToursLayer, createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
-import { BackendInfo, BackendLayer } from './backend.ts';
+import { BackendInfo, BackendLayer, loadGlossEnv } from './backend.ts';
 import { restartDetached } from './daemon.ts';
 import { createSetup } from './setup.ts';
 import { createUpdater, headCommit, SHELLS, WEB_ROOT, webBuildStale } from './update.ts';
@@ -45,6 +45,8 @@ function shellHtml(): string | undefined {
  * second checkout served on another port does not pay for the same tours again.
  */
 function autoTours(port: number): boolean {
+  // GLOSS_AUTO_TOURS may be saved in ~/.gloss/.env, which the backend layer has not loaded yet.
+  loadGlossEnv();
   return loadConfig().autoTours && (port === DEFAULT_PORT || process.env.GLOSS_AUTO_TOURS === 'on');
 }
 
