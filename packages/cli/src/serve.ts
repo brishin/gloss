@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { Repos } from '@gloss/core';
-import { createApp, Jobs, Logins } from '@gloss/server';
+import { loadConfig, saveAutoTours } from '@gloss/models';
+import { AutoTours, createApp, Jobs, Logins } from '@gloss/server';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Effect, Layer, ManagedRuntime } from 'effect';
@@ -41,8 +42,12 @@ function shellHtml(): string | undefined {
 export async function startServer(
   options: ServeOptions,
 ): Promise<{ url: string; judge?: string; close: () => Promise<void> }> {
+  const services = Layer.mergeAll(Jobs.layer(), Logins.layer(), Repos.layer).pipe(Layer.provideMerge(BackendLayer));
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(Jobs.layer(), Logins.layer(), Repos.layer).pipe(Layer.provideMerge(BackendLayer)),
+    Layer.mergeAll(
+      services,
+      AutoTours.layer({ enabled: loadConfig().autoTours, save: saveAutoTours }).pipe(Layer.provide(services)),
+    ),
   );
   const info = await runtime.runPromise(
     Effect.gen(function* () {
@@ -56,6 +61,10 @@ export async function startServer(
     token: options.token,
     corsOrigins: options.corsOrigins,
     setup: createSetup(options),
+    autoTours: {
+      enabled: () => runtime.runPromise(AutoTours.use((auto) => auto.enabled)),
+      set: (enabled) => runtime.runPromise(AutoTours.use((auto) => auto.set(enabled))),
+    },
     update: commit ? createUpdater(commit, () => restartDetached(options.port, options)) : undefined,
   });
   const shell = shellHtml();

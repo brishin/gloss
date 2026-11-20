@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { loadConfig, readDecisionRules, saveDecisionRules } from './config.ts';
+import { loadConfig, readDecisionRules, saveAutoTours, saveDecisionRules } from './config.ts';
 
 // No config file: the gloss home points nowhere.
 beforeAll(() => {
@@ -91,5 +91,23 @@ describe('ask models', () => {
     const { ask } = loadConfig(env);
     expect(ask.default).toBe(model);
     expect(ask.models).toHaveLength(count);
+  });
+});
+
+describe('auto tours', () => {
+  test('is off by default, and a save keeps the rest of the config', () => {
+    expect(loadConfig({}).autoTours).toBe(false);
+    const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));
+    const before = process.env.GLOSS_HOME;
+    process.env.GLOSS_HOME = home;
+    try {
+      writeFileSync(join(home, 'config.json'), JSON.stringify({ judge: null }));
+      saveAutoTours(true);
+      expect(loadConfig({}).autoTours).toBe(true);
+      expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({ judge: null, autoTours: true });
+    } finally {
+      process.env.GLOSS_HOME = before;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

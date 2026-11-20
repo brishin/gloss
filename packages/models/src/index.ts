@@ -15,6 +15,7 @@ export {
   PROFILES,
   type Profile,
   readDecisionRules,
+  saveAutoTours,
   saveDecisionRules,
   splitSpecifier,
 } from './config.ts';

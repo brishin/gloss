@@ -14,3 +14,7 @@ export type UpdateStatus = v.InferOutput<typeof UpdateStatusSchema>;
 /** An update pulls `behind` commits, or restarts the server on a checkout that moved on without it. */
 export const updateAvailable = (status: UpdateStatus): boolean =>
   status.behind > 0 || (status.running !== undefined && status.head !== undefined && status.head !== status.running);
+
+/** Whether the backend tours the PRs that ask for its `gh` login's review in the background (`/api/auto-tours`). */
+export const AutoToursStateSchema = v.object({ enabled: v.boolean() });
+export type AutoToursState = v.InferOutput<typeof AutoToursStateSchema>;
