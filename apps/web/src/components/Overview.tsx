@@ -92,12 +92,18 @@ export const Overview = memo(function Overview({
   running,
   onJumpToFile,
   onSelectGroup,
+  homes,
+  walkStop = false,
 }: {
   state: TourState;
   groups: GroupView[];
   running: boolean;
   onJumpToFile: (fileId: string) => void;
   onSelectGroup: (key: string) => void;
+  /** Change-wide decisions read in a group's section, by decision number. */
+  homes?: ReadonlyMap<number, string>;
+  /** Whether the walkthrough is a stop of its own (`hasWalkStop`). */
+  walkStop?: boolean;
 }) {
   const files = new Map(state.files.map((file) => [file.id, file]));
   const meta = state.meta;
@@ -134,6 +140,10 @@ export const Overview = memo(function Overview({
               {decisions.map(({ decision, groupKey }, index) => {
                 const path = decision.fileId ? files.get(decision.fileId)?.path : undefined;
                 const inWalk = walked.has(decision);
+                // While the walks are written a decision may have no place yet: it is a link once it does.
+                const readAt = inWalk
+                  ? (homes?.get(state.decisions?.indexOf(decision) ?? -1) ?? (walkStop ? WALKTHROUGH : undefined))
+                  : undefined;
                 const section =
                   !decision.fileId && groupKey && !inWalk ? groups.find((group) => group.key === groupKey) : undefined;
                 return (
@@ -142,14 +152,14 @@ export const Overview = memo(function Overview({
                       <FlagIcon level={decisionFlag(decision)} />
                     </td>
                     <td>
-                      {inWalk ? (
+                      {readAt ? (
                         <a
                           className="decision-walk"
-                          href={`#group-${WALKTHROUGH}`}
+                          href={`#group-${readAt}`}
                           title="Read it in code"
                           onClick={(event) => {
                             event.preventDefault();
-                            onSelectGroup(WALKTHROUGH);
+                            onSelectGroup(readAt);
                           }}
                         >
                           {decision.text}

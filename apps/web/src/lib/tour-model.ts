@@ -39,7 +39,15 @@ import {
   toggleNode,
 } from './sidebar-tree.ts';
 import { emptyThreads, type ThreadsCmd, type ThreadsModel, type ThreadsMsg, updateThreads } from './threads-model.ts';
-import { defaultExpanded, isGeneratedFile, lfsImageOids, OVERVIEW, orderedFileIds, WALKTHROUGH } from './tour-view.ts';
+import {
+  defaultExpanded,
+  hasWalkStop,
+  isGeneratedFile,
+  lfsImageOids,
+  OVERVIEW,
+  orderedFileIds,
+  WALKTHROUGH,
+} from './tour-view.ts';
 
 /**
  * The tour page as an Elm program: one `Model`, changed only by `update`. Everything the
@@ -88,6 +96,8 @@ export interface Model {
   activeFileId?: string;
   /** Files the reader expanded or collapsed themselves. */
   expanded: Readonly<Record<string, boolean>>;
+  /** Files whose folded hunks the reader opened (`Section.skimHunks`). */
+  unfolded: ReadonlySet<string>;
   /** Files marked viewed, kept per diff in this browser. */
   viewed: ReadonlySet<string>;
   navOpen: boolean;
@@ -136,6 +146,8 @@ export type Msg =
   /** The reader scrolled (or the page moved under them): the position follows the page. */
   | { type: 'Scrolled'; spied: Spied }
   | { type: 'ExpandedToggled'; fileId: string }
+  /** The reader opened the hunks a file folds as unimportant. */
+  | { type: 'HunksUnfolded'; fileId: string }
   | { type: 'ViewedToggled'; fileId: string }
   /** `v`: marks the current file viewed and moves on, or unmarks it. */
   | { type: 'ActiveFileViewed' }
@@ -244,6 +256,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
     position,
     restoring: position.g !== undefined || position.f !== undefined ? position : undefined,
     expanded: {},
+    unfolded: new Set(),
     viewed: new Set(),
     navOpen: false,
     helpOpen: false,
@@ -285,13 +298,13 @@ export function currentGroup(model: Model, groups = groupsOf(model)): GroupView 
 /** The section in view: a group, the walkthrough, or the overview. */
 export const selectedKey = (model: Model, groups = groupsOf(model)): string =>
   currentGroup(model, groups)?.key ??
-  (model.position.g === WALKTHROUGH && model.tour.walkthrough ? WALKTHROUGH : OVERVIEW);
+  (model.position.g === WALKTHROUGH && hasWalkStop(model.tour, groups) ? WALKTHROUGH : OVERVIEW);
 
 /** Every stop down the page, in order, as j/k and the sub-bar step through them. */
 export function tourStops(model: Model, groups = groupsOf(model)): { key: string; label: string }[] {
   return [
     { key: OVERVIEW, label: 'Overview' },
-    ...(model.tour.walkthrough ? [{ key: WALKTHROUGH, label: 'Walkthrough' }] : []),
+    ...(hasWalkStop(model.tour, groups) ? [{ key: WALKTHROUGH, label: 'Walkthrough' }] : []),
     ...groups,
   ];
 }
@@ -340,6 +353,10 @@ export function isFileExpanded(
   group: GroupView | undefined,
   file: FileSummary,
 ): boolean {
+  // A file the group's walk marks skippable starts folded; the rest follow the usual default.
+  if (model.expanded[file.id] === undefined && group?.notes?.section?.skim?.includes(file.id)) {
+    return false;
+  }
   return model.expanded[file.id] ?? defaultExpanded(file, isGeneratedFile(group, file), model.viewed.has(file.id));
 }
 
@@ -570,6 +587,8 @@ function step(model: Model, msg: Msg): Next {
       const expanded = isFileExpanded(model, groupOfFile(groupsOf(model), file.id), file);
       return [{ ...model, expanded: { ...model.expanded, [msg.fileId]: !expanded } }, []];
     }
+    case 'HunksUnfolded':
+      return [{ ...model, unfolded: new Set(model.unfolded).add(msg.fileId) }, []];
     case 'ViewedToggled':
       return toggleViewed(model, msg.fileId);
     case 'ActiveFileViewed': {
@@ -803,7 +822,7 @@ function scrolled(model: Model, { groupKey, fileId, visible }: Spied): Next {
       : fileId && order.includes(fileId)
         ? fileId
         : order[0];
-  const g = group?.key ?? (key === WALKTHROUGH && model.tour.walkthrough ? WALKTHROUGH : undefined);
+  const g = group?.key ?? (key === WALKTHROUGH && hasWalkStop(model.tour, groups) ? WALKTHROUGH : undefined);
   if ((g ?? OVERVIEW) === selected && active === model.activeFileId) {
     return [model, []];
   }
@@ -941,7 +960,7 @@ function restore(model: Model): Next {
   if (g === undefined) {
     return [{ ...settled, activeFileId: undefined }, [{ type: 'ScrollToTop' }]];
   }
-  const shown = groups.some((group) => group.key === g) || (g === WALKTHROUGH && !!model.tour.walkthrough);
+  const shown = groups.some((group) => group.key === g) || (g === WALKTHROUGH && hasWalkStop(model.tour, groups));
   if (shown && model.diff) {
     return [{ ...settled, activeFileId: undefined }, [{ type: 'RestoreGroup', key: g }]];
   }

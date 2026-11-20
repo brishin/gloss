@@ -129,7 +129,7 @@ export function normalizeNotes(
 type RawVisuals = v.InferOutput<typeof DefineSchema>['visuals'];
 type RawVisual = RawVisuals['first'];
 
-const clip = (text: string, max: number) => {
+export const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 };
@@ -488,9 +488,10 @@ const shows = (row: { at: number; kind: string }, from: number, to: number) =>
  * the hunk does not show moves to the first added line in range, so the marked line is always one
  * the reviewer sees. A dropped snippet returns why.
  */
-function normalizeSnippet(
+export function normalizeSnippet(
   raw: Partial<RawWalk['snippets'][number]>,
   byKey: ReadonlyMap<string, FileChange>,
+  maxRows = MAX_SNIPPET_ROWS,
 ): Snippet | string {
   const file = byKey.get(String(raw.fileId ?? ''));
   if (!file) {
@@ -523,20 +524,20 @@ function normalizeSnippet(
   if (!lines.includes(focus)) {
     focus = rows.find((row) => row.kind === '+' && row.at >= from && row.at <= to)?.at ?? from;
   }
-  from = Math.max(Math.min(from, focus), focus - MAX_SNIPPET_ROWS);
-  to = Math.min(Math.max(to, focus), focus + MAX_SNIPPET_ROWS);
+  from = Math.max(Math.min(from, focus), focus - maxRows);
+  to = Math.min(Math.max(to, focus), focus + maxRows);
   // New-side lines in a hunk are consecutive, so narrowing is a step from the end farther from the focus.
   const count = () => rows.filter((row) => shows(row, from, to)).length;
-  while (count() > MAX_SNIPPET_ROWS && (from < focus || to > focus)) {
+  while (count() > maxRows && (from < focus || to > focus)) {
     if (to - focus >= focus - from) {
       to--;
     } else {
       from++;
     }
   }
-  if (count() > MAX_SNIPPET_ROWS) {
+  if (count() > maxRows) {
     // The focus alone sits beside more removed rows than a snippet shows.
-    return `shows more than ${MAX_SNIPPET_ROWS} rows at its focus`;
+    return `shows more than ${maxRows} rows at its focus`;
   }
   const note = clip(String(raw.note ?? ''), 200);
   return {
@@ -558,7 +559,7 @@ function normalizeSnippet(
  * model's snippet indexes to the kept ones. Returns no tree when it is not worth drawing: one with
  * no child is a list, and a call path that touches nothing the change adds is plumbing.
  */
-function normalizeTree(
+export function normalizeTree(
   kind: unknown,
   raw: readonly Partial<RawWalk['nodes'][number]>[],
   byKey: ReadonlyMap<string, FileChange>,

@@ -27,7 +27,7 @@ import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
 import { type ThreadControls, ThreadCard } from './Threads.tsx';
 
-export function unifiedText(file: FileChange): string {
+export function unifiedText(file: FileChange, skip?: ReadonlySet<string>): string {
   const oldPath = file.previousPath ?? file.path;
   const lines = [`diff --git a/${oldPath} b/${file.path}`];
   if (file.status === 'added') {
@@ -40,7 +40,9 @@ export function unifiedText(file: FileChange): string {
   lines.push(`--- ${file.status === 'added' ? '/dev/null' : `a/${oldPath}`}`);
   lines.push(`+++ ${file.status === 'removed' ? '/dev/null' : `b/${file.path}`}`);
   for (const hunk of file.hunks) {
-    lines.push(hunk.header, hunk.patch);
+    if (!skip?.has(hunk.id)) {
+      lines.push(hunk.header, hunk.patch);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -96,6 +98,8 @@ export const FileView = memo(function FileView({
   decisions,
   risks,
   generated,
+  foldedHunks,
+  onUnfoldHunks,
   expanded,
   viewed,
   onToggleExpanded,
@@ -117,6 +121,9 @@ export const FileView = memo(function FileView({
   decisions: readonly Decision[];
   risks: readonly RiskNote[];
   generated: boolean;
+  /** Ids of this file's hunks the section marks unimportant, until the reader opens them; they fold under one line. */
+  foldedHunks?: readonly string[];
+  onUnfoldHunks: (fileId: string) => void;
   expanded: boolean;
   viewed: boolean;
   onToggleExpanded: (fileId: string) => void;
@@ -135,9 +142,20 @@ export const FileView = memo(function FileView({
   const composingSide = composing?.side;
   const composingLine = composing?.line;
   const composingStart = composing?.startLine;
+  // A comment on the file, drafted or on GitHub, shows every hunk.
+  const folded = useMemo(() => {
+    const ids = new Set(foldedHunks);
+    const hidden =
+      drafts.length > 0 || threads.length > 0 || composing
+        ? []
+        : (change?.hunks ?? []).filter((hunk) => ids.has(hunk.id));
+    const count = (marker: string) =>
+      hidden.reduce((sum, hunk) => sum + hunk.patch.split('\n').filter((line) => line[0] === marker).length, 0);
+    return { ids: new Set(hidden.map((hunk) => hunk.id)), additions: count('+'), deletions: count('-') };
+  }, [foldedHunks, drafts.length, threads.length, composing, change]);
   const fileDiff = useMemo<FileDiffMetadata | undefined>(
-    () => (change && change.hunks.length ? processFile(unifiedText(change)) : undefined),
-    [change],
+    () => (change && change.hunks.length > folded.ids.size ? processFile(unifiedText(change, folded.ids)) : undefined),
+    [change, folded.ids],
   );
   // Stable per notes array: pierre re-measures line heights when annotations change identity.
   // A thread whose line the diff does not show (outdated, or outside the hunks) goes with the file.
@@ -200,19 +218,21 @@ export const FileView = memo(function FileView({
         ? (range: Parameters<typeof anchorFromRange>[1]) => reviewer.start(anchorFromRange(summary.id, range))
         : undefined,
       // The separators between hunks expand unchanged lines; pierre fetches the whole file on the first one.
-      loadDiffFiles: diffId
-        ? async (diff: FileDiffMetadata) => {
-            const { oldContents, newContents } = await Effect.runPromise(
-              AtomRegistry.getResult(registry, fileContentsAtom(JSON.stringify({ diffId, fileId: summary.id }))),
-            );
-            return {
-              oldFile: { name: diff.prevName ?? diff.name, contents: oldContents },
-              newFile: { name: diff.name, contents: newContents },
-            };
-          }
-        : undefined,
+      // Not while hunks are folded: the lines between the shown hunks would read as unchanged.
+      loadDiffFiles:
+        diffId && folded.ids.size === 0
+          ? async (diff: FileDiffMetadata) => {
+              const { oldContents, newContents } = await Effect.runPromise(
+                AtomRegistry.getResult(registry, fileContentsAtom(JSON.stringify({ diffId, fileId: summary.id }))),
+              );
+              return {
+                oldFile: { name: diff.prevName ?? diff.name, contents: oldContents },
+                newFile: { name: diff.name, contents: newContents },
+              };
+            }
+          : undefined,
     }),
-    [reviewer, summary.id, diffId, registry],
+    [reviewer, summary.id, diffId, registry, folded.ids.size],
   );
   // A tour cached before LFS detection has no `lfs` on its summaries; the loaded diff still tells.
   const lfs = useMemo(() => summary.lfs ?? (change && lfsPointer(change)), [summary.lfs, change]);
@@ -287,7 +307,7 @@ export const FileView = memo(function FileView({
             <Skeleton height={80} />
           </div>
         ) : !fileDiff ? (
-          <div className="collapsed">No content changes</div>
+          folded.ids.size === 0 && <div className="collapsed">No content changes</div>
         ) : (
           <FileDiff<LineAnnotation, undefined>
             fileDiff={fileDiff}
@@ -315,6 +335,15 @@ export const FileView = memo(function FileView({
             }
           />
         ))}
+      {expanded && folded.ids.size > 0 && (
+        <button type="button" className="collapsed folded-hunks" onClick={() => onUnfoldHunks(summary.id)}>
+          Show {folded.ids.size} unimportant {folded.ids.size === 1 ? 'hunk' : 'hunks'}
+          <span className="stat">
+            {folded.additions > 0 && <span className="adds"> +{folded.additions}</span>}
+            {folded.deletions > 0 && <span className="dels"> −{folded.deletions}</span>}
+          </span>
+        </button>
+      )}
     </section>
   );
 });

@@ -1,4 +1,5 @@
 import type {
+  Walkthrough,
   Decision,
   DecisionPriority,
   FileSummary,
@@ -260,4 +261,56 @@ export function pullStateDetail(pull: StackMember, now: number): string {
     default:
       return when ? `opened ${when}` : '';
   }
+}
+
+/**
+ * Where each change-wide decision the walkthrough reads is shown, by its number in the tour's
+ * decisions: the group whose walk placed it.
+ */
+export function walkHomes(groups: readonly GroupView[]): Map<number, string> {
+  const homes = new Map<number, string>();
+  for (const group of groups) {
+    for (const point of group.notes?.section?.points ?? []) {
+      if (point.kind === 'wide' && point.wide !== undefined) {
+        homes.set(point.wide, group.key);
+      }
+    }
+  }
+  return homes;
+}
+
+/** The group the key code path is read in, when a walk took it. */
+export function pathHome(groups: readonly GroupView[]): string | undefined {
+  return groups.find((group) => group.notes?.section?.path)?.key;
+}
+
+/**
+ * The code path with each excerpt cut to its first `rows` lines: above open diffs the
+ * excerpt only points at the code, which is in full right below.
+ */
+export function shortPath<P extends Pick<Walkthrough, 'frames' | 'steps'>>(path: P, rows = 8): P {
+  return {
+    ...path,
+    steps: path.steps.map((step) => ({
+      ...step,
+      excerpts: step.excerpts.map((excerpt) => ({ ...excerpt, to: Math.min(excerpt.to, excerpt.from + rows - 1) })),
+    })),
+  };
+}
+
+/**
+ * Whether the walkthrough has a stop of its own. The groups' walks read its decisions and its
+ * code path, so it is a stop only for what no walk took: nothing while the walks are still
+ * being written, and afterwards a decision or the code path that no walk took (its code is in
+ * docs or tests groups, which have no walk, or a call failed).
+ */
+export function hasWalkStop(tour: Pick<TourState, 'walkthrough' | 'stages'>, groups: readonly GroupView[]): boolean {
+  const walkthrough = tour.walkthrough;
+  const writing = tour.stages.notes.state === 'pending' || tour.stages.notes.state === 'running';
+  if (!walkthrough || writing) {
+    return false;
+  }
+  const homes = walkHomes(groups);
+  const pathLeft = walkthrough.steps.length > 0 && !pathHome(groups);
+  return pathLeft || walkthrough.decisions.some((walk) => !homes.has(walk.decision));
 }

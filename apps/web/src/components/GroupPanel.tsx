@@ -15,11 +15,24 @@ import type {
 import { memo, useMemo } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
-import { isGeneratedFile, orderedFileIds, risksByFile, sectionDecisions, sectionFlagCounts } from '../lib/tour-view.ts';
+import {
+  isGeneratedFile,
+  orderedFileIds,
+  risksByFile,
+  sectionDecisions,
+  sectionFlagCounts,
+  shortPath,
+} from '../lib/tour-view.ts';
 import { DecisionCard, FileView } from './FileView.tsx';
 import { FlagCounts } from './icons.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import type { ThreadControls } from './Threads.tsx';
+import { inlineCode, SectionWalk } from './Walkthrough.tsx';
+
+/** What a flag on a hunk says, by its kind (`Section.hunkFlags`). */
+const HUNK_FLAG_TEXT = {
+  contract: 'This changes a shape that clients, other services or stored data rely on.',
+};
 
 const NO_FILE_NOTES: FileNote[] = [];
 const NO_LINE_NOTES: LineNote[] = [];
@@ -32,6 +45,9 @@ export interface FileControls {
   expanded: Readonly<Record<string, boolean>>;
   viewed: ReadonlySet<string>;
   onToggleExpanded: (fileId: string) => void;
+  /** Files whose folded hunks the reader opened. */
+  unfolded: ReadonlySet<string>;
+  onUnfoldHunks: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   review: ReviewDraft;
   reviewer: Reviewer | undefined;
@@ -44,11 +60,18 @@ export const GroupPanel = memo(function GroupPanel({
   state,
   diff,
   controls,
+  onJumpToFile,
+  homes,
+  pathHomeKey,
 }: {
   group: GroupView;
   state: TourState;
   diff: DiffPayload | undefined;
   controls: FileControls;
+  onJumpToFile: (fileId: string, line?: number) => void;
+  homes?: ReadonlyMap<number, string>;
+  /** The group the key code path is read in. */
+  pathHomeKey?: string;
 }) {
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const changes = useMemo(() => new Map<string, FileChange>(diff?.files.map((file) => [file.id, file])), [diff]);
@@ -82,6 +105,10 @@ export const GroupPanel = memo(function GroupPanel({
     for (const note of notes?.lineNotes ?? []) {
       lineNotes.set(note.fileId, [...(lineNotes.get(note.fileId) ?? []), note]);
     }
+    // A flagged hunk that nothing else points at reads as a note on its first changed line.
+    for (const { flag, ...at } of notes?.section?.hunkFlags ?? []) {
+      lineNotes.set(at.fileId, [...(lineNotes.get(at.fileId) ?? []), { ...at, text: HUNK_FLAG_TEXT[flag] }]);
+    }
     for (const decision of notes?.decisions ?? []) {
       if (decision.fileId) {
         decisions.set(decision.fileId, [...(decisions.get(decision.fileId) ?? []), decision]);
@@ -97,6 +124,29 @@ export const GroupPanel = memo(function GroupPanel({
     state.stages.notes.state !== 'failed';
   const decisions = useMemo(() => sectionDecisions(state, group.key), [state, group.key]);
   const flagCounts = useMemo(() => sectionFlagCounts(state, group), [state, group]);
+  // A group with a walk reads as its stops, then its diffs.
+  const section = notes?.section;
+  const wide = useMemo(
+    () =>
+      (state.walkthrough?.decisions ?? [])
+        .filter((walk) => homes?.get(walk.decision) === group.key)
+        .map((walk) => ({ walk, decision: state.decisions?.[walk.decision] })),
+    [state.walkthrough, state.decisions, homes, group.key],
+  );
+  const path = useMemo(
+    () => (pathHomeKey === group.key && state.walkthrough ? shortPath(state.walkthrough) : undefined),
+    [state.walkthrough, group.key, pathHomeKey],
+  );
+  const foldedHunks = useMemo(() => {
+    const byFile = new Map<string, string[]>();
+    for (const { fileId, hunkId } of section?.skimHunks ?? []) {
+      byFile.set(fileId, [...(byFile.get(fileId) ?? []), hunkId]);
+    }
+    return byFile;
+  }, [section?.skimHunks]);
+  const walked = !!section?.points.length || wide.length > 0 || !!path;
+  // A change-wide decision read as a stop here is not also a card above the walk.
+  const cards = decisions.filter((decision) => !homes?.has(state.decisions?.indexOf(decision) ?? -1));
 
   return (
     <div className="page">
@@ -125,14 +175,33 @@ export const GroupPanel = memo(function GroupPanel({
           <span className="muted">Grouped by path while the model reads the change…</span>
         ) : null}
         {/* Decisions about the group as a whole; ones in code sit on their files and lines below. */}
-        {decisions.length > 0 && (
+        {cards.length > 0 && (
           <div className="section-decisions">
-            {decisions.map((decision, index) => (
+            {cards.map((decision, index) => (
               <DecisionCard key={index} decision={decision} />
             ))}
           </div>
         )}
       </header>
+      {section && walked && (
+        <SectionWalk
+          groupKey={group.key}
+          section={section}
+          diff={diff}
+          onJumpToFile={onJumpToFile}
+          wide={wide}
+          path={path}
+          comments={controls.review.comments}
+          composing={controls.review.composing?.place ? controls.review.composing : undefined}
+          reviewer={controls.reviewer}
+        />
+      )}
+      {section && (walked || section.rest) && (
+        <div className="section-rest">
+          <Heading level={2}>All changes</Heading>
+          {section.rest && <p>{inlineCode(section.rest)}</p>}
+        </div>
+      )}
       <div className="files">
         {order.map((fileId) => {
           const summary = files.get(fileId);
@@ -150,6 +219,8 @@ export const GroupPanel = memo(function GroupPanel({
               decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
               risks={risks.get(fileId) ?? NO_RISKS}
               generated={isGeneratedFile(group, summary)}
+              foldedHunks={controls.unfolded.has(fileId) ? undefined : foldedHunks.get(fileId)}
+              onUnfoldHunks={controls.onUnfoldHunks}
               expanded={isFileExpanded(controls, group, summary)}
               viewed={controls.viewed.has(fileId)}
               onToggleExpanded={controls.onToggleExpanded}
