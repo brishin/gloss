@@ -762,6 +762,36 @@ describe('runTour', () => {
     expect(finished.visuals).toEqual([sketch]);
   });
 
+  it('writes notes without waiting for the sketch and still shows the picked visual', async () => {
+    const base = fakeModel();
+    const order: string[] = [];
+    let notesStarted!: () => void;
+    const notesSeen = new Promise<void>((resolve) => (notesStarted = resolve));
+    // The sketch waits for the first notes call (or gives up after 3 s, so a regression fails, not hangs).
+    const model: ModelClient['Service'] = {
+      ...base,
+      prompt: (request) => {
+        if (request.resultName === 'sketch') {
+          return Effect.promise(() =>
+            Promise.race([notesSeen, new Promise<void>((resolve) => setTimeout(resolve, 3000))]),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => order.push('sketch'))),
+            Effect.andThen(base.prompt(request)),
+          );
+        }
+        if (request.tier === 'notes') {
+          order.push('notes');
+          notesStarted();
+        }
+        return base.prompt(request);
+      },
+    };
+    const { tour: finished } = await tour({ model, judge: fakeJudge() });
+    expect(order[0]).toBe('notes');
+    expect(order).toContain('sketch');
+    expect(finished.visuals).toEqual([groupsAnswer.visuals.first]);
+  });
+
   it('reports a failed Jev file as a warning and still places it', async () => {
     const judge = fakeJudge();
     const failing: JudgeClient['Service'] = {

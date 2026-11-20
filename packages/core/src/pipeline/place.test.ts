@@ -178,3 +178,45 @@ describe('resolveGroups', () => {
     ]);
   });
 });
+
+describe('snapshots', () => {
+  const ui: GroupDefinition[] = [
+    { key: 'cards', label: 'Cards', summary: 'Card UI.', category: 'ui' },
+    { key: 'stories', label: 'Stories and snapshots', summary: 'Stories.', category: 'tests' },
+  ];
+  const files = [
+    file('shot', { path: 'app/snapshots/cards/CaptureCard/filled.png' }),
+    file('story', { path: 'app/src/cards/CaptureCard.stories.tsx' }),
+    file('card', { path: 'app/src/cards/CaptureCard.tsx' }),
+    file('other', { path: 'app/snapshots/search/SearchResults/filled.png' }),
+    file('marked', { path: 'app/snapshots/search/SearchList/filled.png', generated: 'gitattributes' }),
+  ];
+
+  it('puts a snapshot in the group of the code it captures, even after the follow-up places that code', () => {
+    const outcome = placeFiles(files, ui, {
+      shot: { ...confident('stories'), generated: YES, testsOnly: YES },
+      story: { ...confident('stories'), testsOnly: YES },
+      other: { ...confident('cards'), generated: YES, testsOnly: YES },
+    });
+    expect(outcome.placements.shot).toBeUndefined();
+    expect(outcome.placements.other).toMatchObject({ groupKey: 'cards', reason: 'jev' });
+    expect(outcome.uncertain).toEqual(['card', 'marked']);
+    const placements = applyFollowup(outcome, ui, [
+      { fileId: 'card', groupKey: 'cards' },
+      { fileId: 'marked', groupKey: 'cards' },
+    ]);
+    expect(placements.shot).toEqual({ groupKey: 'cards', reason: 'snapshot' });
+    expect(placements.marked).toEqual({ groupKey: 'cards', reason: 'llm-followup' });
+    const resolved = resolveGroups(files, ui, placements, {});
+    expect(resolved.find((group) => group.key === 'cards')?.fileIds).toEqual(['card', 'shot', 'other', 'marked']);
+  });
+
+  it('overrides where the LLM listed a snapshot when there is no judge', () => {
+    const listed = reconcileListedFiles(files, [
+      { ...ui[0]!, fileIds: ['card', 'other', 'marked'] },
+      { ...ui[1]!, fileIds: ['shot', 'story'] },
+    ]);
+    expect(listed.uncertain).toEqual([]);
+    expect(applyFollowup(listed, ui, []).shot).toEqual({ groupKey: 'cards', reason: 'snapshot' });
+  });
+});

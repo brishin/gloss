@@ -5,6 +5,7 @@ import { hashOf } from '../hash.ts';
 import { isAgentGuidance, isDocumentation } from './guidance.ts';
 import { looksGenerated, looksLikeTest } from './heuristics.ts';
 import { YES } from './judge-questions.ts';
+import { isSnapshot } from './snapshots.ts';
 
 /** Total diff characters inlined into one prompt, and per file (from codiff's budgets). */
 export const TOTAL_BUDGET = 60_000;
@@ -808,6 +809,9 @@ export function collapsedReason(file: FileChange): string | undefined {
   if (file.truncated) {
     return 'too large to show';
   }
+  if (isSnapshot(file.path)) {
+    return 'snapshot';
+  }
   if (file.generated || looksGenerated(file.path)) {
     return 'generated';
   }
@@ -985,7 +989,12 @@ export function buildFollowupPrompt(
     ...groups.map((group) => `- ${group.key}: ${group.label}. ${group.summary}`),
     '',
     '## Files to place',
-    ...files.map((file) => `### ${manifestLine(file)}\n${plainDiff(file, 2000)}`),
+    ...(files.some((file) => isSnapshot(file.path))
+      ? ['A snapshot goes in the group whose code draws or produces what it records, not with the tests or stories.']
+      : []),
+    ...files.map((file) =>
+      isSnapshot(file.path) ? `### ${manifestLine(file)}` : `### ${manifestLine(file)}\n${plainDiff(file, 2000)}`,
+    ),
   ].join('\n');
 }
 

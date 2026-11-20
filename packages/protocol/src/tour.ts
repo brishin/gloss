@@ -120,6 +120,7 @@ export const PlacementReasonSchema = v.picklist([
   'jev',
   'llm',
   'llm-followup',
+  'snapshot',
   'uncategorized',
 ]);
 export type PlacementReason = v.InferOutput<typeof PlacementReasonSchema>;

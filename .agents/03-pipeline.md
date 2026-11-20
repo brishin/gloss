@@ -100,7 +100,9 @@ sketch is shown when Jev finds it accurate and more than a list, unless Jev says
 `workflow` (Brian prefers sketches except for those, where flowcharts read well). Otherwise the
 accurate candidate that is more than a list, with the highest `whole` x `easy`, is shown, or none (`pickVisual`).
 If a picture fails to draw, Jev reads the specs only; if Jev fails, the
-first candidate is shown.
+first candidate is shown. The sketch and the pick run forked beside placement and notes, so the
+first notes do not wait for them (about 10 s sooner in an 8-tour eval, 2026-11-13); the tour
+joins them before it finishes.
 
 Each group is also read as a walk above its open diffs (`sections.ts`; Brian's ask, 2026-11-12, so the themed
 sections read like the overview and walkthrough instead of file by file). One notes-tier call per group
