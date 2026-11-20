@@ -26,6 +26,7 @@ import type {
 } from '@gloss/protocol';
 import {
   AskRequestSchema,
+  AutoToursStateSchema,
   encodeNdjson,
   lfsPointer,
   JudgeKeyRequestSchema,
@@ -65,6 +66,14 @@ export interface AppOptions {
   setup?: SetupHooks;
   /** Updates the backend's own checkout (`/api/update`); a backend that is not a checkout leaves it out. */
   update?: UpdateHooks;
+  /** The background tours switch (`/api/auto-tours`); a backend that does not run them leaves it out. */
+  autoTours?: AutoToursHooks;
+}
+
+/** The CLI implements these over the `AutoTours` service. */
+export interface AutoToursHooks {
+  enabled(): Promise<boolean>;
+  set(enabled: boolean): Promise<void>;
 }
 
 /** What the setup page asks of the backend's machine: the CLI implements these (packages/cli/src/setup.ts). */
@@ -114,7 +123,7 @@ export function withPullStates(tour: RecentTour, pulls: ReadonlyMap<string, Pull
 }
 
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
-export function createApp({ runtime, health, token, corsOrigins = [], setup, update }: AppOptions): Hono {
+export function createApp({ runtime, health, token, corsOrigins = [], setup, update, autoTours }: AppOptions): Hono {
   const app = new Hono();
   const run = <A>(
     effect: Effect.Effect<A, never, Jobs | TourCache | Logins | Repos | ModelClient | RepoClones>,
@@ -616,6 +625,26 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       );
     });
   }
+
+  app.get('/api/auto-tours', async (c) => {
+    if (!autoTours) {
+      return c.json({ error: 'This backend does not tour in the background' }, 404);
+    }
+    c.header('Cache-Control', 'no-store');
+    return c.json({ enabled: await autoTours.enabled() });
+  });
+
+  // It writes the backend's config and spends model tokens, so it takes JSON from the app only.
+  app.put('/api/auto-tours', async (c) => {
+    if (!autoTours) {
+      return c.json({ error: 'This backend does not tour in the background' }, 404);
+    }
+    if (!fromApp(c)) return c.json({ error: 'The switch is accepted only as JSON from the gloss app' }, 403);
+    const parsed = v.safeParse(AutoToursStateSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: v.summarize(parsed.issues) }, 400);
+    await autoTours.set(parsed.output.enabled);
+    return c.json({ enabled: await autoTours.enabled() });
+  });
 
   app.get('/api/update', async (c) => {
     if (!update) {

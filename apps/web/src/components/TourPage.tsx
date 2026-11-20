@@ -35,6 +35,7 @@ import {
 import { tourProgram } from '../lib/tour-program.ts';
 import { hasWalkStop, OVERVIEW, pathHome, WALKTHROUGH, walkHomes } from '../lib/tour-view.ts';
 import { AskPanel } from './AskPanel.tsx';
+import { AutoToursSwitch } from './AutoToursSwitch.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
@@ -153,6 +154,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           </span>
         )}
         <div className="toolbar">
+          {!model.exported && <AutoToursSwitch />}
           {reviewable && (
             <ReviewPanel review={review} chord={model.chord === 'r'} dispatch={dispatch}>
               <Button

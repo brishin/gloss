@@ -134,6 +134,11 @@
     display: contents;
   }
 
+  .auto-tours {
+    display: flex;
+    margin-right: var(--spacing-2);
+  }
+
   /* Layout */
 
   .tour {

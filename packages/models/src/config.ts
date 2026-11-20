@@ -18,6 +18,8 @@ export interface GlossConfig {
   providerPackages: string[];
   /** The user's own rules for which decisions to flag, each set scoped by a files pattern (settings page). */
   decisionRules: DecisionRuleSet[];
+  /** Tour PRs that ask for the user's review in the background (the switch in the tour page's header). */
+  autoTours: boolean;
 }
 
 /**
@@ -62,6 +64,7 @@ const DEFAULTS: GlossConfig = {
   judge: 'typesafe/jev-latest',
   providerPackages: [],
   decisionRules: [],
+  autoTours: false,
 };
 
 type ConfigFile = Partial<Omit<GlossConfig, 'tiers' | 'thinking' | 'ask'>> & {
@@ -109,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
         .filter(Boolean) ?? []),
     ],
     decisionRules: readDecisionRules(file),
+    autoTours: file.autoTours ?? DEFAULTS.autoTours,
   };
 }
 
@@ -120,11 +124,31 @@ export function readDecisionRules(file: ConfigFile = readConfigFile()): Decision
   return readRuleSets(file.decisionRules);
 }
 
-/**
- * Saves the rule sets into `~/.gloss/config.json`, keeping every other key as written.
- * No sets removes the key. Writes a temporary file and renames it, so a reader never sees half.
- */
+/** Saves the rule sets into `~/.gloss/config.json`; no sets removes the key. */
 export function saveDecisionRules(sets: readonly DecisionRuleSet[]): void {
+  updateConfigFile((file) => {
+    if (sets.length) {
+      file.decisionRules = sets.map((set) =>
+        set.files ? { files: set.files, rules: set.rules } : { rules: set.rules },
+      );
+    } else {
+      delete file.decisionRules;
+    }
+  });
+}
+
+/** Saves the background tours switch into `~/.gloss/config.json`. */
+export function saveAutoTours(enabled: boolean): void {
+  updateConfigFile((file) => {
+    file.autoTours = enabled;
+  });
+}
+
+/**
+ * Changes `~/.gloss/config.json` in place, keeping every other key as written. Writes a
+ * temporary file and renames it, so a reader never sees half.
+ */
+function updateConfigFile(change: (file: Record<string, unknown>) => void): void {
   const path = configPath();
   let file: Record<string, unknown> = {};
   try {
@@ -135,11 +159,7 @@ export function saveDecisionRules(sets: readonly DecisionRuleSet[]): void {
       throw new Error(`Could not read ${path}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (sets.length) {
-    file.decisionRules = sets.map((set) => (set.files ? { files: set.files, rules: set.rules } : { rules: set.rules }));
-  } else {
-    delete file.decisionRules;
-  }
+  change(file);
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(file, null, 2)}\n`);
