@@ -1,6 +1,6 @@
 import { Repos } from '@gloss/core';
 import { type RecentTour, serializeRef } from '@gloss/protocol';
-import { Cause, Clock, Context, Effect, Fiber, Layer, Schedule, Stream } from 'effect';
+import { Cause, Clock, Context, Effect, Fiber, Layer, Stream } from 'effect';
 import { Jobs } from './jobs.ts';
 
 export interface AutoToursOptions {
@@ -43,10 +43,12 @@ export function dueTours(
 /**
  * Tours every PR that asks for the `gh` login's review in the background while it is switched
  * on, so the tour is ready (cached for its head) when it is opened. Reads the inbox every
- * `intervalMs` and runs one tour at a time, newest PR first. Each tour is an ordinary job:
- * opening the PR while it runs attaches to it. A failed tour is not retried until the PR changes.
- * Switching it off stops following the current tour, which then runs on only if it is past
- * placement or someone watches it (see `Jobs`).
+ * `intervalMs`, on its own schedule, into a queue in the inbox's order (most recently updated
+ * first), so a new request goes ahead of an older backlog. A worker tours the queue one PR at a
+ * time, and only while no other tour runs: a tour you open always goes first. Each tour is an
+ * ordinary job: opening the PR while it runs attaches to it. A failed tour is not retried until
+ * the PR changes. Switching it off stops following the current tour, which then runs on only if
+ * it is past placement or someone watches it (see `Jobs`).
  */
 export class AutoTours extends Context.Service<
   AutoTours,
@@ -61,13 +63,19 @@ export class AutoTours extends Context.Service<
   }
 }
 
+/** How often the idle worker looks for queued PRs, and for other tours to finish. */
+const WORKER_TICK_MS = 5_000;
+
 const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
   const intervalMs = options.intervalMs ?? 5 * MINUTE;
   const maxAgeMs = options.maxAgeMs ?? 7 * DAY;
   const jobs = yield* Jobs;
   const repos = yield* Repos;
   const scope = yield* Effect.scope;
+  /** `serializeRef` to the `updatedAt` last toured. */
   const seen = new Map<string, string>();
+  /** The PRs to tour, most recently updated first, as the last inbox read had them. */
+  let queue: RecentTour[] = [];
   let enabled = options.enabled;
   let loop: Fiber.Fiber<void> | undefined;
 
@@ -92,7 +100,7 @@ const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
       Effect.onInterrupt(() => Effect.sync(() => seen.delete(serializeRef(pr.ref)))),
     );
 
-  const poll = Effect.gen(function* () {
+  const discover = Effect.gen(function* () {
     const requested = (yield* repos.inbox)?.reviewRequested;
     if (!requested) {
       return;
@@ -103,19 +111,36 @@ const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
         seen.delete(key);
       }
     }
-    for (const pr of dueTours(requested, seen, yield* Clock.currentTimeMillis, maxAgeMs)) {
-      yield* tour(pr);
+    queue = dueTours(requested, seen, yield* Clock.currentTimeMillis, maxAgeMs);
+  });
+
+  const read = discover.pipe(
+    Effect.catchCause((cause) => Effect.logWarning('auto tours: inbox read failed', Cause.pretty(cause))),
+  );
+
+  /** Tours the head of the queue whenever no other tour is running. */
+  const work = Effect.gen(function* () {
+    while (true) {
+      const next = queue[0];
+      if (!next || jobs.running().length > 0) {
+        yield* Effect.sleep(WORKER_TICK_MS);
+        continue;
+      }
+      queue = queue.slice(1);
+      yield* tour(next);
     }
   });
 
   const start = (delayMs: number) =>
     Effect.gen(function* () {
+      queue = [];
       loop = yield* Effect.sleep(delayMs).pipe(
+        Effect.andThen(read),
         Effect.andThen(
-          poll.pipe(
-            Effect.catchCause((cause) => Effect.logWarning('auto tours: inbox poll failed', Cause.pretty(cause))),
-            Effect.repeat(Schedule.spaced(intervalMs)),
-          ),
+          Effect.all([Effect.sleep(intervalMs).pipe(Effect.andThen(read), Effect.forever), work], {
+            concurrency: 2,
+            discard: true,
+          }),
         ),
         Effect.asVoid,
         Effect.forkIn(scope),

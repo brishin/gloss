@@ -47,8 +47,8 @@ const started = (ref: SourceRef): TourEventBody => ({
   cached: false,
 });
 
-/** A review inbox of #1, #2 and a draft #3, and tours that take a minute of test time each and are never watched. */
-function harness(enabled: boolean) {
+/** A review inbox of #1, #2 and a draft #3, and tours that take `tourMs` of test time each and are never watched. */
+function harness(enabled: boolean, tourMs = 60_000) {
   const toured: number[] = [];
   const saved: boolean[] = [];
   const state = { running: 0, most: 0 };
@@ -59,7 +59,7 @@ function harness(enabled: boolean) {
           Effect.gen(function* () {
             state.running += 1;
             state.most = Math.max(state.most, state.running);
-            yield* Effect.sleep(60_000).pipe(Effect.ensuring(Effect.sync(() => (state.running -= 1))));
+            yield* Effect.sleep(tourMs).pipe(Effect.ensuring(Effect.sync(() => (state.running -= 1))));
             toured.push((ref as { number: number }).number);
             return { type: 'job.error', code: 'internal', message: 'done', fatal: true } as TourEventBody;
           }),
@@ -108,20 +108,32 @@ describe('AutoTours', () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect('tours a PR again after following a job that was already running for it', () => {
-    const { toured, layer } = harness(false);
+  it.effect('puts a new request ahead of the backlog', () => {
+    const { toured, box, layer } = harness(true, 4 * 60_000);
     return Effect.gen(function* () {
-      // A tab opened #1 before the switch went on; that job may be for an older head.
-      const tab = yield* (yield* Jobs).start(pr(1).ref);
-      yield* Stream.runDrain((yield* Jobs).events(tab, 0)).pipe(Effect.forkChild);
-      yield* Effect.promise(() => new Promise((done) => setTimeout(done, 5)));
+      box.inbox = { ...box.inbox, reviewRequested: [pr(1), pr(2), pr(6)] };
+      yield* TestClock.adjust(1);
+      // #1 runs from 0 to 4 min and #2 from 4 to 8; #5 comes in before the read at 5 min.
+      yield* TestClock.adjust(60_000);
+      box.inbox = { ...box.inbox, reviewRequested: [pr(5), pr(1), pr(2), pr(6)] };
+      yield* TestClock.adjust(16 * 60_000);
+      expect(toured).toEqual([1, 2, 5, 6]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect('waits while a tour someone opened runs', () => {
+    const { toured, state, layer } = harness(false);
+    return Effect.gen(function* () {
+      const jobs = yield* Jobs;
+      const opened = yield* jobs.start(pr(9).ref);
+      yield* Stream.runDrain(jobs.events(opened, 0)).pipe(Effect.forkChild);
       yield* (yield* AutoTours).set(true);
       yield* TestClock.adjust(1);
-      yield* TestClock.adjust(2 * 60_000);
-      expect(toured).toEqual([1, 2]);
-      // The next inbox read tours #1 again for itself; #2 was its own tour, so it is not repeated.
-      yield* TestClock.adjust(6 * 60_000);
-      expect(toured).toEqual([1, 2, 1]);
+      yield* TestClock.adjust(60_000);
+      expect(toured).toEqual([9]);
+      yield* TestClock.adjust(3 * 60_000);
+      expect(toured).toEqual([9, 1, 2]);
+      expect(state.most).toBe(1);
     }).pipe(Effect.provide(layer));
   });
 

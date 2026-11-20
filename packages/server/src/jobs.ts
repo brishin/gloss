@@ -51,6 +51,8 @@ export class Jobs extends Context.Service<
   Jobs,
   {
     get(jobId: string): Job | undefined;
+    /** The jobs still running, one per ref. */
+    running(): readonly Job[];
     /** Attaches to the running job for `ref`, or starts one. `force` replaces a running job and skips cache reads. */
     start(ref: SourceRef, force?: boolean): Effect.Effect<Job>;
     /** Replays events after `after`, then follows the job live until its terminal event. */
@@ -160,6 +162,8 @@ const makeJobs = Effect.fnUntraced(function* (options: JobsOptions) {
 
   return Jobs.of({
     get: (jobId) => jobs.get(jobId),
+
+    running: () => [...running.values()],
 
     start: (ref, force = false) =>
       Effect.gen(function* () {
