@@ -98,7 +98,7 @@ function harness(enabled: boolean) {
     intervalMs: 5 * 60_000,
     startDelayMs: 0,
     maxAgeMs: Infinity,
-  }).pipe(Layer.provide(Layer.mergeAll(jobs, repos)));
+  }).pipe(Layer.provideMerge(Layer.mergeAll(jobs, repos)));
   return { toured, saved, state, box, layer };
 }
 
@@ -133,6 +133,23 @@ describe('AutoTours', () => {
       yield* TestClock.adjust(2 * 60_000);
       expect(toured).toEqual([1, 2, 5]);
       expect(box.checks).toBeGreaterThan(1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect('tours a PR again after following a job that was already running for it', () => {
+    const { toured, layer } = harness(false);
+    return Effect.gen(function* () {
+      // A tab opened #1 before the switch went on; that job may be for an older head.
+      const tab = yield* (yield* Jobs).start(pr(1).ref);
+      yield* Stream.runDrain((yield* Jobs).events(tab, 0)).pipe(Effect.forkChild);
+      yield* Effect.promise(() => new Promise((done) => setTimeout(done, 5)));
+      yield* (yield* AutoTours).set(true);
+      yield* TestClock.adjust(1);
+      yield* TestClock.adjust(2 * 60_000);
+      expect(toured).toEqual([1, 2]);
+      // The next inbox read tours #1 again for itself; #2 was its own tour, so it is not repeated.
+      yield* TestClock.adjust(5 * 60_000);
+      expect(toured).toEqual([1, 2, 1]);
     }).pipe(Effect.provide(layer));
   });
 

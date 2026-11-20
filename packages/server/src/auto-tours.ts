@@ -79,9 +79,16 @@ const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
       seen.set(key, pr.updatedAt);
       // Following the job keeps it alive (an unwatched job is aborted before placement) and
       // makes the next tour wait for this one.
+      const asked = Date.now();
       const job = yield* jobs.start(pr.ref);
       yield* Stream.runDrain(jobs.events(job, 0));
       yield* Effect.logInfo(`auto tour ${key}: ${job.state}`);
+      // A job already running (opened in a tab) may be for an older head than this update, so
+      // look again next time; an unchanged head replays its cached tour at once.
+      const first = job.log[0];
+      if (first && Date.parse(first.at) < asked) {
+        seen.delete(key);
+      }
     }).pipe(
       // Switched off mid-tour: switching it on again tours the PR again.
       Effect.onInterrupt(() => Effect.sync(() => seen.delete(serializeRef(pr.ref)))),
