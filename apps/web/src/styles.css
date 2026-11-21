@@ -2442,12 +2442,9 @@
     }
   }
 
-  /* iOS zooms into any field under 16px when it takes focus. */
-  @media (pointer: coarse) {
-    input:not([type='checkbox'], [type='radio']),
-    textarea {
-      font-size: 16px;
-    }
+  /* No zoom: pinch and double tap pan and tap instead, like a native app. */
+  html {
+    touch-action: pan-x pan-y;
   }
 
   /* Touch screens (a foldable open or shut, a tablet). A mouse or trackpad never matches. */
