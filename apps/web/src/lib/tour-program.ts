@@ -74,9 +74,11 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
             ? 'pin'
             : cmd.type === 'SetTitle'
               ? 'title'
-              : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
-                ? 'ask'
-                : undefined,
+              : cmd.type === 'TellHost'
+                ? 'host'
+                : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
+                  ? 'ask'
+                  : undefined,
     subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
@@ -292,6 +294,9 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(Effect.sync(() => void navigateToRef(router, cmd.ref)));
     case 'OpenPipeline':
       return once(Effect.sync(() => void navigateToPipeline(router, cmd.ref, { job: cmd.jobId })));
+    case 'TellHost':
+      // Only the iOS app's WebView has this handler; a browser does nothing.
+      return once(Effect.sync(() => window.webkit?.messageHandlers?.gloss?.postMessage(cmd.summary)));
     case 'SetTitle':
       // Held until the next title replaces it, or the page goes away.
       return once(
