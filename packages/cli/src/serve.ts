@@ -28,10 +28,11 @@ function shellHtml(): string | undefined {
           'gloss: the web app build is older than its sources (apps/web, packages/protocol). Run `pnpm --filter @gloss/web build`, or the page may reject events.',
         );
       }
-      // Same-origin backend: the web app calls `/api` relative to the page.
+      // Same-origin backend: the web app calls `/api` relative to the page. Keeps what a host
+      // set first, such as the token the native app injects into its WebView.
       return readFileSync(path, 'utf8').replace(
         '<head>',
-        `<head><script>window.__GLOSS__=${JSON.stringify({ backendUrl: '' })}</script>`,
+        `<head><script>window.__GLOSS__=Object.assign({},window.__GLOSS__,${JSON.stringify({ backendUrl: '' })})</script>`,
       );
     }
   }
