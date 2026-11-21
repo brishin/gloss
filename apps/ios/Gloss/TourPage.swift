@@ -60,6 +60,11 @@ final class TourPage {
     }
 
     /// Runs before the page's scripts: the token, and a sheet that hides the page's own chrome.
+    /// The sub-bar collapses rather than going away, since its bottom is the page's reading line
+    /// (which group is in view). So does the top bar, so the review popover of its Review button
+    /// (opened by `r`) still shows, pinned to the top right. It is sized in `%`, since `vw` in this
+    /// WebView spans the whole screen, past the page. Ask's header takes the top bar's height, so it
+    /// keeps its own.
     private static func bootstrap(token: String?) -> String {
         let config = (try? JSONSerialization.data(withJSONObject: token.map { ["token": $0] } ?? [:]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -68,9 +73,25 @@ final class TourPage {
             window.__GLOSS__ = Object.assign({}, window.__GLOSS__, \(config));
             const sheet = new CSSStyleSheet();
             sheet.replaceSync(`
-              .topbar, .sidebar, .subbar, .nav-scrim { display: none !important; }
+              .sidebar, .nav-scrim { display: none !important; }
+              .subbar {
+                visibility: hidden; height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; border: 0 !important; overflow: hidden !important;
+              }
+              .topbar {
+                visibility: hidden; height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; border: 0 !important; overflow: visible !important;
+              }
+              .topbar [popover] {
+                visibility: visible; position-visibility: always !important;
+                position-area: none !important; position-try-fallbacks: none !important;
+                inset: var(--spacing-2) var(--spacing-2) auto auto !important; margin: 0 !important;
+                width: min(440px, calc(100% - 2 * var(--spacing-2))) !important; max-width: none !important;
+              }
+              .topbar [popover] .astryx-popover { width: auto !important; max-width: none !important; }
               .app { --topbar-h: 0px !important; --subbar-h: 0px !important; }
               .tour { grid-template-columns: minmax(0, 1fr) !important; }
+              .ask-header { height: 40px !important; }
             `);
             document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
             })();
