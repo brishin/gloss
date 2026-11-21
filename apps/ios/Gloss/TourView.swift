@@ -54,20 +54,21 @@ struct TourView: View {
             Button("Ask", systemImage: "bubble.left.and.text.bubble.right") { tour.press("q") }
         }
         ToolbarItem(placement: .primaryAction) {
+            Button("Comments", systemImage: "bubble.left.and.bubble.right") { tour.press("c") }
+        }
+        ToolbarItem(placement: .primaryAction) {
             Menu("Review", systemImage: "checkmark.circle") {
                 Button("Approve", systemImage: "checkmark") { tour.press("r", "a") }
                 Button("Request changes", systemImage: "xmark") { tour.press("r", "n") }
                 Button("Comment", systemImage: "text.bubble") { tour.press("r", "c") }
             }
         }
+        // Only at the leading end: the trailing corner is where Ask's send button sits.
         ToolbarItemGroup(placement: .bottomBar) {
             Button("Previous group", systemImage: "chevron.up") { tour.press("k") }
             Button("Next group", systemImage: "chevron.down") { tour.press("j") }
         }
         ToolbarSpacer(.flexible, placement: .bottomBar)
-        ToolbarItem(placement: .bottomBar) {
-            Button("Comments", systemImage: "bubble.left.and.bubble.right") { tour.press("c") }
-        }
     }
 }
 
