@@ -31,6 +31,8 @@ declare global {
   interface Window {
     /** Injected by the gloss CLI when it serves this app; `backendUrl: ''` means same origin. */
     __GLOSS__?: { backendUrl?: string; token?: string; snapshot?: TourSnapshot };
+    /** Set by WKWebView in the iOS app, which registers a `gloss` handler. */
+    webkit?: { messageHandlers?: { gloss?: { postMessage(message: unknown): void } } };
   }
 }
 

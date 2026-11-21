@@ -12,7 +12,7 @@ events; the web app renders them as they land. Source and tests win over these d
 - `packages/server`: Hono API + `Jobs` service (dedupe, replay log, abort; each job is a fiber).
 - `packages/cli`: `gloss` bin: serves API + built web app, `tour`, `login`, `status`.
 - `apps/web`: TanStack Start (SPA mode) + Astryx (prebuilt CSS) + `@pierre/diffs`. The tour page is an Elm program on Effect Atom (`lib/tour-model.ts` pure update, `lib/tour-program.ts` commands, `lib/tea.ts` runtime).
-- `apps/native`: Expo (SDK 58) iPhone/Duo prototype: native navigation, `Stack.Toolbar` and group list around the web tour page in a WebView; talks to the backend through `GlossClient`.
+- `apps/ios`: SwiftUI iPhone/Duo app (stock Xcode, no dependencies): native navigation, toolbars and group list around the web tour page in WebKit's SwiftUI `WebView`; the page reports its groups through a `gloss` message handler (`TellHost` Cmd).
 - `apps/extension`: Chrome MV3 extension (plain JS, no build) that opens a github.com PR in the local server; `gloss extension install` registers its native messaging host (`packages/cli/src/native-host.ts`) so it can start `gloss serve`.
 - `.agents/`: goal, architecture, protocol, pipeline and model notes. Read the relevant one before changing an area.
 
