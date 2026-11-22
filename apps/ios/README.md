@@ -5,7 +5,8 @@ dependencies. Navigation, toolbars, the PR list and the group list are native; t
 web app's tour page in WebKit's SwiftUI `WebView`, so diffs, notes, walkthroughs, diagrams and
 Ask render as on desktop.
 
-Open `Gloss.xcodeproj` in Xcode 27, pick your team under Signing, and run. Needs iOS 26 or later.
+Open `Gloss.xcodeproj` in Xcode 27 or later (the project is in Xcode's JSON format,
+`project.xcproj`), pick your team under Signing, and run. Needs iOS 26 or later.
 On first launch, add the server: any `gloss serve` the phone can reach, such as its
 `tailscale serve` URL. The token is only needed when the server runs with `--token`; it is kept in
 the Keychain.
