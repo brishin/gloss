@@ -21,20 +21,22 @@ describe('sideNotes', () => {
   test('a stop sits on its first snippet in the group; its other snippets are its reach', () => {
     const [note] = sideNotes(
       tour(),
-      group({
-        section: {
-          points: [
-            {
-              kind: 'decision',
-              priority: 'high',
-              title: 'T',
-              why: 'W',
-              check: 'C',
-              snippets: [snippet('x', 1), snippet('f1', 10, 14), snippet('f2', 3)],
-            },
-          ],
-        },
-      }),
+      [
+        group({
+          section: {
+            points: [
+              {
+                kind: 'decision',
+                priority: 'high',
+                title: 'T',
+                why: 'W',
+                check: 'C',
+                snippets: [snippet('x', 1), snippet('f1', 10, 14), snippet('f2', 3)],
+              },
+            ],
+          },
+        }),
+      ],
       new Map(),
     );
     expect(note).toMatchObject({
@@ -58,15 +60,17 @@ describe('sideNotes', () => {
   test('a stop with no snippets sits where it points, or where the decision it reads is', () => {
     const notes = sideNotes(
       tour(),
-      group({
-        decisions: [{ text: 'd', priority: 'low', fileId: 'f1', side: 'additions', line: 7 }],
-        section: {
-          points: [
-            { kind: 'step', title: 'see', why: '', see: { fileId: 'f1', line: 40 }, snippets: [] },
-            { kind: 'decision', decision: 0, title: 'reads', why: '', snippets: [] },
-          ],
-        },
-      }),
+      [
+        group({
+          decisions: [{ text: 'd', priority: 'low', fileId: 'f1', side: 'additions', line: 7 }],
+          section: {
+            points: [
+              { kind: 'step', title: 'see', why: '', see: { fileId: 'f1', line: 40 }, snippets: [] },
+              { kind: 'decision', decision: 0, title: 'reads', why: '', snippets: [] },
+            ],
+          },
+        }),
+      ],
       new Map(),
     );
     // The decision a stop reads is not a note of its own, and gives the stop its level.
@@ -98,14 +102,16 @@ describe('sideNotes', () => {
     });
     const notes = sideNotes(
       state,
-      group({
-        decisions: [
-          { text: 'f1 late', priority: 'low', fileId: 'f1', side: 'additions', line: 90 },
-          { text: 'f2', priority: 'low', fileId: 'f2', side: 'deletions', line: 4 },
-          { text: 'on a file', priority: 'low', fileId: 'f1' },
-        ],
-        section: { points: [{ kind: 'wide', wide: 0, title: '', why: '', snippets: [] }] },
-      }),
+      [
+        group({
+          decisions: [
+            { text: 'f1 late', priority: 'low', fileId: 'f1', side: 'additions', line: 90 },
+            { text: 'f2', priority: 'low', fileId: 'f2', side: 'deletions', line: 4 },
+            { text: 'on a file', priority: 'low', fileId: 'f1' },
+          ],
+          section: { points: [{ kind: 'wide', wide: 0, title: '', why: '', snippets: [] }] },
+        }),
+      ],
       new Map([[0, 'a']]),
     );
     expect(notes.map((note) => [note.n, note.id, note.fileId, note.from])).toEqual([
@@ -119,6 +125,23 @@ describe('sideNotes', () => {
     expect(notes[1]!.side).toBe('deletions');
     expect(notes[3]).toMatchObject({ title: 'Wide', level: 'severe', key: true, also: [{ label: 'r', fileId: 'f2' }] });
   });
+});
+
+test('numbers run on from one group to the next, in reading order', () => {
+  const groups = [
+    group({
+      decisions: [
+        { text: 'line', priority: 'low', fileId: 'f1', side: 'additions', line: 3 },
+        { text: 'group', priority: 'low' },
+      ],
+    }),
+    group({ decisions: [{ text: 'next', priority: 'low', fileId: 'f3', side: 'additions', line: 1 }] }, 'b', ['f3']),
+  ];
+  expect(sideNotes(tour(), groups, new Map()).map((note) => [note.n, note.id])).toEqual([
+    [1, 'a/d1'],
+    [2, 'a/d0'],
+    [3, 'b/d0'],
+  ]);
 });
 
 describe('readStops', () => {
@@ -151,15 +174,17 @@ describe('noteFrames', () => {
     ] as const;
     const notes = sideNotes(
       tour(),
-      group({
-        decisions: [5, 10, 49, 60].map((line) => ({
-          text: `${line}`,
-          priority: 'low',
-          fileId: 'f1',
-          side: 'additions',
-          line,
-        })),
-      }),
+      [
+        group({
+          decisions: [5, 10, 49, 60].map((line) => ({
+            text: `${line}`,
+            priority: 'low',
+            fileId: 'f1',
+            side: 'additions',
+            line,
+          })),
+        }),
+      ],
       new Map(),
     );
     const found = noteFrames(frames, notes, (fileId) => `src/${fileId}.ts`);

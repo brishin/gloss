@@ -16,7 +16,7 @@ const label = (frame: CallFrame) => `${frame.receiver ? `${frame.receiver}.` : '
  * is one path. The panel sits at the top of the groups' notes column and stays with the screen
  * through every group, so a call can be followed into any group without losing the paths. The
  * path whose code is on screen is open and its call is marked; the others are one line until
- * opened. A call carries the numbers of the current group's notes on its lines.
+ * opened. A call carries the numbers of the notes on its lines, from any group.
  *
  * In a page too narrow for the column the paths are one line under the sub-bar that opens them.
  */
@@ -39,7 +39,7 @@ export function KeyPaths({
   scope: RefObject<HTMLElement | null>;
   /** The panel's box, for the notes columns to keep clear of. */
   panel: RefObject<HTMLDivElement | null>;
-  /** The notes of the group being read, and the call each one is in. */
+  /** The tour's notes, and the call each one is in. */
   notes: readonly SideNote[];
   inFrame: ReadonlyMap<string, number>;
   activeNote: string | undefined;
