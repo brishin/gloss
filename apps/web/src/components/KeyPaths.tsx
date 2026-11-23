@@ -52,13 +52,16 @@ export function KeyPaths({
   onReserve: (px: number) => void;
 }) {
   const paths = useMemo(() => keyPaths(frames), [frames]);
+  /** The calls the panel shows: a lone entry point is in no path, so it is never the call on screen. */
+  const calls = useMemo(() => new Set(paths.flat()), [paths]);
   const track = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDetailsElement>(null);
   /** Where each call's code is, from the top of the document. */
   const tops = useRef<(number | undefined)[]>([]);
   const [scrolled, setOn] = useState(-1);
   // The current note says where the reader is: its call is the marked one, not a nearer call.
-  const on = (activeNote === undefined ? undefined : inFrame.get(activeNote)) ?? scrolled;
+  const noted = activeNote === undefined ? undefined : inFrame.get(activeNote);
+  const on = noted !== undefined && calls.has(noted) ? noted : scrolled;
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
   const [all, setAll] = useState(false);
   const trail = !all;
@@ -69,7 +72,7 @@ export function KeyPaths({
     const middle = window.scrollY + window.innerHeight / 2;
     let next = -1;
     tops.current.forEach((top, index) => {
-      if (top !== undefined && top <= middle && top >= (tops.current[next] ?? -Infinity)) {
+      if (calls.has(index) && top !== undefined && top <= middle && top >= (tops.current[next] ?? -Infinity)) {
         next = index;
       }
     });
@@ -197,8 +200,7 @@ export function KeyPaths({
       )}
     </div>
   );
-  const calls = paths.flat();
-  const kinds = new Set(calls.map((index) => frames[index]!.status));
+  const kinds = new Set([...calls].map((index) => frames[index]!.status));
   return (
     <>
       <details className="key-paths-bar" ref={bar}>
@@ -212,9 +214,9 @@ export function KeyPaths({
         <div className="key-paths" ref={panel}>
           <div className="key-paths-head">
             <span>Key code paths</span>
-            {calls.length > 1 && (
+            {calls.size > 1 && (
               <button type="button" className="key-paths-all" aria-expanded={all} onClick={() => setAll(!all)}>
-                {all ? 'Less' : `All ${calls.length} calls`}
+                {all ? 'Less' : `All ${calls.size} calls`}
               </button>
             )}
             {!trail && kinds.has('changed') && (
