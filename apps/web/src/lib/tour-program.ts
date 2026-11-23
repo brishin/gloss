@@ -212,8 +212,6 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(restore(() => fileSection(cmd.fileId)));
     case 'MeasurePosition':
       return once(nextFrame.pipe(Effect.map((): Msg => ({ type: 'Scrolled', spied: spy() }))));
-    case 'StepNote':
-      return once(Effect.sync(() => stepNote(cmd.by)));
     case 'SaveRailAnchor':
       return once(
         Effect.sync(() => storage(() => sessionStorage.setItem(RAIL_ANCHOR_KEY, JSON.stringify(cmd.anchor)))),
@@ -497,16 +495,6 @@ function spy(): Spied {
         }
       : undefined,
   };
-}
-
-function stepNote(by: number) {
-  const notes = [...(main()?.querySelectorAll<HTMLElement>('.note') ?? [])];
-  const tops = notes.map((note) => note.getBoundingClientRect().top);
-  const line = readingLine();
-  const target = by > 0 ? tops.find((top) => top > line + 1) : tops.findLast((top) => top < line - 1);
-  if (target !== undefined) {
-    window.scrollBy({ top: target - line });
-  }
 }
 
 /**

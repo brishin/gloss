@@ -419,7 +419,7 @@ describe('keyToMsg', () => {
     ['o', base, { type: 'GroupSelected', key: OVERVIEW }],
     ['n', base, { type: 'StopStepped', by: 1 }],
     ['p', base, { type: 'StopStepped', by: -1 }],
-    [']', base, { type: 'NoteStepped', by: 1 }],
+    [']', base, undefined],
     ['x', base, undefined],
     ['x', { ...base, activeFileId: 'f1' }, { type: 'ExpandedToggled', fileId: 'f1' }],
     ['v', base, undefined],

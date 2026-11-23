@@ -153,7 +153,6 @@ export type Msg =
   | { type: 'NoteSelected'; id: string }
   /** Escape: no note is current. */
   | { type: 'NoteCleared' }
-  | { type: 'NoteStepped'; by: Step }
   /** The reader scrolled (or the page moved under them): the position follows the page. */
   | { type: 'Scrolled'; spied: Spied }
   | { type: 'ExpandedToggled'; fileId: string }
@@ -236,7 +235,6 @@ export type Cmd =
   | { type: 'RestoreFile'; fileId: string }
   /** Reads the position off the page once it has rendered. */
   | { type: 'MeasurePosition' }
-  | { type: 'StepNote'; by: Step }
   | { type: 'SetTitle'; title: string }
   | { type: 'LoadReview'; diffId: string }
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
@@ -376,7 +374,7 @@ export function isFileExpanded(
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** Keys that may be shortcuts, so the browser's own use of them is held back. */
-export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycdq');
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonpxv?raycdq');
 
 /** Questions can be asked once the tour is finished: the model answers from the whole tour. */
 export const canAsk = (model: Model): boolean => !model.exported && model.tour.status === 'complete';
@@ -424,10 +422,6 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
       return { type: 'StopStepped', by: 1 };
     case 'p':
       return { type: 'StopStepped', by: -1 };
-    case ']':
-      return { type: 'NoteStepped', by: 1 };
-    case '[':
-      return { type: 'NoteStepped', by: -1 };
     case 'x':
       return active ? { type: 'ExpandedToggled', fileId: active } : undefined;
     case 'v':
@@ -595,8 +589,6 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'NoteCleared':
       return model.activeNote ? [{ ...model, activeNote: undefined }, []] : [model, []];
-    case 'NoteStepped':
-      return [model, [{ type: 'StepNote', by: msg.by }]];
     case 'Scrolled':
       return scrolled(model, msg.spied);
     case 'ExpandedToggled': {
