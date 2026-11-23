@@ -150,9 +150,6 @@ export const NoteLane = memo(function NoteLane({
       setSide(beside);
       return;
     }
-    if (laneRect.bottom < 0 || laneRect.top > window.innerHeight) {
-      return;
-    }
     const current = active === undefined ? undefined : spots.current.get(active);
     if (wash.current) {
       const shown = current?.found === true;
@@ -163,6 +160,10 @@ export const NoteLane = memo(function NoteLane({
         wash.current.style.left = `${boxRect.left - laneRect.left}px`;
         wash.current.style.width = `${boxRect.width}px`;
       }
+    }
+    // After the highlight: a narrow list sits above the diffs, off screen while its lines are read.
+    if (laneRect.bottom < 0 || laneRect.top > window.innerHeight) {
+      return;
     }
     if (!beside) {
       // The list is in normal flow: nothing a column layout left on the cards may move them.
