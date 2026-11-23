@@ -775,6 +775,20 @@ describe('normalizeWalkthrough call paths', () => {
     ]);
   });
 
+  it('keeps paths whose same-named entry points have no known file', () => {
+    const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
+    const { walkthrough } = walk({
+      frames: [
+        frame(0, 'handler', 'same', ''),
+        frame(1, 'saveA', 'new'),
+        frame(0, 'handler', 'same', ''),
+        frame(1, 'saveB', 'new'),
+      ],
+      steps: [step(at), step(at)],
+    });
+    expect(walkthrough!.frames.map((frame) => frame.name)).toEqual(['handler', 'saveA', 'handler', 'saveB']);
+  });
+
   it('keeps at most six paths', () => {
     const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
     const { walkthrough, warnings } = walk({

@@ -708,14 +708,11 @@ type RawWalkthrough = Partial<
 /** A frame read from the model's answer, and its position there, for steps to point by. */
 type ReadFrame = { index: number; frame: CallFrame };
 
-/** The same function in two paths: its file when known, its receiver and its name. */
-const frameKey = (frame: CallFrame) => `${frame.path ?? '?'}:${frame.receiver ?? ''}.${frame.name}`;
-
 /**
  * The key paths' call trees, the trust boundary as for a decision's tree. Depths are made a tree,
  * files are known ids (or paths), and a line stays only where the diff shows it on the new side.
- * Each depth-0 frame starts a path with its own frame cap. A function an earlier path shows is
- * not shown again: it goes with the calls under it. A path with no call in it is a list, and one
+ * Each depth-0 frame starts a path with its own frame cap. A function an earlier path shows (same
+ * file, receiver and name) is not shown again: it goes with the calls under it. A path with no call in it is a list, and one
  * that touches nothing the change adds is plumbing, so both go. Returns why no path is worth
  * walking, if none is.
  */
@@ -776,7 +773,9 @@ function normalizeFrames(
         continue;
       }
       repeat = Infinity;
-      if (seen.has(frameKey(entry.frame))) {
+      // A function with no known file cannot be matched: two handlers elsewhere are not one.
+      const key = callKey(entry.frame);
+      if (key !== undefined && seen.has(key)) {
         repeat = entry.frame.depth;
         continue;
       }
@@ -800,7 +799,10 @@ function normalizeFrames(
     for (const { index, frame } of own) {
       kept.set(index, frames.length);
       frames.push(frame);
-      seen.add(frameKey(frame));
+      const key = callKey(frame);
+      if (key !== undefined) {
+        seen.add(key);
+      }
     }
   }
   return frames.length ? { frames, kept } : { frames, kept, why: 'no path in it calls new or changed code' };
