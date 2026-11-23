@@ -1,6 +1,6 @@
 import type { GroupView, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { noteFrames, noteLines, readStops, sideNotes } from './side-notes.ts';
+import { noteFrames, readStops, sideNotes } from './side-notes.ts';
 
 const snippet = (fileId: string, from: number, to = from + 2) => ({
   fileId,
@@ -190,8 +190,4 @@ describe('noteFrames', () => {
     const found = noteFrames(frames, notes, (fileId) => `src/${fileId}.ts`);
     expect(notes.map((note) => found.get(note.id))).toEqual([undefined, 1, 1, 2]);
   });
-});
-
-test('noteLines', () => {
-  expect([noteLines({}), noteLines({ from: 3, to: 3 }), noteLines({ from: 3, to: 9 })]).toEqual(['', '3', '3–9']);
 });

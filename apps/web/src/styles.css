@@ -1582,35 +1582,78 @@
     overflow-wrap: anywhere;
   }
 
-  /* Where the note's lines are, with what the reader can do about them. */
-  .side-note-at {
+  /* The title, with what the reader can do about the current note's lines beside it. */
+  .side-note-top {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 24px;
-    color: var(--color-text-secondary);
+    align-items: flex-start;
   }
 
-  .side-note-at > code {
+  .side-note-top > .side-note-head {
     flex: 1;
+    width: auto;
     min-width: 0;
-    overflow: hidden;
-    padding: 0;
-    background: none;
-    font-size: 11px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .side-note-at b {
-    color: var(--color-text-primary);
-    font-weight: 600;
   }
 
   .side-note-actions {
     flex: none;
     display: flex;
-    margin: -2px -4px -2px 0;
+    margin: 2px 4px 0 0;
+  }
+
+  /*
+   * A tight column, for a screen too short for every note as a card: a waiting note is one line
+   * with no box. The current note stays a card.
+   */
+  /* The lines at the edges have no box of their own, so the edge covers what passes under it. */
+  [data-tight] > .lane-top,
+  [data-tight] > .lane-bottom {
+    gap: 2px;
+    background: var(--color-background-body);
+  }
+
+  [data-tight] .side-note:not([data-current]) {
+    border-color: transparent;
+    border-radius: var(--radius-inner);
+    background: none;
+  }
+
+  [data-tight] .side-note:not([data-current]) .side-note-head {
+    min-height: 20px;
+    padding: 1px 8px;
+  }
+
+  [data-tight] .side-note:not([data-current]) .side-note-head > .flag-icon {
+    margin-top: 3px;
+  }
+
+  [data-tight] .side-note:not([data-current]) .side-note-title {
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-medium);
+  }
+
+  [data-tight] .side-note:not([data-current]):hover {
+    background: var(--color-background-muted);
+  }
+
+  [data-tight] .side-note:not([data-current]):hover .side-note-title {
+    color: var(--color-text-primary);
+  }
+
+  /* A note that another one pushes slides to its new place, and an opened note's text fades in. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-side][data-settled] > .lane-ride > .side-note {
+      transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .side-note-body {
+      animation: side-note-open 160ms ease-out;
+    }
+  }
+
+  @keyframes side-note-open {
+    from {
+      opacity: 0;
+    }
   }
 
   .side-note-why {
@@ -1708,6 +1751,22 @@
     color: var(--color-text-primary);
     font-size: 12px;
     font-weight: var(--font-weight-semibold);
+  }
+
+  /* In a short panel: opens every path, and closes them again. */
+  .key-paths-all {
+    all: unset;
+    cursor: pointer;
+  }
+
+  .key-paths-all:hover {
+    color: var(--color-text-primary);
+  }
+
+  .key-paths-all:focus-visible {
+    outline: 2px solid var(--gloss-ink);
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 
   .key-paths-key {
