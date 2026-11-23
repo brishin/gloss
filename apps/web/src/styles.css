@@ -1054,6 +1054,16 @@
     color: var(--flag-info);
   }
 
+  /* A step: no priority, so not a flag. */
+  .step-icon {
+    color: var(--color-text-secondary);
+  }
+
+  .step-icon > svg {
+    width: 100%;
+    height: 100%;
+  }
+
   /* A section's flags by level, next to its title. */
   .flag-counts {
     display: inline-flex;

@@ -4,7 +4,7 @@ import { lineRow } from '../lib/diff-dom.ts';
 import { callLocations } from '../lib/excerpt.ts';
 import type { SideNote } from '../lib/side-notes.ts';
 import { keyPaths } from '../lib/tour-view.ts';
-import { FlagIcon } from './icons.tsx';
+import { NoteIcon } from './icons.tsx';
 
 /** The space between the panel and the notes that wait below it, in px. */
 const GAP = 6;
@@ -339,7 +339,7 @@ function Path({
                     title={note.title}
                     onClick={() => onSelectNote(note.id)}
                   >
-                    {note.level && <FlagIcon level={note.level} />}
+                    <NoteIcon level={note.level} />
                     {note.n}
                   </button>
                 ))}

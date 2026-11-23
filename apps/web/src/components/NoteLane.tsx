@@ -6,7 +6,7 @@ import { type CSSProperties, memo, type RefObject, useEffect, useLayoutEffect, u
 import { lineRow } from '../lib/diff-dom.ts';
 import type { SideNote } from '../lib/side-notes.ts';
 import { splitPath } from '../lib/tour-view.ts';
-import { FlagIcon } from './icons.tsx';
+import { NoteIcon } from './icons.tsx';
 import { inlineCode } from './Walkthrough.tsx';
 
 /** A waiting note in the column is one line with no box: its height and the space between lines, in px. */
@@ -390,7 +390,7 @@ export const NoteLane = memo(function NoteLane({
           >
             {note.fileId !== undefined && (
               <span className="note-chip">
-                {note.level && <FlagIcon level={note.level} />}
+                <NoteIcon level={note.level} />
                 {note.n}
               </span>
             )}
@@ -453,7 +453,7 @@ function NoteCard({
           onClick={() => actions.select(note.id)}
         >
           <span className="side-note-n">{note.n}</span>
-          {note.level && <FlagIcon level={note.level} />}
+          <NoteIcon level={note.level} />
           <span className="side-note-title">{inlineCode(note.title)}</span>
         </button>
         {(comment || ask) && (

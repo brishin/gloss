@@ -196,6 +196,15 @@ export function FlagIcon({ level }: { level: FlagLevel }) {
   );
 }
 
+/** A note's mark: its flag, or the set's info icon for a step, which has no priority. */
+export function NoteIcon({ level }: { level: FlagLevel | undefined }) {
+  return level ? (
+    <FlagIcon level={level} />
+  ) : (
+    <Icon icon="info" size="sm" color="inherit" className="flag-icon step-icon" />
+  );
+}
+
 /** A section's flags by level, most urgent first; levels with none are left out. */
 export function FlagCounts({ counts }: { counts: Record<FlagLevel, number> }) {
   const shown = FLAG_LEVELS.filter((level) => counts[level] > 0);
