@@ -3,7 +3,7 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import type { DiffPayload, FileChange, FileNote, GroupView, LineNote, ReviewThread, TourState } from '@gloss/protocol';
-import { memo, useMemo, useRef } from 'react';
+import { memo, type RefObject, useMemo, useRef } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import { sideNotes } from '../lib/side-notes.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
@@ -47,7 +47,7 @@ export const GroupPanel = memo(function GroupPanel({
   controls,
   onJumpToFile,
   homes,
-  pathHomeKey,
+  paths,
   activeNote,
   noteActions,
 }: {
@@ -57,8 +57,8 @@ export const GroupPanel = memo(function GroupPanel({
   controls: FileControls;
   onJumpToFile: (fileId: string, line?: number) => void;
   homes?: ReadonlyMap<number, string>;
-  /** The group the key code path is read in. */
-  pathHomeKey?: string;
+  /** The page's key code paths panel, when it is shown: every group then keeps the column for it. */
+  paths?: { panel: RefObject<HTMLDivElement | null>; reserve: number };
   /** The current note, when it is one of this group's. */
   activeNote?: string;
   noteActions: NoteActions;
@@ -114,7 +114,6 @@ export const GroupPanel = memo(function GroupPanel({
     () => sideNotes(state, group, homes ?? new Map()),
     [state.decisions, state.walkthrough, group, homes],
   );
-  const path = pathHomeKey === group.key ? state.walkthrough?.frames : undefined;
   const foldedHunks = useMemo(() => {
     const byFile = new Map<string, string[]>();
     for (const { fileId, hunkId } of section?.skimHunks ?? []) {
@@ -183,16 +182,17 @@ export const GroupPanel = memo(function GroupPanel({
               );
             })}
           </div>
-          {(sides.length > 0 || (path?.length ?? 0) > 0) && (
+          {(sides.length > 0 || paths) && (
             <NoteLane
               notes={sides}
               files={files}
-              groupFiles={group.fileIds}
               filesBox={filesBox}
               active={activeNote}
               actions={noteActions}
               onJumpToFile={onJumpToFile}
-              path={path}
+              frames={state.walkthrough?.frames}
+              panel={paths?.panel}
+              reserve={paths?.reserve}
             />
           )}
         </div>

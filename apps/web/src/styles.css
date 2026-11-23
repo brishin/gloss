@@ -61,7 +61,8 @@
     --topbar-h: 40px;
     --head-h: 64px;
     --subbar-h: 32px;
-    --sticky-h: calc(var(--topbar-h) + var(--head-h) + var(--subbar-h));
+    --bars-h: calc(var(--topbar-h) + var(--head-h) + var(--subbar-h));
+    --sticky-h: var(--bars-h);
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -628,7 +629,8 @@
     scroll-margin-top: var(--sticky-h);
   }
 
-  .stop + .stop {
+  .stop + .stop,
+  .paths-body > .stop {
     padding-top: var(--spacing-6);
     border-top: 1px solid var(--color-border);
   }
@@ -1400,10 +1402,10 @@
       padding-left: 28px;
     }
 
-    /* The key code path and the notes whose lines went off the top stay under the sticky bars. */
+    /* The notes whose lines went off the top stay under the sticky bars, below the key code paths panel. */
     [data-side] > .lane-top {
       position: sticky;
-      top: calc(var(--sticky-h) + var(--spacing-3));
+      top: calc(var(--sticky-h) + var(--spacing-3) + var(--paths-reserve, 0px));
       z-index: 3;
       margin-bottom: 0;
     }
@@ -1660,14 +1662,39 @@
     color: var(--color-text-secondary);
   }
 
-  /* The key code path at the top of the notes column: one call tree, the frame on screen marked. */
-  .path-rail {
+  /*
+   * The key code paths, one panel for the whole page (KeyPaths.tsx). Its track runs down the
+   * groups' notes column, so the panel starts at the first group and stays under the sticky bars
+   * through the last.
+   */
+  .paths-scope {
+    container: paths / inline-size;
+  }
+
+  .paths-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-6);
+  }
+
+  .key-paths-track {
+    display: none;
+  }
+
+  .key-paths {
+    position: sticky;
+    top: calc(var(--sticky-h) + var(--spacing-3));
+    box-sizing: border-box;
+    max-height: calc(100vh - var(--sticky-h) - 2 * var(--spacing-3));
+    overflow-y: auto;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-element);
     background: var(--color-background-surface);
+    pointer-events: auto;
   }
 
-  .path-rail-head {
+  .key-paths-head {
     display: flex;
     align-items: center;
     gap: var(--spacing-3);
@@ -1676,26 +1703,31 @@
     color: var(--color-text-secondary);
   }
 
-  .path-rail-head > :first-child {
+  .key-paths-head > :first-child {
     margin-right: auto;
     color: var(--color-text-primary);
     font-size: 12px;
     font-weight: var(--font-weight-semibold);
   }
 
-  .path-rail-key {
+  .key-paths-key {
     display: inline-flex;
     align-items: center;
     gap: 5px;
   }
 
-  .path-rail-frames {
-    max-height: min(38vh, 320px);
-    overflow-y: auto;
+  .key-paths-list {
     padding: 2px 2px 4px;
   }
 
-  .path-rail-row {
+  /* One path: its entry point, and the calls under it while it is open. */
+  .key-path + .key-path {
+    margin-top: 2px;
+    padding-top: 2px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .key-path-row {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1706,11 +1738,42 @@
     font-size: 12px;
   }
 
-  .path-rail-row[data-active] {
+  .key-path-row[data-active] {
     background: color-mix(in oklch, var(--gloss-ink) 11%, transparent);
   }
 
-  .path-rail-frame {
+  .key-path-fold {
+    all: unset;
+    flex: none;
+    width: 12px;
+    height: 24px;
+    margin-right: -2px;
+  }
+
+  button.key-path-fold {
+    cursor: pointer;
+    background: currentcolor;
+    color: var(--color-text-secondary);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 24'%3E%3Cpath d='M4 8.5l4 3.5-4 3.5z'/%3E%3C/svg%3E")
+      center / 12px 24px no-repeat;
+  }
+
+  button.key-path-fold[aria-expanded='true'] {
+    transform: rotate(90deg);
+  }
+
+  button.key-path-fold:hover {
+    color: var(--color-text-primary);
+  }
+
+  button.key-path-fold:focus-visible {
+    outline: 2px solid var(--gloss-ink);
+    outline-offset: -2px;
+    mask: none;
+    background: none;
+  }
+
+  .key-path-call {
     all: unset;
     display: flex;
     align-items: center;
@@ -1719,15 +1782,21 @@
     min-width: 0;
   }
 
-  button.path-rail-frame {
+  button.key-path-call {
     cursor: pointer;
   }
 
-  button.path-rail-frame:hover b {
+  button.key-path-call:hover b {
     text-decoration: underline;
   }
 
-  .path-rail-row .walk-at {
+  button.key-path-call:focus-visible {
+    outline: 2px solid var(--gloss-ink);
+    outline-offset: 1px;
+    border-radius: 3px;
+  }
+
+  .key-path-row .walk-at {
     flex: 0 1000 auto;
     min-width: 0;
     overflow: hidden;
@@ -1735,6 +1804,108 @@
     font-size: 11px;
     text-overflow: ellipsis;
     color: var(--color-text-secondary);
+  }
+
+  .key-path-count {
+    flex: none;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  /* No column: the paths are one line under the sub-bar, which names the call on screen and opens them. */
+  [data-paths] > .stop,
+  [data-paths] > .key-paths-bar {
+    --sticky-h: calc(var(--bars-h) + 32px);
+  }
+
+  .key-paths-bar {
+    position: sticky;
+    top: var(--bars-h);
+    z-index: 6;
+    margin: calc(-1 * var(--spacing-3)) calc(-1 * var(--spacing-6)) calc(-1 * var(--spacing-3));
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-background-body);
+  }
+
+  .key-paths-bar > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    height: 32px;
+    padding: 0 var(--spacing-6);
+    font-size: 12px;
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .key-paths-bar > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .key-paths-bar > summary > span {
+    flex: none;
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .key-paths-bar > summary > code {
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+    background: none;
+  }
+
+  .key-paths-bar > summary::after {
+    content: '';
+    flex: none;
+    width: 12px;
+    height: 12px;
+    margin-left: auto;
+    background: var(--color-text-secondary);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 4 3.5-4z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+
+  .key-paths-bar[open] > summary::after {
+    transform: rotate(180deg);
+  }
+
+  .key-paths-bar > .key-paths-list {
+    position: absolute;
+    inset: 100% 0 auto;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 4px var(--spacing-4) 8px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-background-surface);
+    box-shadow: var(--shadow-high);
+  }
+
+  @container paths (min-width: 1040px) {
+    [data-paths] > .stop,
+    [data-paths] > .key-paths-bar {
+      --sticky-h: var(--bars-h);
+    }
+
+    .key-paths-bar {
+      display: none;
+    }
+
+    .key-paths-track {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 4;
+      display: block;
+      width: 320px;
+      pointer-events: none;
+    }
   }
 
   /* The key code paths after the decisions: its steps read down a dimmed slice of one call tree. */
@@ -2867,7 +3038,7 @@
    */
   @media (pointer: coarse) and (max-height: 720px) {
     .app {
-      --sticky-h: calc(var(--topbar-h) + var(--subbar-h));
+      --bars-h: calc(var(--topbar-h) + var(--subbar-h));
     }
 
     .pull-head {

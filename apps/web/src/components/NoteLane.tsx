@@ -2,9 +2,8 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import type { CallFrame, FileSummary } from '@gloss/protocol';
 import { MessageCircleQuestionIcon, MessageSquarePlusIcon } from 'lucide-react';
-import { memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { lineRow } from '../lib/diff-dom.ts';
-import { callLocations } from '../lib/excerpt.ts';
 import { noteFrames, noteLines, type SideNote } from '../lib/side-notes.ts';
 import { splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
@@ -46,65 +45,51 @@ export interface NoteActions {
  * A group's decisions and walk stops as notes in a column beside its diffs, each next to the
  * lines it is about. A note rides with its lines; one whose lines are off screen waits at the
  * column's top or bottom edge as its title, so the column always lists what is above and below.
- * The key code path, in the group that reads it, stays at the column's top: the frame on screen
- * is marked, and each frame carries the numbers of the notes in it.
+ * The page's key code paths panel (`KeyPaths.tsx`) shares the column: notes wait below it.
  *
  * In a page too narrow for a column the notes are a list above the diffs.
  */
 export const NoteLane = memo(function NoteLane({
   notes,
   files,
-  groupFiles,
   filesBox,
   active,
   actions,
   onJumpToFile,
-  path,
+  frames,
+  panel,
+  reserve = 0,
 }: {
   notes: readonly SideNote[];
   files: ReadonlyMap<string, FileSummary>;
-  /** The ids of the group's files. */
-  groupFiles: readonly string[];
   /** The group's diffs, which the column sits beside. */
   filesBox: RefObject<HTMLDivElement | null>;
   /** The current note, when it is one of these. */
   active: string | undefined;
   actions: NoteActions;
   onJumpToFile: (fileId: string, line?: number) => void;
-  /** The key code path, when this group is where it is read. */
-  path?: readonly CallFrame[];
+  /** The calls of the key code paths: a note says which one its lines are in. */
+  frames?: readonly CallFrame[];
+  /** The key code paths panel, which stays over the top of the column. */
+  panel?: RefObject<HTMLElement | null>;
+  /** The room the panel takes at the column's top while it stays with the screen, in px. */
+  reserve?: number;
 }) {
   const lane = useRef<HTMLElement>(null);
   const topBox = useRef<HTMLDivElement>(null);
-  const rail = useRef<HTMLDivElement>(null);
   const wash = useRef<HTMLDivElement>(null);
   const heldLeader = useRef<SVGPathElement>(null);
   const cards = useRef(new Map<string, HTMLElement>());
   const anchors = useRef(new Map<string, HTMLElement>());
   const leaders = useRef(new Map<string, SVGPathElement>());
-  const frameRows = useRef(new Map<number, HTMLElement>());
   const spots = useRef(new Map<string, Spot>());
-  const frameTops = useRef(new Map<number, number>());
   const retries = useRef(0);
   const [side, setSide] = useState(false);
   const [pins, setPins] = useState<Pins>(NO_PINS);
 
-  const fileIds = useMemo(() => new Map([...files.values()].map((file) => [file.path, file.id])), [files]);
-  // The path's frames defined in this group's files: the ones the page can follow.
-  const here = useMemo(() => {
-    const own = new Set(groupFiles);
-    return new Map(
-      (path ?? []).flatMap((frame, index) => {
-        const fileId = frame.path === undefined ? undefined : fileIds.get(frame.path);
-        return fileId !== undefined && own.has(fileId) && frame.line !== undefined
-          ? [[index, { fileId, line: frame.line }] as const]
-          : [];
-      }),
-    );
-  }, [path, fileIds, groupFiles]);
   const inFrame = useMemo(
-    () => noteFrames(path ?? [], notes, (fileId) => files.get(fileId)?.path),
-    [path, notes, files],
+    () => noteFrames(frames ?? [], notes, (fileId) => files.get(fileId)?.path),
+    [frames, notes, files],
   );
 
   /** Reads where every note's lines are. Costly (it searches the diffs), so only when the page changes shape. */
@@ -134,12 +119,6 @@ export const NoteLane = memo(function NoteLane({
           ? { top: 0, height: 0, found: false }
           : lineSpot(note.fileId, note.from, note.to, note.side === 'deletions'),
       ]),
-    );
-    frameTops.current = new Map(
-      [...here].flatMap(([index, at]) => {
-        const row = lineRow(at.fileId, at.line);
-        return row ? [[index, row.getBoundingClientRect().top - origin] as const] : [];
-      }),
     );
     for (const note of notes) {
       const spot = spots.current.get(note.id)!;
@@ -185,18 +164,6 @@ export const NoteLane = memo(function NoteLane({
         wash.current.style.width = `${boxRect.width}px`;
       }
     }
-    if (rail.current) {
-      const middle = window.innerHeight / 2 - laneRect.top;
-      let on = -1;
-      for (const [index, top] of frameTops.current) {
-        if (top <= middle && top >= (frameTops.current.get(on) ?? -Infinity)) {
-          on = index;
-        }
-      }
-      for (const [index, row] of frameRows.current) {
-        row.toggleAttribute('data-active', index === on);
-      }
-    }
     if (!beside) {
       // The list is in normal flow: nothing a column layout left on the cards may move them.
       for (const element of cards.current.values()) {
@@ -214,7 +181,7 @@ export const NoteLane = memo(function NoteLane({
     const headRect = head.getBoundingClientRect();
     const stuck = headRect.top > laneRect.top + 0.5;
     const top: string[] = [];
-    let floor = (rail.current?.getBoundingClientRect().bottom ?? headRect.top - GAP) + GAP;
+    let floor = headRect.top;
     if (stuck) {
       for (const note of notes) {
         const spot = spots.current.get(note.id);
@@ -229,7 +196,12 @@ export const NoteLane = memo(function NoteLane({
     // The rest ride beside their lines, each below the one before it.
     const riding = notes.filter((note) => !top.includes(note.id));
     const tops = new Map<string, number>();
-    let next = stuck ? -Infinity : head.offsetHeight + (head.offsetHeight ? GAP : 0);
+    // Before the column's top is stuck, the panel can lie over it: the notes start below the panel.
+    const over = panel?.current?.getBoundingClientRect();
+    const under = over && over.height > 0 && over.bottom > laneRect.top && over.top < laneRect.bottom;
+    let next = stuck
+      ? -Infinity
+      : Math.max(head.offsetHeight + (head.offsetHeight ? GAP : 0), under ? over.bottom - laneRect.top + GAP : 0);
     for (const note of riding) {
       const spot = spots.current.get(note.id);
       const at = Math.max((spot?.top ?? 0) - (note.fileId === undefined ? 0 : LIFT), next);
@@ -332,7 +304,7 @@ export const NoteLane = memo(function NoteLane({
       }
     };
   const frameName = (note: SideNote) => {
-    const frame = path?.[inFrame.get(note.id) ?? -1];
+    const frame = frames?.[inFrame.get(note.id) ?? -1];
     return frame && `${frame.receiver ? `${frame.receiver}.` : ''}${frame.name}`;
   };
   const card = (note: SideNote, held: boolean) => (
@@ -353,22 +325,14 @@ export const NoteLane = memo(function NoteLane({
   const pinned = new Set([...pins.top, ...pins.bottom]);
 
   return (
-    <aside className="note-lane" ref={lane} data-side={side || undefined} aria-label="Notes on this group">
+    <aside
+      className="note-lane"
+      ref={lane}
+      data-side={side || undefined}
+      aria-label="Notes on this group"
+      style={reserve ? ({ '--paths-reserve': `${reserve}px` } as CSSProperties) : undefined}
+    >
       <div className="lane-top" ref={topBox}>
-        {path && path.length > 0 && (
-          <PathRail
-            box={rail}
-            frames={path}
-            here={here}
-            rows={frameRows}
-            notes={notes}
-            inFrame={inFrame}
-            fileIds={fileIds}
-            active={active}
-            onSelect={actions.select}
-            onJumpToFile={onJumpToFile}
-          />
-        )}
         {pins.top.map((id) => byId.get(id) && card(byId.get(id)!, true))}
       </div>
       <div className="lane-ride">
@@ -533,119 +497,5 @@ function NoteCard({
         </div>
       )}
     </article>
-  );
-}
-
-/**
- * The key code path as one call tree. A frame defined in this group's files is marked while
- * its code is on screen; any frame the change shows opens at its definition. A frame carries
- * the numbers of the notes on its lines.
- */
-function PathRail({
-  box,
-  frames,
-  here,
-  rows,
-  notes,
-  inFrame,
-  fileIds,
-  active,
-  onSelect,
-  onJumpToFile,
-}: {
-  box: RefObject<HTMLDivElement | null>;
-  frames: readonly CallFrame[];
-  here: ReadonlyMap<number, { fileId: string; line: number }>;
-  rows: RefObject<Map<number, HTMLElement>>;
-  notes: readonly SideNote[];
-  inFrame: ReadonlyMap<string, number>;
-  fileIds: ReadonlyMap<string, string>;
-  active: string | undefined;
-  onSelect: (id: string) => void;
-  onJumpToFile: (fileId: string, line?: number) => void;
-}) {
-  const locations = useMemo(() => callLocations(frames), [frames]);
-  const kinds = new Set(frames.map((frame) => frame.status));
-  return (
-    <div className="path-rail" ref={box}>
-      <div className="path-rail-head">
-        <span>Key code paths</span>
-        {kinds.has('changed') && (
-          <span className="path-rail-key">
-            <span className="walk-mark changed" />
-            changed
-          </span>
-        )}
-        {kinds.has('new') && (
-          <span className="path-rail-key">
-            <span className="walk-mark new" />
-            new
-          </span>
-        )}
-      </div>
-      <div className="path-rail-frames">
-        {frames.map((frame, index) => {
-          const fileId = frame.path === undefined ? undefined : fileIds.get(frame.path);
-          const location = locations[index]!;
-          const file = location.startsWith(':') ? '' : location.replace(/:\d+$/, '');
-          const name = (
-            <>
-              <span className={`walk-mark ${frame.status}`} />
-              <code className="walk-call">
-                {frame.receiver && `${frame.receiver}.`}
-                <b>{frame.name}</b>
-              </code>
-            </>
-          );
-          return (
-            <div
-              key={index}
-              className="path-rail-row"
-              data-here={here.has(index) || undefined}
-              style={{ paddingLeft: 6 + Math.min(frame.depth, 6) * 12 }}
-              ref={(element) => {
-                if (element) {
-                  rows.current.set(index, element);
-                } else {
-                  rows.current.delete(index);
-                }
-              }}
-            >
-              {fileId !== undefined ? (
-                <button
-                  type="button"
-                  className="path-rail-frame"
-                  title={frame.path}
-                  onClick={() => onJumpToFile(fileId, frame.line)}
-                >
-                  {name}
-                </button>
-              ) : (
-                <span className="path-rail-frame">{name}</span>
-              )}
-              {notes
-                .filter((note) => inFrame.get(note.id) === index)
-                .map((note) => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className="note-chip"
-                    data-current={note.id === active || undefined}
-                    title={note.title}
-                    onClick={() => onSelect(note.id)}
-                  >
-                    {note.level && <FlagIcon level={note.level} />}
-                    {note.n}
-                  </button>
-                ))}
-              <code className="walk-at">
-                {file}
-                <span>{location.slice(file.length)}</span>
-              </code>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }

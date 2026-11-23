@@ -26,10 +26,13 @@ import { OVERVIEW, STICKY_OFFSET } from './tour-view.ts';
 
 /**
  * The line a file or note must cross to count as "current": just below the sticky bars. Read from
- * the sub-bar, the last of them, since a short touch screen lets the PR head scroll away.
+ * the last of them, since a short touch screen lets the PR head scroll away.
  */
 function readingLine(): number {
-  return (document.querySelector('.subbar')?.getBoundingClientRect().bottom ?? STICKY_OFFSET) + 16;
+  const bars = document.querySelector('.subbar')?.getBoundingClientRect().bottom ?? STICKY_OFFSET;
+  // On a narrow page the key code paths are one more bar, once the groups are reached.
+  const paths = document.querySelector('.key-paths-bar')?.getBoundingClientRect();
+  return (paths && paths.height > 0 && paths.top <= bars + 1 ? paths.bottom : bars) + 16;
 }
 
 /** Input that means the reader is moving on their own, so a restored position stops being held. */

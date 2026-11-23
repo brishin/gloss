@@ -1,4 +1,5 @@
 import type {
+  CallFrame,
   Decision,
   DecisionPriority,
   FileSummary,
@@ -278,24 +279,40 @@ export function walkHomes(groups: readonly GroupView[]): Map<number, string> {
   return homes;
 }
 
-/** The group the key code path is read in, when a walk took it. */
-export function pathHome(groups: readonly GroupView[]): string | undefined {
-  return groups.find((group) => group.notes?.section?.path)?.key;
+/** The key code paths: each entry point (a frame at depth 0) with the calls under it, as frame indexes. */
+export function keyPaths(frames: readonly Pick<CallFrame, 'depth'>[]): number[][] {
+  const paths: number[][] = [];
+  frames.forEach((frame, index) => {
+    if (frame.depth === 0 || paths.length === 0) {
+      paths.push([]);
+    }
+    paths.at(-1)!.push(index);
+  });
+  return paths;
+}
+
+/** Whether the page shows the key code paths in their panel: some call is defined in a changed file. */
+export function pathsShown(tour: Pick<TourState, 'walkthrough' | 'files'>): boolean {
+  const changed = new Set(tour.files.map((file) => file.path));
+  return (tour.walkthrough?.frames ?? []).some((frame) => frame.path !== undefined && changed.has(frame.path));
 }
 
 /**
- * Whether the walkthrough has a stop of its own. The groups' walks read its decisions and its
- * code path, so it is a stop only for what no walk took: nothing while the walks are still
- * being written, and afterwards a decision or the code path that no walk took (its code is in
- * docs or tests groups, which have no walk, or a call failed).
+ * Whether the walkthrough has a stop of its own. The groups' walks read its decisions and the
+ * page's panel shows its code paths, so it is a stop only for what neither took: nothing while
+ * the walks are still being written, and afterwards a decision no walk took (its code is in docs
+ * or tests groups, which have no walk, or a call failed) or code paths with no call in the change.
  */
-export function hasWalkStop(tour: Pick<TourState, 'walkthrough' | 'stages'>, groups: readonly GroupView[]): boolean {
+export function hasWalkStop(
+  tour: Pick<TourState, 'walkthrough' | 'stages' | 'files'>,
+  groups: readonly GroupView[],
+): boolean {
   const walkthrough = tour.walkthrough;
   const writing = tour.stages.notes.state === 'pending' || tour.stages.notes.state === 'running';
   if (!walkthrough || writing) {
     return false;
   }
   const homes = walkHomes(groups);
-  const pathLeft = walkthrough.steps.length > 0 && !pathHome(groups);
+  const pathLeft = walkthrough.steps.length > 0 && !pathsShown(tour);
   return pathLeft || walkthrough.decisions.some((walk) => !homes.has(walk.decision));
 }
