@@ -570,7 +570,7 @@ Call the submit tool once with the result.`;
 
 export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the key code paths a code change adds or alters, before they read the change file by file: the paths a reviewer must follow to trust the change, not every path it touches. First draw them as indented call trees, then read the main one in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
 
-The paths: one for each separate flow a reviewer must follow, each from its own entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener). A change with one flow has one path; a change that reaches several features, layers, jobs or screens has a path for each, up to the number "Paths" gives. Prefer a second path over a deeper or wider first one, and list the paths in the order a reviewer should read them, the main one first. Leave out a path that only repeats another or that a reviewer would not need to follow.
+The paths: one for each separate flow a reviewer must follow, each from its own entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener). A change with one flow has one path. A change that reaches several features, layers, jobs, screens or platforms has a path for each: go through the changed source files, and when one holds new or changed logic that no path reaches yet, start a path at the entry point that reaches it, up to the number "Paths" gives. Prefer a second path over a deeper or wider first one, and list the paths in the order a reviewer should read them, the main one first. Leave out a path that only repeats another or that a reviewer would not need to follow.
 
 Each path is its own call tree with its own budget of 2-8 frames: its entry point at depth 0, then down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include the new or changed functions a reviewer must read to follow the path, and only the unchanged callers needed to connect them (status same). Keep each tree shallow: leave out logging, error helpers, framework plumbing, small getters and small helpers the steps explain, and leave out an unchanged function that only passes the call on, so what it calls sits one level under the frame that reaches it. A path is a call: an entry point with nothing under it is not a path, so leave it out. Show each function once: when a later path reaches a function an earlier path already shows, end that branch at the frame that calls it. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
 
@@ -586,7 +586,7 @@ Call the submit tool once with the frames and the steps.`;
  * The call path call's own version, so changing its prompt keeps the other calls' caches. The
  * path budget (`pathBudget`) is in the prompt itself.
  */
-export const CALL_PATH_VERSION = hashOf({ CALL_PATH_SYSTEM, TOTAL_BUDGET, FILE_BUDGET, schema: 2 }).slice(0, 12);
+export const CALL_PATH_VERSION = hashOf({ CALL_PATH_SYSTEM, TOTAL_BUDGET, FILE_BUDGET, schema: 3 }).slice(0, 12);
 
 /**
  * The description check: its own call beside define, so the define prompt and its cache stay
@@ -1138,7 +1138,7 @@ export function buildCallPathPrompt(
     header(meta),
     '',
     `## Paths: up to ${pathBudget(source)}`,
-    `The change has ${source} changed source ${source === 1 ? 'file' : 'files'}. Give only the paths a reviewer needs; fewer is fine.`,
+    `The change has ${source} changed source ${source === 1 ? 'file' : 'files'}. Give a path to each separate flow in them, up to that number.`,
     '',
     `## Files (${files.length})`,
     ...files.map(manifestLine),
