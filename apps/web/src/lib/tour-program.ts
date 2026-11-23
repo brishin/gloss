@@ -209,6 +209,9 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       );
     case 'ScrollToNote':
       return once(nextFrame.pipe(Effect.andThen(scrollToNote(cmd))));
+    case 'ReleaseNoteFocus':
+      // A frame later, so the page already marks the note the step went to.
+      return once(nextFrame.pipe(Effect.map(releaseNoteFocus)));
     case 'RestoreGroup':
       return once(restore(() => groupSection(cmd.key)));
     case 'RestoreFile':
@@ -458,6 +461,17 @@ const scrollToNote = (cmd: { id: string; fileId?: string; line?: number; deleted
     const anchor = noteAnchor(cmd.id) ?? (fileId === undefined ? null : fileSection(fileId));
     anchor?.scrollIntoView({ block: fileId === undefined ? 'start' : 'center', behavior: 'instant' });
   });
+
+const releaseNoteFocus = () => {
+  const focused = document.activeElement;
+  if (
+    focused instanceof HTMLElement &&
+    focused.closest('.note-lane, .key-paths, .key-paths-bar') &&
+    !focused.closest('[data-current]')
+  ) {
+    focused.blur();
+  }
+};
 
 /** About a second at 60fps: long enough for a highlighted hunk, short enough not to yank the page later. */
 const LINE_FRAMES = 60;
