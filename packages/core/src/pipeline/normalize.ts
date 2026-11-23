@@ -694,8 +694,9 @@ function normalizeDecisionWalks(
   return [...walks.values()].toSorted((a, b) => a.decision - b.decision);
 }
 
-/** Most frames a path's call tree keeps before it stops reading at a glance. */
-const MAX_FRAMES = 12;
+/** Most key paths a change keeps, and most frames each path keeps before it stops reading at a glance. */
+const MAX_PATHS = 6;
+const MAX_PATH_FRAMES = 10;
 
 type RawFrame = v.InferOutput<typeof CallPathResultSchema>['frames'][number];
 
@@ -704,49 +705,107 @@ type RawWalkthrough = Partial<
   v.InferOutput<typeof WalkthroughResultSchema> & v.InferOutput<typeof CallPathResultSchema>
 >;
 
+/** A frame read from the model's answer, and its position there, for steps to point by. */
+type ReadFrame = { index: number; frame: CallFrame };
+
 /**
- * A path's call tree, the trust boundary as for a decision's tree. Depths are made a tree, files
- * are known ids (or paths), and a line stays only where the diff shows it on the new side. Returns
- * why the tree is not worth walking, if it is not: one with no call in it is a list, and one that
- * touches nothing the change adds is plumbing.
+ * The key paths' call trees, the trust boundary as for a decision's tree. Depths are made a tree,
+ * files are known ids (or paths), and a line stays only where the diff shows it on the new side.
+ * Each depth-0 frame starts a path with its own frame cap. A function an earlier path shows (same
+ * file, receiver and name) is not shown again: it goes with the calls under it. A path with no call in it is a list, and one
+ * that touches nothing the change adds is plumbing, so both go. Returns why no path is worth
+ * walking, if none is.
  */
 function normalizeFrames(
   raw: readonly Partial<RawFrame>[],
   byKey: ReadonlyMap<string, FileChange>,
+  warnings: string[],
 ): { frames: CallFrame[]; kept: Map<number, number>; why?: string } {
-  const frames: CallFrame[] = [];
-  /** Each kept frame's position in `raw` to its position in `frames`, for steps to point by. */
-  const kept = new Map<number, number>();
-  for (const [index, frame] of raw.slice(0, MAX_FRAMES).entries()) {
+  const read: ReadFrame[] = [];
+  for (const [index, frame] of raw.entries()) {
     const name = clip(String(frame.name ?? ''), 48).replace(/\(.*$/, '');
     if (!name) {
       continue;
     }
-    kept.set(index, frames.length);
-    const depth = Math.min(Math.max(0, whole(frame.depth)), frames.length ? frames.at(-1)!.depth + 1 : 0, MAX_DEPTH);
+    const depth = Math.min(Math.max(0, whole(frame.depth)), read.length ? read.at(-1)!.frame.depth + 1 : 0, MAX_DEPTH);
     const file = byKey.get(String(frame.fileId ?? ''));
     const line = whole(frame.line);
     const shown = file?.hunks.some((hunk) => visibleLines(hunk).additions.has(line));
     const receiver = clip(String(frame.receiver ?? ''), 40).replace(/\.$/, '');
     const args = clip(String(frame.args ?? ''), 60).replace(/^\((.*)\)$/, '$1');
     const status = frame.status === 'new' || frame.status === 'changed' ? frame.status : 'same';
-    frames.push({
-      depth,
-      ...(receiver ? { receiver } : {}),
-      name,
-      ...(args ? { args } : {}),
-      ...(file ? { path: file.path } : {}),
-      ...(file && shown ? { line } : {}),
-      status,
+    read.push({
+      index,
+      frame: {
+        depth,
+        ...(receiver ? { receiver } : {}),
+        name,
+        ...(args ? { args } : {}),
+        ...(file ? { path: file.path } : {}),
+        ...(file && shown ? { line } : {}),
+        status,
+      },
     });
   }
-  if (!frames.some((frame) => frame.depth > 0)) {
-    return { frames, kept, why: 'its call tree has no calls, which a list says as well' };
+  const paths: ReadFrame[][] = [];
+  for (const entry of read) {
+    if (entry.frame.depth === 0) {
+      paths.push([]);
+    }
+    paths.at(-1)!.push(entry);
   }
-  if (!frames.some((frame) => frame.status !== 'same')) {
-    return { frames, kept, why: 'nothing on its call tree is new or changed' };
+
+  const frames: CallFrame[] = [];
+  /** Each kept frame's position in `raw` to its position in `frames`, for steps to point by. */
+  const kept = new Map<number, number>();
+  const seen = new Set<string>();
+  for (const path of paths) {
+    const root = path[0]!.frame.name;
+    if (frames.length && frames.filter((frame) => frame.depth === 0).length >= MAX_PATHS) {
+      warnings.push(`Dropped the call path at ${root}: the change has ${MAX_PATHS} already.`);
+      continue;
+    }
+    const own: ReadFrame[] = [];
+    /** The depth of a repeated frame whose calls go with it, while they last. */
+    let repeat = Infinity;
+    for (const entry of path) {
+      if (entry.frame.depth > repeat) {
+        continue;
+      }
+      repeat = Infinity;
+      // A function with no known file cannot be matched: two handlers elsewhere are not one.
+      const key = callKey(entry.frame);
+      if (key !== undefined && seen.has(key)) {
+        repeat = entry.frame.depth;
+        continue;
+      }
+      if (own.length === MAX_PATH_FRAMES) {
+        break;
+      }
+      own.push(entry);
+    }
+    if (own[0]?.frame.depth !== 0) {
+      warnings.push(`Dropped the call path at ${root}: an earlier path shows it.`);
+      continue;
+    }
+    if (!own.some((entry) => entry.frame.depth > 0)) {
+      warnings.push(`Dropped the call path at ${root}: it has no calls.`);
+      continue;
+    }
+    if (!own.some((entry) => entry.frame.status !== 'same')) {
+      warnings.push(`Dropped the call path at ${root}: nothing on it is new or changed.`);
+      continue;
+    }
+    for (const { index, frame } of own) {
+      kept.set(index, frames.length);
+      frames.push(frame);
+      const key = callKey(frame);
+      if (key !== undefined) {
+        seen.add(key);
+      }
+    }
   }
-  return { frames, kept };
+  return frames.length ? { frames, kept } : { frames, kept, why: 'no path in it calls new or changed code' };
 }
 
 const MAX_STEPS = 4;
@@ -857,7 +916,7 @@ function normalizePaths(
   if (!Array.isArray(raw.steps) || raw.steps.length === 0 || !Array.isArray(raw.frames) || raw.frames.length === 0) {
     return none;
   }
-  const { frames, kept, why } = normalizeFrames(raw.frames, byKey);
+  const { frames, kept, why } = normalizeFrames(raw.frames, byKey, warnings);
   if (why) {
     warnings.push(`Dropped the call path: ${why}.`);
     return none;

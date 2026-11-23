@@ -475,8 +475,8 @@ export const WalkthroughResultSchema = v.pipe(
 );
 
 /**
- * The key code paths, read beside the decisions: a call tree from an entry point a reviewer knows,
- * read in 2-4 steps with short excerpts. Its own call, because asked in the decisions call the
+ * The key code paths, read beside the decisions: a call tree per entry point a reviewer knows, each
+ * with its own frame budget, the main one read in 2-4 steps with short excerpts. Its own call, because asked in the decisions call the
  * model left it empty. `normalizeWalkthrough` checks it against the diff.
  */
 export const CallPathResultSchema = v.pipe(
@@ -509,7 +509,7 @@ export const CallPathResultSchema = v.pipe(
         }),
       ),
       v.description(
-        'The call tree of the key code paths, top down: each frame is followed by what it calls, one level deeper, in call order. 3-10 frames. Empty when the change adds or alters no key code path.',
+        'The key code paths as call trees, top down, one after another: each path starts at depth 0, and each frame is followed by what it calls, one level deeper, in call order. 2-8 frames per path. Empty when the change adds or alters no key code path.',
       ),
     ),
     steps: v.pipe(
@@ -568,17 +568,25 @@ Skip a decision that no code in the diff shows, such as a change to a process or
 
 Call the submit tool once with the result.`;
 
-export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the key code paths a code change adds or alters, before they read the change file by file: the paths a reviewer must follow to trust the change, not every path it touches. First draw them as an indented call tree, then read it in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
+export const CALL_PATH_SYSTEM = `You are a senior engineer walking a reviewer through the key code paths a code change adds or alters, before they read the change file by file: the paths a reviewer must follow to trust the change, not every path it touches. First draw them as indented call trees, then read the main one in order and show the code at each stop, so the reviewer sees how the pieces connect across files.
 
-The tree: start at an entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener) and go down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include the new or changed functions a reviewer must read to follow the path, and only the unchanged callers needed to connect them (status same). Keep the tree small and shallow, 3-10 frames: leave out logging, error helpers, framework plumbing, small getters and small helpers the step that calls them explains, and leave out an unchanged function that only passes the call on, so what it calls sits one level under the frame that reaches it. Use one entry point; use a second only when the change has a separate key path, and it starts again at depth 0. Leave out a path that only repeats another or that a reviewer would not need to follow. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
+The paths: one for each separate flow a reviewer must follow, each from its own entry point a reviewer knows (a route or RPC handler, a job, a command, a component, an event listener). A change with one flow has one path. A change that reaches several features, layers, jobs, screens or platforms has a path for each: go through the changed source files, and when one holds new or changed logic that no path reaches yet, start a path at the entry point that reaches it, up to the number "Paths" gives. Prefer a second path over a deeper or wider first one, and list the paths in the order a reviewer should read them, the main one first. Leave out a path that only repeats another or that a reviewer would not need to follow.
 
-The steps: 2-4 steps that follow the tree top down; a reviewer reads them above the full diffs, so each step points at the code rather than reprinting it. Each step names the frames it covers and shows one short slice of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them, under 15 lines. Add a second slice only when the step's call crosses into another file. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
+Each path is its own call tree with its own budget of 2-8 frames: its entry point at depth 0, then down to the new or changed functions it reaches; under each function, what it calls, in call order, one level deeper. Include the new or changed functions a reviewer must read to follow the path, and only the unchanged callers needed to connect them (status same). Keep each tree shallow: leave out logging, error helpers, framework plumbing, small getters and small helpers the steps explain, and leave out an unchanged function that only passes the call on, so what it calls sits one level under the frame that reaches it. A path is a call: an entry point with nothing under it is not a path, so leave it out. Show each function once: when a later path reaches a function an earlier path already shows, end that branch at the frame that calls it. Name functions as the code calls them: the receiver ("ScheduleCheck", "this.tools"), the method name, and its parameters as short names. Point each frame at the file id and the line number printed before its definition in the diff, or line 0 when the diff does not show it.
 
-When a diff is truncated or omitted, or the path runs through code the diff does not show, call read_file to follow it rather than guess. Frames and slices still point only at lines the diff prints; a frame you found by reading takes line 0.
+The steps: 2-4 steps that follow the main path top down; a reviewer reads them above the full diffs, so each step points at the code rather than reprinting it. Each step names the frames it covers and shows one short slice of the diff: the changed lines that do the work at that step (the call that hands off to the next frame, or the new logic in the callee) with a line or two around them, under 15 lines. Add a second slice only when the step's call crosses into another file. Say what each step does in the change and how it leads to the next; skip anything the overview already says. Point each slice at the file id, the hunk id from its "@@ hunk" header, and the new-file line numbers printed in the diff.
+
+When a diff is truncated or omitted, or a path runs through code the diff does not show, call read_file to follow it rather than guess. Frames and slices still point only at lines the diff prints; a frame you found by reading takes line 0.
 
 Return no frames and no steps only when the change has no key code path to walk: styling, copy, config, a dependency bump, docs, tests only, a schema or data change with no new callers, or a change inside one function.
 
 Call the submit tool once with the frames and the steps.`;
+
+/**
+ * The call path call's own version, so changing its prompt keeps the other calls' caches. The
+ * path budget (`pathBudget`) is in the prompt itself.
+ */
+export const CALL_PATH_VERSION = hashOf({ CALL_PATH_SYSTEM, TOTAL_BUDGET, FILE_BUDGET, schema: 3 }).slice(0, 12);
 
 /**
  * The description check: its own call beside define, so the define prompt and its cache stay
@@ -783,7 +791,6 @@ export const PROMPTS_VERSION = hashOf({
   NOTES_SYSTEM,
   SKETCH_SYSTEM,
   WALKTHROUGH_SYSTEM,
-  CALL_PATH_SYSTEM,
   TOTAL_BUDGET,
   FILE_BUDGET,
   /** How `groupBodies` shares the budget in notes and walk prompts; bump when that changes. */
@@ -1094,15 +1101,44 @@ export function buildWalkthroughPrompt(
   ].join('\n');
 }
 
-/** The change with numbered lines, so the call tree and excerpts can point at them, plus the tour so far. */
+/** Files that hold no code to call: data, config, styles, docs and media. */
+const NOT_CODE = /\.(json|jsonc|ya?ml|toml|ini|lock|md|mdx|txt|csv|css|scss|less|svg|png|jpe?g|gif|webp|ico|snap)$/i;
+
+/** A changed file with code a key path can run through: not removed, a test, generated or data. */
+export function isSource(file: FileChange): boolean {
+  return (
+    file.status !== 'removed' &&
+    !file.isBinary &&
+    !NOT_CODE.test(file.path) &&
+    !looksLikeTest(file.path) &&
+    collapsedReason(file) !== 'generated' &&
+    collapsedReason(file) !== 'snapshot' &&
+    !isGuidance(file)
+  );
+}
+
+/**
+ * How many key paths a change may have: two for a small change, one more for each five source
+ * files, at most six. Large changes flattened into one tree of about 9 frames when the whole
+ * tree had one budget, so most of their files had no frame.
+ */
+export function pathBudget(sourceFiles: number): number {
+  return Math.min(6, Math.max(2, 1 + Math.floor(sourceFiles / 5)));
+}
+
+/** The change with numbered lines, so the call trees and excerpts can point at them, plus the tour so far. */
 export function buildCallPathPrompt(
   meta: DiffMeta,
   files: readonly FileChange[],
   overallSummary: string,
   decisions: readonly { text: string }[],
 ): string {
+  const source = files.filter(isSource).length;
   return [
     header(meta),
+    '',
+    `## Paths: up to ${pathBudget(source)}`,
+    `The change has ${source} changed source ${source === 1 ? 'file' : 'files'}. Give a path to each separate flow in them, up to that number.`,
     '',
     `## Files (${files.length})`,
     ...files.map(manifestLine),

@@ -730,10 +730,76 @@ describe('normalizeWalkthrough call paths', () => {
     ]);
     // A tree with no calls is a list, and one with nothing new is plumbing.
     expect(walk({ frames: [frame(0, 'a', 'new'), frame(0, 'b', 'new')], steps }).warnings).toEqual([
-      'Dropped the call path: its call tree has no calls, which a list says as well.',
+      'Dropped the call path at a: it has no calls.',
+      'Dropped the call path at b: it has no calls.',
+      'Dropped the call path: no path in it calls new or changed code.',
     ]);
     expect(walk({ frames: [frame(0, 'a', 'same'), frame(1, 'b', 'same')], steps }).walkthrough).toBeUndefined();
     expect(walk({ frames: [], steps })).toEqual({ warnings: [] });
+  });
+
+  it('keeps each path with its own frame cap, and drops one-frame paths and repeated calls', () => {
+    const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
+    const deep = Array.from({ length: 12 }, (_, i) => frame(i === 0 ? 0 : 1, `a${i}`, 'new'));
+    const { walkthrough, warnings } = walk({
+      frames: [
+        ...deep,
+        // A second path: its own budget, so the first path's 12 frames do not crowd it out.
+        frame(0, 'b', 'same'),
+        frame(1, 'shared', 'new'),
+        frame(2, 'inner', 'new'),
+        frame(1, 'own', 'changed'),
+        // An entry point with nothing under it.
+        frame(0, 'lonely', 'new'),
+        // A path that only reaches a call shown above loses it, and the calls under it.
+        frame(0, 'c', 'same'),
+        frame(1, 'shared', 'new'),
+        frame(2, 'deeper', 'new'),
+        // A path whose entry point is shown above.
+        frame(0, 'b', 'same'),
+        frame(1, 'other', 'new'),
+      ],
+      steps: [step(at, [11, 12, 13]), step(at, [14, 15])],
+    });
+    expect(warnings).toEqual([
+      'Dropped the call path at lonely: it has no calls.',
+      'Dropped the call path at c: it has no calls.',
+      'Dropped the call path at b: an earlier path shows it.',
+    ]);
+    const names = walkthrough!.frames.map((frame) => frame.name);
+    expect(names).toEqual([...deep.slice(0, 10).map((frame) => frame.name), 'b', 'shared', 'inner', 'own']);
+    // Step frames follow the kept frames; the eleventh and twelfth frames of the first path are gone.
+    expect(walkthrough!.steps.map((step) => step.frames)).toEqual([
+      [10, 11],
+      [12, 13],
+    ]);
+  });
+
+  it('keeps paths whose same-named entry points have no known file', () => {
+    const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
+    const { walkthrough } = walk({
+      frames: [
+        frame(0, 'handler', 'same', ''),
+        frame(1, 'saveA', 'new'),
+        frame(0, 'handler', 'same', ''),
+        frame(1, 'saveB', 'new'),
+      ],
+      steps: [step(at), step(at)],
+    });
+    expect(walkthrough!.frames.map((frame) => frame.name)).toEqual(['handler', 'saveA', 'handler', 'saveB']);
+  });
+
+  it('keeps at most six paths', () => {
+    const at = [{ fileId: 'f1', hunkId: 'h1', from: 10, to: 13 }];
+    const { walkthrough, warnings } = walk({
+      frames: Array.from({ length: 8 }, (_, i) => [frame(0, `root${i}`, 'same'), frame(1, `call${i}`, 'new')]).flat(),
+      steps: [step(at), step(at)],
+    });
+    expect(walkthrough!.frames.filter((frame) => frame.depth === 0)).toHaveLength(6);
+    expect(warnings).toEqual([
+      'Dropped the call path at root6: the change has 6 already.',
+      'Dropped the call path at root7: the change has 6 already.',
+    ]);
   });
 
   it('follows step frames past a dropped unnamed frame', () => {
