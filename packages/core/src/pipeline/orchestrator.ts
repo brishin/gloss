@@ -86,6 +86,7 @@ import {
   buildSketchPrompt,
   buildWalkthroughPrompt,
   CALL_PATH_SYSTEM,
+  CALL_PATH_VERSION,
   CallPathResultSchema,
   DEFINE_SYSTEM,
   flaggedRisks,
@@ -164,6 +165,7 @@ export function tourCacheKey(
     kind: 'tour',
     PIPELINE_VERSION,
     PROMPTS_VERSION,
+    CALL_PATH_VERSION,
     DESCRIPTION_CHECK_VERSION,
     AFFECTED_VERSION,
     QUESTIONS_VERSION,
@@ -755,7 +757,9 @@ const tourProgram = Effect.fnUntraced(function* (
       const reading = reader();
       return cached(
         kind,
-        { PROMPTS_VERSION, model: models.define, prompt: walkPrompt },
+        kind === 'callpath'
+          ? { CALL_PATH_VERSION, model: models.define, prompt: walkPrompt }
+          : { PROMPTS_VERSION, model: models.define, prompt: walkPrompt },
         prompt(kind, { tier: 'define', system, prompt: walkPrompt, result, resultName: kind, tools: [reading.tool] }),
         models.define,
       ).pipe(

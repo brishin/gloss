@@ -1,6 +1,6 @@
 import type { FileChange } from '@gloss/protocol';
 import { describe, expect, it } from 'vitest';
-import { FILE_BUDGET, fileCaps, groupBodies, quotedGaps, TOTAL_BUDGET } from './prompts.ts';
+import { FILE_BUDGET, fileCaps, groupBodies, isSource, pathBudget, quotedGaps, TOTAL_BUDGET } from './prompts.ts';
 
 describe('quotedGaps', () => {
   const meta = {
@@ -81,5 +81,28 @@ describe('groupBodies', () => {
 
   it('gives a collapsed file no body', () => {
     expect(groupBodies([{ ...file('a', 5), isBinary: true }])).toEqual([undefined]);
+  });
+});
+
+describe('key path budget', () => {
+  it('gives two paths to a small change, one more per five source files, at most six', () => {
+    expect([0, 4, 9, 10, 15, 24, 25, 80].map(pathBudget)).toEqual([2, 2, 2, 3, 4, 5, 6, 6]);
+  });
+
+  it('counts only files with code a path can run through', () => {
+    const at = (path: string, status: FileChange['status'] = 'modified') =>
+      ({ id: path, path, status, additions: 1, deletions: 0, hunks: [] }) as unknown as FileChange;
+    const counted = [
+      at('src/api/route.ts'),
+      at('app/models.py'),
+      at('src/old.ts', 'removed'),
+      at('src/route.test.ts'),
+      at('package.json'),
+      at('pnpm-lock.yaml'),
+      at('README.md'),
+      at('src/styles.css'),
+      at('src/__snapshots__/a.snap'),
+    ].filter(isSource);
+    expect(counted.map((file) => file.path)).toEqual(['src/api/route.ts', 'app/models.py']);
   });
 });
