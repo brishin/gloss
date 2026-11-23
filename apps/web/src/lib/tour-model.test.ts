@@ -358,8 +358,11 @@ describe('notes', () => {
   });
 
   test('p walks them back', () => {
-    const [onLate] = run(noted(), { type: 'NoteSelected', id: 'a/d0' });
+    const [onLate, selected] = run(noted(), { type: 'NoteSelected', id: 'a/d0' });
     const [onEarly, cmds] = run(onLate, back);
+    // A step lets go of a clicked note's focus; the click itself keeps it.
+    expect(selected).not.toContainEqual({ type: 'ReleaseNoteFocus' });
+    expect(cmds).toContainEqual({ type: 'ReleaseNoteFocus' });
     expect(onEarly.activeNote).toBe('a/d1');
     expect(onEarly.activeFileId).toBe('f2');
     expect(cmds).toContainEqual({ type: 'ScrollToNote', id: 'a/d1', fileId: 'f2', line: 10, deleted: false });

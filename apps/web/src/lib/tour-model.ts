@@ -230,6 +230,11 @@ export type Cmd =
   | { type: 'ScrollToFile'; fileId: string; line?: number }
   /** Puts a note's first line mid-screen once its hunk has rendered; a note on no line shows its card. */
   | { type: 'ScrollToNote'; id: string; fileId?: string; line?: number; deleted?: boolean }
+  /**
+   * Takes the keyboard focus off a note or call that is not the current one: a clicked note keeps
+   * the focus, and its focus ring reads as a second current note after a step.
+   */
+  | { type: 'ReleaseNoteFocus' }
   /** Scrolls to the group or file and holds it there while the page above it still grows. */
   | { type: 'RestoreGroup'; key: string }
   | { type: 'RestoreFile'; fileId: string }
@@ -581,8 +586,10 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'FileJumped':
       return jump(model, msg.fileId, true, msg.line);
-    case 'StopStepped':
-      return stepStop(model, msg.by);
+    case 'StopStepped': {
+      const [stepped, cmds] = stepStop(model, msg.by);
+      return [stepped, cmds.length > 0 ? [...cmds, { type: 'ReleaseNoteFocus' }] : cmds];
+    }
     case 'NoteSelected': {
       const note = notesOf(model).find((candidate) => candidate.id === msg.id);
       return note ? jumpToNote(model, note) : [model, []];
