@@ -341,7 +341,7 @@ export const NoteLane = memo(function NoteLane({
       box={keep(cards, note.id)}
       note={note}
       current={note.id === active}
-      held={held || tight}
+      held={held || (tight && side)}
       files={files}
       actions={actions}
       onJumpToFile={onJumpToFile}

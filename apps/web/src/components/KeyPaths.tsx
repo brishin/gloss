@@ -203,7 +203,7 @@ export function KeyPaths({
             frames={frames}
             path={path}
             only={cut ? way : undefined}
-            open={cut || index === current || held.has(index)}
+            open={cut || (short && all) || index === current || held.has(index)}
             on={on}
             fileIds={fileIds}
             notes={notes}
