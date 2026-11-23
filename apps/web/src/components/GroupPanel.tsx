@@ -3,7 +3,7 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import type { DiffPayload, FileChange, FileNote, GroupView, LineNote, ReviewThread, TourState } from '@gloss/protocol';
-import { memo, useCallback, type RefObject, useMemo, useRef } from 'react';
+import { memo, type RefObject, useMemo, useRef } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
 import type { SideNote } from '../lib/side-notes.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
@@ -59,12 +59,7 @@ export const GroupPanel = memo(function GroupPanel({
   /** The group's notes, numbered down the whole tour (`sideNotes`). */
   notes: readonly SideNote[];
   /** The page's key code paths panel, when it is shown: every group then keeps the column for it. */
-  paths?: {
-    panel: RefObject<HTMLDivElement | null>;
-    reserve: number;
-    full: number;
-    onTight: (groupKey: string, tight: boolean) => void;
-  };
+  paths?: { panel: RefObject<HTMLDivElement | null>; reserve: number };
   /** The current note, when it is one of this group's. */
   activeNote?: string;
   noteActions: NoteActions;
@@ -83,8 +78,6 @@ export const GroupPanel = memo(function GroupPanel({
     return byId;
   }, [controls.review.comments]);
   const threadList = controls.threads?.threads.list;
-  const tell = paths?.onTight;
-  const onTight = useCallback((tight: boolean) => tell?.(group.key, tight), [tell, group.key]);
   const threads = useMemo(() => {
     const byPath = new Map<string, ReviewThread[]>();
     for (const thread of threadList ?? []) {
@@ -195,8 +188,6 @@ export const GroupPanel = memo(function GroupPanel({
               onJumpToFile={onJumpToFile}
               panel={paths?.panel}
               reserve={paths?.reserve}
-              full={paths?.full}
-              onTight={onTight}
             />
           )}
         </div>

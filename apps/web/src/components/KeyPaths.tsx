@@ -8,10 +8,6 @@ import { FlagIcon } from './icons.tsx';
 
 /** The space between the panel and the notes that wait below it, in px. */
 const GAP = 6;
-/** The panel's parts, in px: what the whole panel needs is counted from them, whatever it shows now. */
-const HEAD = 32;
-const ROW = 24;
-const RULE = 5;
 
 const label = (frame: CallFrame) => `${frame.receiver ? `${frame.receiver}.` : ''}${frame.name}`;
 
@@ -22,8 +18,8 @@ const label = (frame: CallFrame) => `${frame.receiver ? `${frame.receiver}.` : '
  * path whose code is on screen is open and its call is marked; the others are one line until
  * opened. A call carries the numbers of the notes on its lines, from any group.
  *
- * While the group being read has more notes than the screen has room for (`short`), the panel
- * shows only the way to the call on screen: the calls above it and itself. "All calls" opens the rest.
+ * The panel shows only the way to the call on screen, so the notes below it keep their room: the
+ * entry point, the calls above the call, and the call. "All calls" opens every path.
  *
  * In a page too narrow for the column the paths are one line under the sub-bar that opens them.
  */
@@ -37,8 +33,7 @@ export function KeyPaths({
   activeNote,
   onSelectNote,
   onJumpToFile,
-  short,
-  onRoom,
+  onReserve,
 }: {
   frames: readonly CallFrame[];
   /** A changed file's id, by its path. */
@@ -53,13 +48,8 @@ export function KeyPaths({
   activeNote: string | undefined;
   onSelectNote: (id: string) => void;
   onJumpToFile: (fileId: string, line?: number) => void;
-  /** The notes of the group being read do not fit the screen: the panel keeps to the way to the call. */
-  short: boolean;
-  /**
-   * The room the panel takes at the column's top and the room it needs when it shows every path,
-   * in px; both 0 while the page has no column.
-   */
-  onRoom: (reserve: number, full: number) => void;
+  /** The room the panel takes at the column's top, in px; 0 while the page has no column. */
+  onReserve: (px: number) => void;
 }) {
   const paths = useMemo(() => keyPaths(frames), [frames]);
   const track = useRef<HTMLDivElement>(null);
@@ -71,19 +61,7 @@ export function KeyPaths({
   const on = (activeNote === undefined ? undefined : inFrame.get(activeNote)) ?? scrolled;
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
   const [all, setAll] = useState(false);
-  const trail = short && !all;
-  // The longest path open and the others as one line each: the same for every group, so the
-  // columns' answer to "do the notes fit" does not change as the reader moves between paths.
-  const full =
-    HEAD +
-    ROW * (Math.max(0, ...paths.map((path) => path.length)) + paths.length - 1) +
-    RULE * (paths.length - 1) +
-    GAP;
-  const room = useRef(() => {});
-  room.current = () => {
-    const height = panel.current?.offsetHeight ?? 0;
-    onRoom(height ? height + GAP : 0, height ? full : 0);
-  };
+  const trail = !all;
 
   const place = useRef(() => {});
   const measure = useRef(() => {});
@@ -126,7 +104,9 @@ export function KeyPaths({
     if (scope.current) {
       shape.observe(scope.current);
     }
-    const size = new ResizeObserver(() => room.current());
+    const size = new ResizeObserver(() =>
+      onReserve(panel.current?.offsetHeight ? panel.current.offsetHeight + GAP : 0),
+    );
     if (panel.current) {
       size.observe(panel.current);
     }
@@ -145,9 +125,9 @@ export function KeyPaths({
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
-      onRoom(0, 0);
+      onReserve(0);
     };
-  }, [scope, panel, onRoom]);
+  }, [scope, panel, onReserve]);
 
   // The path on screen; the first one before any of the paths' code is reached.
   const current = Math.max(
@@ -203,7 +183,7 @@ export function KeyPaths({
             frames={frames}
             path={path}
             only={cut ? way : undefined}
-            open={cut || (short && all) || index === current || held.has(index)}
+            open={cut || all || index === current || held.has(index)}
             on={on}
             fileIds={fileIds}
             notes={notes}
@@ -231,7 +211,7 @@ export function KeyPaths({
         <div className="key-paths" ref={panel}>
           <div className="key-paths-head">
             <span>Key code paths</span>
-            {short && (
+            {frames.length > 1 && (
               <button type="button" className="key-paths-all" aria-expanded={all} onClick={() => setAll(!all)}>
                 {all ? 'Less' : `All ${frames.length} calls`}
               </button>
