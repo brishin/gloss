@@ -202,7 +202,7 @@ describe("the walkthrough read in the groups' walks", () => {
       'walkthrough' | 'stages' | 'files'
     >;
   const steps = [{ excerpts: [at('f1'), at('f3')] }, { excerpts: [at('f3')] }];
-  const call = (path?: string) => ({ depth: 0, name: 'run', status: 'changed', path });
+  const call = (path?: string, depth = 0) => ({ depth, name: 'run', status: 'changed', path });
 
   test('a decision is read in the group whose walk placed it', () => {
     expect([...walkHomes([group('a', [0]), group('b'), group('c', [2, 3])])]).toEqual([
@@ -212,16 +212,22 @@ describe("the walkthrough read in the groups' walks", () => {
     ]);
   });
 
-  test('each entry point starts a key code path', () => {
-    expect(keyPaths([0, 1, 2, 0, 0, 1].map((depth) => ({ depth })))).toEqual([[0, 1, 2], [3], [4, 5]]);
+  test('each entry point with calls under it starts a key code path', () => {
+    // A lone entry point is not a path.
+    expect(keyPaths([0, 1, 2, 0, 0, 1].map((depth) => ({ depth })))).toEqual([
+      [0, 1, 2],
+      [4, 5],
+    ]);
     // A list that does not start at an entry point is still one path.
     expect(keyPaths([1, 2].map((depth) => ({ depth })))).toEqual([[0, 1]]);
     expect(keyPaths([])).toEqual([]);
   });
 
   test('the panel shows the code paths when a call is in a changed file', () => {
-    expect(pathsShown(tour({ frames: [call(), call('a.ts')] }, 'done'))).toBe(true);
-    expect(pathsShown(tour({ frames: [call(), call('other.ts')] }, 'done'))).toBe(false);
+    expect(pathsShown(tour({ frames: [call(), call('a.ts', 1)] }, 'done'))).toBe(true);
+    expect(pathsShown(tour({ frames: [call(), call('other.ts', 1)] }, 'done'))).toBe(false);
+    // The changed file's call is a lone entry point, which the panel does not show.
+    expect(pathsShown(tour({ frames: [call('a.ts'), call(), call('other.ts', 1)] }, 'done'))).toBe(false);
     expect(pathsShown(tour(undefined, 'done'))).toBe(false);
   });
 
@@ -229,11 +235,13 @@ describe("the walkthrough read in the groups' walks", () => {
     // While the walks are written, nothing is a stop of its own: each decision moves into its group.
     ['running', [group('a'), group('b')], [walk(0)], [], [], false],
     // The panel shows the code paths, so they are not a stop.
-    ['done', [group('a', [0]), group('b', [1])], [walk(0), walk(1)], [call('a.ts')], steps, false],
+    ['done', [group('a', [0]), group('b', [1])], [walk(0), walk(1)], [call(), call('a.ts', 1)], steps, false],
+    // Lone calls are not paths, so they make no stop.
+    ['done', [group('a', [0])], [walk(0)], [call('a.ts'), call()], steps, false],
     // A decision no walk placed (a failed call, or its code is all in docs and tests) stays a stop.
     ['done', [group('a', [0]), group('b')], [walk(0), walk(1)], [], [], true],
     // So do code paths with no call in the change, which the panel cannot follow.
-    ['done', [group('a', [0])], [walk(0)], [call()], steps, true],
+    ['done', [group('a', [0])], [walk(0)], [call(), call(undefined, 1)], steps, true],
     // A walk that placed nothing takes nothing.
     ['done', [group('a', [])], [walk(0)], [], [], true],
     ['failed', [group('a'), group('b')], [walk(0)], [], [], true],

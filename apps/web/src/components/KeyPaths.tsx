@@ -197,7 +197,8 @@ export function KeyPaths({
       )}
     </div>
   );
-  const kinds = new Set(frames.map((entry) => entry.status));
+  const calls = paths.flat();
+  const kinds = new Set(calls.map((index) => frames[index]!.status));
   return (
     <>
       <details className="key-paths-bar" ref={bar}>
@@ -211,9 +212,9 @@ export function KeyPaths({
         <div className="key-paths" ref={panel}>
           <div className="key-paths-head">
             <span>Key code paths</span>
-            {frames.length > 1 && (
+            {calls.length > 1 && (
               <button type="button" className="key-paths-all" aria-expanded={all} onClick={() => setAll(!all)}>
-                {all ? 'Less' : `All ${frames.length} calls`}
+                {all ? 'Less' : `All ${calls.length} calls`}
               </button>
             )}
             {!trail && kinds.has('changed') && (
@@ -277,11 +278,12 @@ function Path({
         const fileId = frame.path === undefined ? undefined : fileIds.get(frame.path);
         const location = locations[at]!;
         const file = location.startsWith(':') ? '' : location.replace(/:\d+$/, '');
+        const here = notes.filter((note) => inFrame.get(note.id) === index);
         const name = (
           <>
             <span className={`walk-mark ${frame.status}`} />
             <code className="walk-call">
-              {frame.receiver && `${frame.receiver}.`}
+              {frame.receiver && <span>{frame.receiver}.</span>}
               <b>{frame.name}</b>
             </code>
           </>
@@ -316,28 +318,30 @@ function Path({
             ) : (
               <span className="key-path-call">{name}</span>
             )}
-            {notes
-              .filter((note) => inFrame.get(note.id) === index)
-              .map((note) => (
-                <button
-                  key={note.id}
-                  type="button"
-                  className="note-chip"
-                  data-current={note.id === activeNote || undefined}
-                  title={note.title}
-                  onClick={() => onSelectNote(note.id)}
-                >
-                  {note.level && <FlagIcon level={note.level} />}
-                  {note.n}
-                </button>
-              ))}
-            {open || path.length === 1 ? (
+            {open ? (
               <code className="walk-at">
                 {file}
                 <span>{location.slice(file.length)}</span>
               </code>
             ) : (
               <span className="key-path-count">{path.length} calls</span>
+            )}
+            {here.length > 0 && (
+              <span className="key-path-notes">
+                {here.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="note-chip"
+                    data-current={note.id === activeNote || undefined}
+                    title={note.title}
+                    onClick={() => onSelectNote(note.id)}
+                  >
+                    {note.level && <FlagIcon level={note.level} />}
+                    {note.n}
+                  </button>
+                ))}
+              </span>
             )}
           </div>
         );

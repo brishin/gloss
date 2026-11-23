@@ -16,6 +16,8 @@ const GAP = 2;
 const CARD_GAP = 6;
 /** A note's top sits this far above its first line, so its title is level with the line. */
 const LIFT = 5;
+/** Chips whose lines start closer than this share a line, in px. */
+const CHIP = 18;
 /** Where a note's leader meets it, below its top. */
 const HEAD = 15;
 
@@ -121,6 +123,7 @@ export const NoteLane = memo(function NoteLane({
           : lineSpot(note.fileId, note.from, note.to, note.side === 'deletions'),
       ]),
     );
+    const chips: { chip: HTMLElement; top: number }[] = [];
     for (const note of notes) {
       const spot = spots.current.get(note.id)!;
       const anchor = anchors.current.get(note.id);
@@ -128,6 +131,18 @@ export const NoteLane = memo(function NoteLane({
         anchor.style.top = `${spot.top}px`;
         anchor.style.height = `${spot.height}px`;
       }
+      const chip = anchor?.firstElementChild;
+      if (chip instanceof HTMLElement) {
+        chips.push({ chip, top: spot.top });
+      }
+    }
+    // Notes that start on one line put their chips side by side, the last one nearest the code.
+    chips.sort((one, other) => one.top - other.top);
+    for (let index = chips.length - 1, reach = 0; index >= 0; index--) {
+      const { chip, top } = chips[index]!;
+      const next = chips[index + 1];
+      reach = next && next.top - top < CHIP ? reach + next.chip.offsetWidth + 2 : 0;
+      chip.style.setProperty('--shift', `${reach}px`);
     }
     // A file just opened draws its rows over a few frames.
     if (waiting && retries.current < 90) {

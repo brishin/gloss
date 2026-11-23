@@ -279,7 +279,10 @@ export function walkHomes(groups: readonly GroupView[]): Map<number, string> {
   return homes;
 }
 
-/** The key code paths: each entry point (a frame at depth 0) with the calls under it, as frame indexes. */
+/**
+ * The key code paths: each entry point (a frame at depth 0) with the calls under it, as frame indexes.
+ * An entry point with no calls under it is not a path: one call says nothing the diff does not.
+ */
 export function keyPaths(frames: readonly Pick<CallFrame, 'depth'>[]): number[][] {
   const paths: number[][] = [];
   frames.forEach((frame, index) => {
@@ -288,13 +291,16 @@ export function keyPaths(frames: readonly Pick<CallFrame, 'depth'>[]): number[][
     }
     paths.at(-1)!.push(index);
   });
-  return paths;
+  return paths.filter((path) => path.length > 1);
 }
 
-/** Whether the page shows the key code paths in their panel: some call is defined in a changed file. */
+/** Whether the page shows the key code paths in their panel: some path has a call defined in a changed file. */
 export function pathsShown(tour: Pick<TourState, 'walkthrough' | 'files'>): boolean {
   const changed = new Set(tour.files.map((file) => file.path));
-  return (tour.walkthrough?.frames ?? []).some((frame) => frame.path !== undefined && changed.has(frame.path));
+  const frames = tour.walkthrough?.frames ?? [];
+  return keyPaths(frames).some((path) =>
+    path.some((index) => frames[index]!.path !== undefined && changed.has(frames[index]!.path!)),
+  );
 }
 
 /**
@@ -313,6 +319,7 @@ export function hasWalkStop(
     return false;
   }
   const homes = walkHomes(groups);
-  const pathLeft = walkthrough.steps.length > 0 && !pathsShown(tour);
+  // Lone calls are not paths: neither the panel nor the stop shows them.
+  const pathLeft = walkthrough.steps.length > 0 && keyPaths(walkthrough.frames).length > 0 && !pathsShown(tour);
   return pathLeft || walkthrough.decisions.some((walk) => !homes.has(walk.decision));
 }
