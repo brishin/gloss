@@ -1,4 +1,4 @@
-import { Repos } from '@gloss/core';
+import { type Inbox, Repos } from '@gloss/core';
 import { type RecentTour, serializeRef } from '@gloss/protocol';
 import { Cause, Clock, Context, Effect, Fiber, Layer, Stream } from 'effect';
 import { Jobs } from './jobs.ts';
@@ -20,7 +20,16 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
 /**
- * The open review requests to tour now: each PR the first time it is seen, and again when its
+ * The PRs the background tours follow: the open review requests, then the open PRs by others
+ * already reviewed (a push after a review no longer asks for it, but is the next thing read).
+ */
+export function watchedPrs(inbox: Inbox): RecentTour[] {
+  const requested = new Set(inbox.reviewRequested.map((pr) => serializeRef(pr.ref)));
+  return [...inbox.reviewRequested, ...inbox.reviewed.filter((pr) => !requested.has(serializeRef(pr.ref)))];
+}
+
+/**
+ * The watched PRs to tour now: each PR the first time it is seen, and again when its
  * `updatedAt` moves (a push, or any other activity: an unchanged head replays the cached tour at
  * once). Drafts, PRs in the merge queue and PRs idle for longer than `maxAgeMs` are left out.
  * `seen` maps `serializeRef` to the `updatedAt` last toured.
@@ -41,10 +50,10 @@ export function dueTours(
 }
 
 /**
- * Tours every PR that asks for the `gh` login's review in the background while it is switched
- * on, so the tour is ready (cached for its head) when it is opened. Reads the inbox every
- * `intervalMs`, on its own schedule, into a queue in the inbox's order (most recently updated
- * first), so a new request goes ahead of an older backlog. A worker tours the queue one PR at a
+ * Tours every PR that asks for the `gh` login's review, or that they reviewed and is still open
+ * (see `watchedPrs`), in the background while it is switched on, so the tour is ready (cached for its head) when it is opened. Reads the inbox every
+ * `intervalMs`, on its own schedule, into a queue in the inbox's order (review requests first,
+ * each list most recently updated first), so a new request goes ahead of an older backlog. A worker tours the queue one PR at a
  * time, and only while no other tour runs: a tour you open always goes first. Each tour is an
  * ordinary job: opening the PR while it runs attaches to it. A failed tour is not retried until
  * the PR changes. Switching it off stops following the current tour, which then runs on only if
@@ -101,17 +110,18 @@ const makeAutoTours = Effect.fnUntraced(function* (options: AutoToursOptions) {
     );
 
   const discover = Effect.gen(function* () {
-    const requested = (yield* repos.inbox)?.reviewRequested;
-    if (!requested) {
+    const inbox = yield* repos.inbox;
+    if (!inbox) {
       return;
     }
-    const open = new Set(requested.map((pr) => serializeRef(pr.ref)));
+    const watched = watchedPrs(inbox);
+    const open = new Set(watched.map((pr) => serializeRef(pr.ref)));
     for (const key of seen.keys()) {
       if (!open.has(key)) {
         seen.delete(key);
       }
     }
-    queue = dueTours(requested, seen, yield* Clock.currentTimeMillis, maxAgeMs);
+    queue = dueTours(watched, seen, yield* Clock.currentTimeMillis, maxAgeMs);
   });
 
   const read = discover.pipe(

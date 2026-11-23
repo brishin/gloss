@@ -6,7 +6,7 @@ import type { RecentTour, SourceRef, TourEventBody } from '@gloss/protocol';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, test } from 'vitest';
-import { AutoTours, dueTours } from './auto-tours.ts';
+import { AutoTours, dueTours, watchedPrs } from './auto-tours.ts';
 import { Jobs, type RunTour } from './jobs.ts';
 
 const NOW = Date.parse('2026-11-20T12:00:00Z');
@@ -38,6 +38,13 @@ describe('dueTours', () => {
   });
 });
 
+describe('watchedPrs', () => {
+  test('follows review requests first, then PRs already reviewed, each once', () => {
+    const inbox: Inbox = { reviewRequested: [pr(2), pr(1)], reviewed: [pr(3), pr(1)], authored: [pr(4)] };
+    expect(watchedPrs(inbox).map((tour) => (tour.ref as { number: number }).number)).toEqual([2, 1, 3]);
+  });
+});
+
 const started = (ref: SourceRef): TourEventBody => ({
   type: 'job.started',
   ref,
@@ -66,7 +73,9 @@ function harness(enabled: boolean, tourMs = 60_000) {
         ),
       ),
     );
-  const box = { inbox: { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], authored: [pr(4)] } as Inbox };
+  const box = {
+    inbox: { reviewRequested: [pr(1), pr(2), pr(3, { state: 'draft' })], reviewed: [], authored: [pr(4)] } as Inbox,
+  };
   const repos = Layer.succeed(Repos, { inbox: Effect.sync(() => box.inbox) } as unknown as Repos['Service']);
   const jobs = Jobs.layer({ run, idleAbortMs: 1_000 }).pipe(
     Layer.provide(
@@ -102,6 +111,24 @@ describe('AutoTours', () => {
       yield* TestClock.adjust(5 * 60_000);
       expect(toured).toEqual([1, 2]);
       box.inbox = { ...box.inbox, reviewRequested: [pr(2, { updatedAt: new Date(NOW).toISOString() }), pr(1)] };
+      yield* TestClock.adjust(5 * 60_000);
+      yield* TestClock.adjust(60_000);
+      expect(toured).toEqual([1, 2, 2]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect('tours a push to a PR already reviewed, which no longer asks for review', () => {
+    const { toured, box, layer } = harness(true);
+    return Effect.gen(function* () {
+      yield* TestClock.adjust(1);
+      yield* TestClock.adjust(2 * 60_000);
+      expect(toured).toEqual([1, 2]);
+      // #2 is reviewed, so GitHub drops the request; then its author pushes.
+      box.inbox = {
+        ...box.inbox,
+        reviewRequested: [pr(1)],
+        reviewed: [pr(2, { updatedAt: new Date(NOW).toISOString() })],
+      };
       yield* TestClock.adjust(5 * 60_000);
       yield* TestClock.adjust(60_000);
       expect(toured).toEqual([1, 2, 2]);

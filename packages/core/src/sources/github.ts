@@ -254,9 +254,14 @@ const INBOX_LIMIT = 50;
 const INBOX_FIELDS =
   'nodes { ... on PullRequest { number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName repository { owner { login } name } } }';
 
-/** One GraphQL query for the open PRs that ask for the viewer's review and the open PRs they wrote. */
+/**
+ * One GraphQL query for the open PRs that ask for the viewer's review, the open PRs by others
+ * they have already reviewed (GitHub drops the review request once they review, so a push after
+ * it is only found here), and the open PRs they wrote.
+ */
 export const INBOX_QUERY = `query {
   review: search(query: "is:pr is:open archived:false review-requested:@me sort:updated-desc", type: ISSUE, first: ${INBOX_LIMIT}) { ${INBOX_FIELDS} }
+  reviewed: search(query: "is:pr is:open archived:false reviewed-by:@me -author:@me sort:updated-desc", type: ISSUE, first: ${INBOX_LIMIT}) { ${INBOX_FIELDS} }
   authored: search(query: "is:pr is:open archived:false author:@me sort:updated-desc", type: ISSUE, first: ${INBOX_LIMIT}) { ${INBOX_FIELDS} }
 }`;
 
@@ -273,11 +278,15 @@ interface InboxNode {
   repository: { owner: { login: string }; name: string };
 }
 
-export type InboxJson = { data: { review: { nodes: InboxNode[] }; authored: { nodes: InboxNode[] } } };
+export type InboxJson = {
+  data: { review: { nodes: InboxNode[] }; reviewed: { nodes: InboxNode[] }; authored: { nodes: InboxNode[] } };
+};
 
-/** The viewer's open PRs and the open PRs waiting on their review, newest first, each in its stack. */
+/** The viewer's open PRs and the open PRs by others waiting on, or already given, their review, newest first, each in its stack. */
 export interface Inbox {
   reviewRequested: RecentTour[];
+  /** Open PRs by others the viewer has reviewed, whether or not they ask again. */
+  reviewed: RecentTour[];
   authored: RecentTour[];
 }
 
@@ -344,5 +353,9 @@ export async function githubInbox(
   query: () => Promise<InboxJson> = () => ghJson(['graphql', '-f', `query=${INBOX_QUERY}`], signal),
 ): Promise<Inbox> {
   const { data } = await query();
-  return { reviewRequested: inboxTours(data.review.nodes), authored: inboxTours(data.authored.nodes) };
+  return {
+    reviewRequested: inboxTours(data.review.nodes),
+    reviewed: inboxTours(data.reviewed.nodes),
+    authored: inboxTours(data.authored.nodes),
+  };
 }
