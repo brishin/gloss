@@ -1,10 +1,10 @@
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import type { CallFrame, FileSummary } from '@gloss/protocol';
+import type { FileSummary } from '@gloss/protocol';
 import { MessageCircleQuestionIcon, MessageSquarePlusIcon } from 'lucide-react';
-import { type CSSProperties, memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, memo, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { lineRow } from '../lib/diff-dom.ts';
-import { noteFrames, noteLines, type SideNote } from '../lib/side-notes.ts';
+import type { SideNote } from '../lib/side-notes.ts';
 import { splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
 import { inlineCode } from './Walkthrough.tsx';
@@ -12,6 +12,11 @@ import { inlineCode } from './Walkthrough.tsx';
 /** A note held at the column's edge is one line: its height and the space between notes, in px. */
 const PIN = 30;
 const GAP = 6;
+/** The same for a tight column, where a waiting note is a line with no box. */
+const ROW = 22;
+const ROW_GAP = 2;
+/** The least room the open note is given when the column decides whether its notes fit, in px. */
+const OPEN = 160;
 /** A note's top sits this far above its first line, so its title is level with the line. */
 const LIFT = 5;
 /** Where a note's leader meets it, below its top. */
@@ -47,6 +52,10 @@ export interface NoteActions {
  * column's top or bottom edge as its title, so the column always lists what is above and below.
  * The page's key code paths panel (`KeyPaths.tsx`) shares the column: notes wait below it.
  *
+ * When the screen is too short for the panel, one open note and every other note as a card, the
+ * column is tight: a waiting note is one line with no box. That depends on the screen and the
+ * group only, never on the scroll position, so the notes do not change shape while they are read.
+ *
  * In a page too narrow for a column the notes are a list above the diffs.
  */
 export const NoteLane = memo(function NoteLane({
@@ -56,9 +65,10 @@ export const NoteLane = memo(function NoteLane({
   active,
   actions,
   onJumpToFile,
-  frames,
   panel,
   reserve = 0,
+  full = 0,
+  onTight,
 }: {
   notes: readonly SideNote[];
   files: ReadonlyMap<string, FileSummary>;
@@ -68,12 +78,14 @@ export const NoteLane = memo(function NoteLane({
   active: string | undefined;
   actions: NoteActions;
   onJumpToFile: (fileId: string, line?: number) => void;
-  /** The calls of the key code paths: a note says which one its lines are in. */
-  frames?: readonly CallFrame[];
   /** The key code paths panel, which stays over the top of the column. */
   panel?: RefObject<HTMLElement | null>;
   /** The room the panel takes at the column's top while it stays with the screen, in px. */
   reserve?: number;
+  /** The room the whole panel needs, whatever it shows now: what the column counts on when it asks if the notes fit. */
+  full?: number;
+  /** Told when the column becomes tight or roomy, so the panel can make room too. */
+  onTight?: (tight: boolean) => void;
 }) {
   const lane = useRef<HTMLElement>(null);
   const topBox = useRef<HTMLDivElement>(null);
@@ -86,11 +98,15 @@ export const NoteLane = memo(function NoteLane({
   const retries = useRef(0);
   const [side, setSide] = useState(false);
   const [pins, setPins] = useState<Pins>(NO_PINS);
+  const [tight, setTight] = useState(false);
+  const [settled, setSettled] = useState(false);
+  /** The tallest an open note has been: the column stays tight once one did not fit. */
+  const tallest = useRef(OPEN);
+  const pin = tight ? ROW : PIN;
+  const gap = tight ? ROW_GAP : GAP;
 
-  const inFrame = useMemo(
-    () => noteFrames(frames ?? [], notes, (fileId) => files.get(fileId)?.path),
-    [frames, notes, files],
-  );
+  useEffect(() => onTight?.(tight && side), [onTight, tight, side]);
+  useEffect(() => () => onTight?.(false), [onTight]);
 
   /** Reads where every note's lines are. Costly (it searches the diffs), so only when the page changes shape. */
   const measure = () => {
@@ -177,9 +193,20 @@ export const NoteLane = memo(function NoteLane({
       return;
     }
 
+    // Do the notes fit as cards? Counted from the screen's height, not from where the page is.
+    const headRect = head.getBoundingClientRect();
+    const open = active === undefined ? undefined : cards.current.get(active);
+    tallest.current = Math.max(tallest.current, open?.offsetHeight ?? 0);
+    const bars = Number.parseFloat(getComputedStyle(head).top) - reserve;
+    const room = window.innerHeight - (Number.isFinite(bars) ? bars : 0) - full - 8;
+    const crowded = notes.length > 1 && tallest.current + (notes.length - 1) * (PIN + GAP) > room;
+    if (crowded !== tight) {
+      setTight(crowded);
+      return;
+    }
+
     // Notes whose lines went above the column's stuck top wait there, in order, as titles.
     // The current note waits there too, still open, while its lines are on screen.
-    const headRect = head.getBoundingClientRect();
     const stuck = headRect.top > laneRect.top + 0.5;
     const top: string[] = [];
     let floor = headRect.top;
@@ -190,7 +217,7 @@ export const NoteLane = memo(function NoteLane({
           break;
         }
         top.push(note.id);
-        floor += (pins.top.includes(note.id) ? (cards.current.get(note.id)?.offsetHeight ?? PIN) : PIN) + GAP;
+        floor += (pins.top.includes(note.id) ? (cards.current.get(note.id)?.offsetHeight ?? pin) : pin) + gap;
       }
     }
 
@@ -202,20 +229,20 @@ export const NoteLane = memo(function NoteLane({
     const under = over && over.height > 0 && over.bottom > laneRect.top && over.top < laneRect.bottom;
     let next = stuck
       ? -Infinity
-      : Math.max(head.offsetHeight + (head.offsetHeight ? GAP : 0), under ? over.bottom - laneRect.top + GAP : 0);
+      : Math.max(head.offsetHeight + (head.offsetHeight ? gap : 0), under ? over.bottom - laneRect.top + GAP : 0);
     for (const note of riding) {
       const spot = spots.current.get(note.id);
       const at = Math.max((spot?.top ?? 0) - (note.fileId === undefined ? 0 : LIFT), next);
       tops.set(note.id, at);
-      const height = pins.bottom.includes(note.id) ? PIN : (cards.current.get(note.id)?.offsetHeight ?? PIN);
-      next = at + height + GAP;
+      const height = pins.bottom.includes(note.id) ? pin : (cards.current.get(note.id)?.offsetHeight ?? pin);
+      next = at + height + gap;
     }
 
     // Notes that start below the screen wait at its bottom edge as titles.
     const bottom: string[] = [];
     const limit = Math.min(window.innerHeight, laneRect.bottom) - 8;
     for (const note of riding.toReversed()) {
-      if (note.id === active || laneRect.top + tops.get(note.id)! + PIN <= limit - bottom.length * (PIN + GAP)) {
+      if (note.id === active || laneRect.top + tops.get(note.id)! + pin <= limit - bottom.length * (pin + gap)) {
         break;
       }
       bottom.unshift(note.id);
@@ -252,7 +279,11 @@ export const NoteLane = memo(function NoteLane({
         leader.setAttribute('d', `M0 ${from}H14V${at + HEAD}H28`);
       }
     }
-    column.style.minHeight = `${Math.ceil(end + bottom.length * (PIN + GAP) + 8)}px`;
+    column.style.minHeight = `${Math.ceil(end + bottom.length * (pin + gap) + 8)}px`;
+    // From here on a note that is pushed slides to its new place; the first placing is not a move.
+    if (!settled) {
+      requestAnimationFrame(() => setSettled(true));
+    }
   };
 
   const layout = useRef((_full: boolean) => {});
@@ -304,19 +335,13 @@ export const NoteLane = memo(function NoteLane({
         map.current.delete(key);
       }
     };
-  const frameName = (note: SideNote) => {
-    const frame = frames?.[inFrame.get(note.id) ?? -1];
-    return frame && `${frame.receiver ? `${frame.receiver}.` : ''}${frame.name}`;
-  };
   const card = (note: SideNote, held: boolean) => (
     <NoteCard
       key={note.id}
       box={keep(cards, note.id)}
       note={note}
       current={note.id === active}
-      held={held}
-      path={note.fileId === undefined ? undefined : files.get(note.fileId)?.path}
-      within={frameName(note)}
+      held={held || tight}
       files={files}
       actions={actions}
       onJumpToFile={onJumpToFile}
@@ -330,6 +355,8 @@ export const NoteLane = memo(function NoteLane({
       className="note-lane"
       ref={lane}
       data-side={side || undefined}
+      data-tight={(tight && side) || undefined}
+      data-settled={settled || undefined}
       aria-label="Notes on this group"
       style={reserve ? ({ '--paths-reserve': `${reserve}px` } as CSSProperties) : undefined}
     >
@@ -380,8 +407,6 @@ function NoteCard({
   note,
   current,
   held,
-  path,
-  within,
   files,
   actions,
   onJumpToFile,
@@ -389,16 +414,13 @@ function NoteCard({
   box: (element: HTMLElement | null) => void;
   note: SideNote;
   current: boolean;
+  /** Waiting as its title: at the column's edge, or anywhere in a tight column. */
   held: boolean;
-  path: string | undefined;
-  /** The frame of the key code path the note's lines are in. */
-  within: string | undefined;
   files: ReadonlyMap<string, FileSummary>;
   actions: NoteActions;
   onJumpToFile: (fileId: string, line?: number) => void;
 }) {
   const open = current || (note.key && !held);
-  const lines = noteLines(note);
   const comment = current && note.from !== undefined ? actions.comment : undefined;
   const ask = current && note.fileId !== undefined ? actions.ask : undefined;
   return (
@@ -411,52 +433,44 @@ function NoteCard({
       data-held={held || undefined}
       data-anchored={note.fileId === undefined ? undefined : ''}
     >
-      <button
-        type="button"
-        className="side-note-head"
-        aria-current={current || undefined}
-        onClick={() => actions.select(note.id)}
-      >
-        <span className="side-note-n">{note.n}</span>
-        {note.level && <FlagIcon level={note.level} />}
-        <span className="side-note-title">{inlineCode(note.title)}</span>
-      </button>
-      {open && (path || note.why || note.instead || note.check || note.also.length > 0) && (
+      <div className="side-note-top">
+        <button
+          type="button"
+          className="side-note-head"
+          aria-current={current || undefined}
+          onClick={() => actions.select(note.id)}
+        >
+          <span className="side-note-n">{note.n}</span>
+          {note.level && <FlagIcon level={note.level} />}
+          <span className="side-note-title">{inlineCode(note.title)}</span>
+        </button>
+        {(comment || ask) && (
+          <span className="side-note-actions">
+            {comment && (
+              <IconButton
+                size="sm"
+                variant="ghost"
+                label="Comment on these lines"
+                tooltip="Comment"
+                icon={<Icon icon={MessageSquarePlusIcon} />}
+                onClick={() => comment(note)}
+              />
+            )}
+            {ask && (
+              <IconButton
+                size="sm"
+                variant="ghost"
+                label="Ask about these lines"
+                tooltip="Ask"
+                icon={<Icon icon={MessageCircleQuestionIcon} />}
+                onClick={() => ask(note)}
+              />
+            )}
+          </span>
+        )}
+      </div>
+      {open && (note.why || note.instead || note.check || note.also.length > 0) && (
         <div className="side-note-body">
-          {path && (
-            <div className="side-note-at">
-              <code title={path}>
-                {within && <b>{within}</b>}
-                {within && ' · '}
-                {splitPath(path).base}
-                {lines && `:${lines}`}
-              </code>
-              {(comment || ask) && (
-                <span className="side-note-actions">
-                  {comment && (
-                    <IconButton
-                      size="sm"
-                      variant="ghost"
-                      label="Comment on these lines"
-                      tooltip="Comment"
-                      icon={<Icon icon={MessageSquarePlusIcon} />}
-                      onClick={() => comment(note)}
-                    />
-                  )}
-                  {ask && (
-                    <IconButton
-                      size="sm"
-                      variant="ghost"
-                      label="Ask about these lines"
-                      tooltip="Ask"
-                      icon={<Icon icon={MessageCircleQuestionIcon} />}
-                      onClick={() => ask(note)}
-                    />
-                  )}
-                </span>
-              )}
-            </div>
-          )}
           {note.why && <p className="side-note-why">{inlineCode(note.why)}</p>}
           {(note.instead || note.check || note.also.length > 0) && (
             <dl className="side-note-facts">

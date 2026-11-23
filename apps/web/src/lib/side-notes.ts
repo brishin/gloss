@@ -187,15 +187,6 @@ export function readStops(
   });
 }
 
-/** `base.ts:12–18` for a note's lines. */
-export function noteLines(note: Pick<SideNote, 'from' | 'to'>): string {
-  return note.from === undefined
-    ? ''
-    : note.to !== undefined && note.to !== note.from
-      ? `${note.from}–${note.to}`
-      : `${note.from}`;
-}
-
 /**
  * The frame of the key code path each note is in: the last frame defined at or above the
  * note's first line in the same file. Note id to frame index.

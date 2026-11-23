@@ -8,6 +8,10 @@ import { FlagIcon } from './icons.tsx';
 
 /** The space between the panel and the notes that wait below it, in px. */
 const GAP = 6;
+/** The panel's parts, in px: what the whole panel needs is counted from them, whatever it shows now. */
+const HEAD = 32;
+const ROW = 24;
+const RULE = 5;
 
 const label = (frame: CallFrame) => `${frame.receiver ? `${frame.receiver}.` : ''}${frame.name}`;
 
@@ -17,6 +21,9 @@ const label = (frame: CallFrame) => `${frame.receiver ? `${frame.receiver}.` : '
  * through every group, so a call can be followed into any group without losing the paths. The
  * path whose code is on screen is open and its call is marked; the others are one line until
  * opened. A call carries the numbers of the notes on its lines, from any group.
+ *
+ * While the group being read has more notes than the screen has room for (`short`), the panel
+ * shows only the way to the call on screen: the calls above it and itself. "All calls" opens the rest.
  *
  * In a page too narrow for the column the paths are one line under the sub-bar that opens them.
  */
@@ -30,7 +37,8 @@ export function KeyPaths({
   activeNote,
   onSelectNote,
   onJumpToFile,
-  onReserve,
+  short,
+  onRoom,
 }: {
   frames: readonly CallFrame[];
   /** A changed file's id, by its path. */
@@ -45,8 +53,13 @@ export function KeyPaths({
   activeNote: string | undefined;
   onSelectNote: (id: string) => void;
   onJumpToFile: (fileId: string, line?: number) => void;
-  /** The room the panel takes at the column's top, in px; 0 while the page has no column. */
-  onReserve: (px: number) => void;
+  /** The notes of the group being read do not fit the screen: the panel keeps to the way to the call. */
+  short: boolean;
+  /**
+   * The room the panel takes at the column's top and the room it needs when it shows every path,
+   * in px; both 0 while the page has no column.
+   */
+  onRoom: (reserve: number, full: number) => void;
 }) {
   const paths = useMemo(() => keyPaths(frames), [frames]);
   const track = useRef<HTMLDivElement>(null);
@@ -57,6 +70,20 @@ export function KeyPaths({
   // The current note says where the reader is: its call is the marked one, not a nearer call.
   const on = (activeNote === undefined ? undefined : inFrame.get(activeNote)) ?? scrolled;
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
+  const [all, setAll] = useState(false);
+  const trail = short && !all;
+  // The longest path open and the others as one line each: the same for every group, so the
+  // columns' answer to "do the notes fit" does not change as the reader moves between paths.
+  const full =
+    HEAD +
+    ROW * (Math.max(0, ...paths.map((path) => path.length)) + paths.length - 1) +
+    RULE * (paths.length - 1) +
+    GAP;
+  const room = useRef(() => {});
+  room.current = () => {
+    const height = panel.current?.offsetHeight ?? 0;
+    onRoom(height ? height + GAP : 0, height ? full : 0);
+  };
 
   const place = useRef(() => {});
   const measure = useRef(() => {});
@@ -99,9 +126,7 @@ export function KeyPaths({
     if (scope.current) {
       shape.observe(scope.current);
     }
-    const size = new ResizeObserver(() =>
-      onReserve(panel.current?.offsetHeight ? panel.current.offsetHeight + GAP : 0),
-    );
+    const size = new ResizeObserver(() => room.current());
     if (panel.current) {
       size.observe(panel.current);
     }
@@ -120,9 +145,9 @@ export function KeyPaths({
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
-      onReserve(0);
+      onRoom(0, 0);
     };
-  }, [scope, panel, onReserve]);
+  }, [scope, panel, onRoom]);
 
   // The path on screen; the first one before any of the paths' code is reached.
   const current = Math.max(
@@ -153,24 +178,43 @@ export function KeyPaths({
   };
   const root = frames[paths[current]?.[0] ?? -1];
   const frame = frames[on];
-  const tree = (
+  // The way to the call on screen: the calls it is under, and itself. Before any call, the entry point.
+  const way = useMemo(() => {
+    const path = paths[current] ?? [];
+    const kept = new Set<number>(path.slice(0, 1));
+    if (path.includes(on)) {
+      kept.add(on);
+      let depth = frames[on]!.depth;
+      for (let index = on - 1; index >= path[0]!; index--) {
+        if (frames[index]!.depth < depth) {
+          kept.add(index);
+          depth = frames[index]!.depth;
+        }
+      }
+    }
+    return kept;
+  }, [paths, current, on, frames]);
+  const list = (cut: boolean) => (
     <div className="key-paths-list">
-      {paths.map((path, index) => (
-        <Path
-          key={index}
-          frames={frames}
-          path={path}
-          open={index === current || held.has(index)}
-          on={on}
-          fileIds={fileIds}
-          notes={notes}
-          inFrame={inFrame}
-          activeNote={activeNote}
-          onToggle={() => toggle(index)}
-          onSelectNote={selectNote}
-          onJump={jump}
-        />
-      ))}
+      {paths.map((path, index) =>
+        cut && index !== current ? null : (
+          <Path
+            key={index}
+            frames={frames}
+            path={path}
+            only={cut ? way : undefined}
+            open={cut || index === current || held.has(index)}
+            on={on}
+            fileIds={fileIds}
+            notes={notes}
+            inFrame={inFrame}
+            activeNote={activeNote}
+            onToggle={() => toggle(index)}
+            onSelectNote={selectNote}
+            onJump={jump}
+          />
+        ),
+      )}
     </div>
   );
   const kinds = new Set(frames.map((entry) => entry.status));
@@ -181,26 +225,31 @@ export function KeyPaths({
           <span>Key code paths</span>
           {frame && root && <code>{frame === root ? label(frame) : `${label(root)} › ${label(frame)}`}</code>}
         </summary>
-        {tree}
+        {list(false)}
       </details>
       <div className="key-paths-track" ref={track}>
         <div className="key-paths" ref={panel}>
           <div className="key-paths-head">
             <span>Key code paths</span>
-            {kinds.has('changed') && (
+            {short && (
+              <button type="button" className="key-paths-all" aria-expanded={all} onClick={() => setAll(!all)}>
+                {all ? 'Less' : `All ${frames.length} calls`}
+              </button>
+            )}
+            {!trail && kinds.has('changed') && (
               <span className="key-paths-key">
                 <span className="walk-mark changed" />
                 changed
               </span>
             )}
-            {kinds.has('new') && (
+            {!trail && kinds.has('new') && (
               <span className="key-paths-key">
                 <span className="walk-mark new" />
                 new
               </span>
             )}
           </div>
-          {tree}
+          {list(trail)}
         </div>
       </div>
     </>
@@ -211,6 +260,7 @@ export function KeyPaths({
 function Path({
   frames,
   path,
+  only,
   open,
   on,
   fileIds,
@@ -223,6 +273,8 @@ function Path({
 }: {
   frames: readonly CallFrame[];
   path: readonly number[];
+  /** The calls to show, when the panel keeps to the way to one call. */
+  only?: ReadonlySet<number>;
   open: boolean;
   on: number;
   fileIds: ReadonlyMap<string, string>;
@@ -238,6 +290,9 @@ function Path({
   return (
     <div className="key-path" data-open={open || undefined}>
       {shown.map((index, at) => {
+        if (only && !only.has(index)) {
+          return null;
+        }
         const frame = frames[index]!;
         const fileId = frame.path === undefined ? undefined : fileIds.get(frame.path);
         const location = locations[at]!;
@@ -258,7 +313,7 @@ function Path({
             data-active={index === on || undefined}
             style={{ paddingLeft: 4 + Math.min(frame.depth, 6) * 12 }}
           >
-            {at === 0 && path.length > 1 ? (
+            {at === 0 && path.length > 1 && !only ? (
               <button
                 type="button"
                 className="key-path-fold"

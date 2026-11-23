@@ -72,10 +72,33 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const pathsOn = useMemo(() => pathsShown(state), [state.walkthrough, state.files]);
   const pathsScope = useRef<HTMLDivElement>(null);
   const pathsPanel = useRef<HTMLDivElement>(null);
-  const [pathsReserve, setPathsReserve] = useState(0);
+  const [pathsRoom, setPathsRoom] = useState({ reserve: 0, full: 0 });
+  const onPathsRoom = useCallback(
+    (reserve: number, full: number) =>
+      setPathsRoom((before) => (before.reserve === reserve && before.full === full ? before : { reserve, full })),
+    [],
+  );
+  // The groups whose notes do not fit the screen as cards: for them the panel shows less.
+  const [tightGroups, setTightGroups] = useState<ReadonlySet<string>>(new Set());
+  const onTight = useCallback(
+    (groupKey: string, tight: boolean) =>
+      setTightGroups((before) => {
+        if (before.has(groupKey) === tight) {
+          return before;
+        }
+        const next = new Set(before);
+        if (tight) {
+          next.add(groupKey);
+        } else {
+          next.delete(groupKey);
+        }
+        return next;
+      }),
+    [],
+  );
   const paths = useMemo(
-    () => (pathsOn ? { panel: pathsPanel, reserve: pathsReserve } : undefined),
-    [pathsOn, pathsReserve],
+    () => (pathsOn ? { panel: pathsPanel, ...pathsRoom, onTight } : undefined),
+    [pathsOn, pathsRoom, onTight],
   );
   // The walkthrough stop shows only what nothing else reads: not the code paths while the panel has them.
   const leftover = useMemo(
@@ -417,7 +440,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                     activeNote={activeNote}
                     onSelectNote={noteActions.select}
                     onJumpToFile={jumpToFile}
-                    onReserve={setPathsReserve}
+                    short={current !== undefined && tightGroups.has(current.key)}
+                    onRoom={onPathsRoom}
                   />
                 )}
                 {groups.map((group) => (
