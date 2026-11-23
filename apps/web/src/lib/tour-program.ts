@@ -5,6 +5,7 @@ import { Deferred, Effect, Queue, Stream } from 'effect';
 import * as v from 'valibot';
 import { type AskTurnView, savedTurns } from './ask-model.ts';
 import { Gloss, glossRuntime, isExport, request } from './client.ts';
+import { lineRow, noteAnchor } from './diff-dom.ts';
 import type { SavedReview } from './review-draft.ts';
 import { stackRefs } from './sidebar-tree.ts';
 import { navigateToPipeline, navigateToRef } from './source-routes.tsx';
@@ -203,6 +204,8 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
           Effect.andThen(cmd.line === undefined ? Effect.void : scrollToLine(cmd.fileId, cmd.line)),
         ),
       );
+    case 'ScrollToNote':
+      return once(nextFrame.pipe(Effect.andThen(scrollToNote(cmd))));
     case 'RestoreGroup':
       return once(restore(() => groupSection(cmd.key)));
     case 'RestoreFile':
@@ -410,23 +413,6 @@ function scrollToSection(section: HTMLElement | null) {
 }
 
 /**
- * A new-side line's row in a file's diff. pierre renders into an open shadow root; in a unified
- * diff a removed row carries its old line number, so it never counts.
- */
-function lineRow(fileId: string, line: number): HTMLElement | undefined {
-  const hosts = fileSection(fileId)?.querySelectorAll('*') ?? [];
-  for (const host of hosts) {
-    const row = host.shadowRoot?.querySelector<HTMLElement>(
-      `[data-line="${line}"]:not([data-line-type="change-deletion"])`,
-    );
-    if (row) {
-      return row;
-    }
-  }
-  return undefined;
-}
-
-/**
  * Centres a line of a file's diff and flashes it, once its hunk has rendered (a file just opened
  * renders over a few frames). A line the diff doesn't show leaves the file's header in place.
  */
@@ -447,6 +433,31 @@ const scrollToLine = (fileId: string, line: number) =>
     }
   });
 
+/**
+ * Brings a note's first line mid-screen, once its hunk has rendered. The lines are marked by the
+ * note column, so nothing flashes. A note on no line, or on one the diff does not show, shows
+ * where the column keeps it: the top of its group's files, or its file's header.
+ */
+const scrollToNote = (cmd: { id: string; fileId?: string; line?: number; deleted?: boolean }) =>
+  Effect.gen(function* () {
+    const { fileId, line } = cmd;
+    if (fileId !== undefined && line !== undefined) {
+      for (let frame = 0; frame < LINE_FRAMES; frame++) {
+        const row = lineRow(fileId, line, cmd.deleted);
+        if (row) {
+          row.scrollIntoView({ block: 'center', behavior: 'instant' });
+          return;
+        }
+        if (fileSection(fileId)?.dataset.expanded !== 'true') {
+          break;
+        }
+        yield* nextFrame;
+      }
+    }
+    const anchor = noteAnchor(cmd.id) ?? (fileId === undefined ? null : fileSection(fileId));
+    anchor?.scrollIntoView({ block: fileId === undefined ? 'start' : 'center', behavior: 'instant' });
+  });
+
 /** About a second at 60fps: long enough for a highlighted hunk, short enough not to yank the page later. */
 const LINE_FRAMES = 60;
 
@@ -465,7 +476,18 @@ function spy(): Spied {
       return rect.bottom > line && rect.top < window.innerHeight;
     });
   const groupKey = crossed(groups)?.dataset.groupKey;
+  const anchors = [...(page?.querySelectorAll<HTMLElement>('[data-note-anchor]') ?? [])].map((el) => ({
+    id: el.dataset.noteAnchor!,
+    // A note on no line sits at the top of its group's diffs: it is passed once that scrolls away.
+    loose: el.dataset.loose !== undefined,
+    rect: el.getBoundingClientRect(),
+  }));
+  const middle = window.innerHeight / 2;
   return {
+    notes: {
+      shown: anchors.filter(({ rect }) => rect.bottom > line - 16 && rect.top < window.innerHeight).map(({ id }) => id),
+      passed: anchors.findLast(({ rect, loose }) => rect.top <= (loose ? line : middle))?.id,
+    },
     groupKey: groupKey === OVERVIEW ? undefined : groupKey,
     fileId: crossed(files)?.dataset.fileId,
     visible: atBottom

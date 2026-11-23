@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
+import { noteGroup, type SideNote, sideNotes } from '../lib/side-notes.ts';
 import { openThreads } from '../lib/threads-model.ts';
 import {
   canAsk,
@@ -39,6 +40,7 @@ import { AutoToursSwitch } from './AutoToursSwitch.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { Logo } from './Logo.tsx';
+import type { NoteActions } from './NoteLane.tsx';
 import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
@@ -132,6 +134,35 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     }),
     [expanded, viewed, model.unfolded, dispatch, review, reviewer, threadControls],
   );
+  // The current note's actions start where a gutter click or the Ask button would, on its lines.
+  const noteActions = useMemo<NoteActions>(
+    () => ({
+      select: (id) => dispatch({ type: 'NoteSelected', id }),
+      comment: reviewable
+        ? ({ fileId, side, from, to }: SideNote) =>
+            fileId !== undefined &&
+            to !== undefined &&
+            dispatch({
+              type: 'CommentStarted',
+              anchor: { fileId, side: side ?? 'additions', line: to, startLine: from === to ? undefined : from },
+            })
+        : undefined,
+      ask: askable
+        ? ({ fileId, side, from, to }: SideNote) =>
+            dispatch({ type: 'AskOpened', context: { fileId, side: from === undefined ? undefined : side, from, to } })
+        : undefined,
+    }),
+    [reviewable, askable, dispatch],
+  );
+  const activeNote = model.activeNote;
+  const activeGroup = activeNote === undefined ? undefined : noteGroup(activeNote);
+  // "Note 3 of 5", while one is current.
+  const noted = useMemo(() => {
+    const group = groups.find((candidate) => candidate.key === activeGroup);
+    const notes = group ? sideNotes(state, group, homes) : [];
+    const at = notes.find((note) => note.id === activeNote);
+    return at && { n: at.n, of: notes.length };
+  }, [groups, activeGroup, activeNote, state, homes]);
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
@@ -292,6 +323,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             {current && (
               <span className="subbar-position">
                 Group {index + 1} of {groups.length}
+                {noted ? ` · Note ${noted.n} of ${noted.of}` : ''}
                 {reviewed ? ` · ${reviewed} of ${current.fileIds.length} files viewed` : ''}
               </span>
             )}
@@ -364,6 +396,8 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                   onJumpToFile={jumpToFile}
                   homes={homes}
                   pathHomeKey={pathHomeKey}
+                  activeNote={activeGroup === group.key ? activeNote : undefined}
+                  noteActions={noteActions}
                 />
               </section>
             ))}

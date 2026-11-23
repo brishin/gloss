@@ -1,4 +1,4 @@
-import type { Decision, GroupView, LfsPointer, StackMember, TourState, Walkthrough } from '@gloss/protocol';
+import type { Decision, GroupView, LfsPointer, StackMember, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import {
   ago,
@@ -13,7 +13,6 @@ import {
   pathHome,
   pullStateDetail,
   sectionFlagCounts,
-  shortPath,
   walkHomes,
 } from './tour-view.ts';
 
@@ -211,9 +210,6 @@ describe("the walkthrough read in the groups' walks", () => {
   test('the code path is read in the group whose walk took it', () => {
     expect(pathHome([group('a', []), group('b', [], true)])).toBe('b');
     expect(pathHome([group('a', []), group('b')])).toBeUndefined();
-    const walkthrough = { decisions: [], frames: [], steps };
-    const short = shortPath(walkthrough as never as Pick<Walkthrough, 'frames' | 'steps'>);
-    expect(short.steps.map((step) => step.excerpts)).toEqual([[{ ...at('f1'), to: 6 }], [{ ...at('f3'), to: 6 }]]);
   });
 
   test.each([

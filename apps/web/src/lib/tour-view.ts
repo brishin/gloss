@@ -1,5 +1,4 @@
 import type {
-  Walkthrough,
   Decision,
   DecisionPriority,
   FileSummary,
@@ -282,22 +281,6 @@ export function walkHomes(groups: readonly GroupView[]): Map<number, string> {
 /** The group the key code path is read in, when a walk took it. */
 export function pathHome(groups: readonly GroupView[]): string | undefined {
   return groups.find((group) => group.notes?.section?.path)?.key;
-}
-
-/**
- * The code path above open diffs: each step keeps its first excerpt, cut to its first `rows`
- * lines. There the excerpt only points at the code, which is in full right below.
- */
-export function shortPath<P extends Pick<Walkthrough, 'frames' | 'steps'>>(path: P, rows = 6): P {
-  return {
-    ...path,
-    steps: path.steps.map((step) => ({
-      ...step,
-      excerpts: step.excerpts
-        .slice(0, 1)
-        .map((excerpt) => ({ ...excerpt, to: Math.min(excerpt.to, excerpt.from + rows - 1) })),
-    })),
-  };
 }
 
 /**
