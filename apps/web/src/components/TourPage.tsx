@@ -49,6 +49,8 @@ import { ShortcutHelp } from './ShortcutHelp.tsx';
 import { CommentsPanel, type ThreadControls } from './Threads.tsx';
 import { Walkthrough } from './Walkthrough.tsx';
 
+const NO_NOTES: readonly SideNote[] = [];
+
 /**
  * Tour mode: the overview, then every review group in tour order, on one page. The sidebar,
  * the sub-bar and the keyboard jump between them; scrolling moves the current position.
@@ -83,11 +85,12 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const fileIds = useMemo(() => new Map(state.files.map((file) => [file.path, file.id])), [state.files]);
   const current = currentGroup(model, groups);
-  // The panel's calls carry the numbers of the notes of the group being read.
-  const pathNotes = useMemo(() => (current ? sideNotes(state, current, homes) : []), [state, current, homes]);
+  // Every note of the tour, numbered down the page: the panel's calls carry their numbers.
+  const allNotes = useMemo(() => sideNotes(state, groups, homes), [state.decisions, state.walkthrough, groups, homes]);
+  const groupNotes = useMemo(() => Map.groupBy(allNotes, (note) => note.groupKey), [allNotes]);
   const inFrame = useMemo(
-    () => noteFrames(frames ?? [], pathNotes, (fileId) => files.get(fileId)?.path),
-    [frames, pathNotes, files],
+    () => noteFrames(frames ?? [], allNotes, (fileId) => files.get(fileId)?.path),
+    [frames, allNotes, files],
   );
   const index = current ? groups.indexOf(current) : -1;
   // The neighbouring stops: the overview, the walkthrough when there is one, then the groups.
@@ -173,13 +176,11 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   );
   const activeNote = model.activeNote;
   const activeGroup = activeNote === undefined ? undefined : noteGroup(activeNote);
-  // "Note 3 of 5", while one is current.
+  // "Note 7 of 12", while one is current.
   const noted = useMemo(() => {
-    const group = groups.find((candidate) => candidate.key === activeGroup);
-    const notes = group ? sideNotes(state, group, homes) : [];
-    const at = notes.find((note) => note.id === activeNote);
-    return at && { n: at.n, of: notes.length };
-  }, [groups, activeGroup, activeNote, state, homes]);
+    const at = allNotes.find((note) => note.id === activeNote);
+    return at && { n: at.n, of: allNotes.length };
+  }, [allNotes, activeNote]);
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
@@ -411,7 +412,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                     fileIds={fileIds}
                     scope={pathsScope}
                     panel={pathsPanel}
-                    notes={pathNotes}
+                    notes={allNotes}
                     inFrame={inFrame}
                     activeNote={activeNote}
                     onSelectNote={noteActions.select}
@@ -427,7 +428,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                       diff={diff}
                       controls={controls}
                       onJumpToFile={jumpToFile}
-                      homes={homes}
+                      notes={groupNotes.get(group.key) ?? NO_NOTES}
                       paths={paths}
                       activeNote={activeGroup === group.key ? activeNote : undefined}
                       noteActions={noteActions}

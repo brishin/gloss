@@ -5,7 +5,7 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import type { DiffPayload, FileChange, FileNote, GroupView, LineNote, ReviewThread, TourState } from '@gloss/protocol';
 import { memo, type RefObject, useMemo, useRef } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
-import { sideNotes } from '../lib/side-notes.ts';
+import type { SideNote } from '../lib/side-notes.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
 import { isGeneratedFile, orderedFileIds, risksByFile, sectionFlagCounts } from '../lib/tour-view.ts';
 import { FileView } from './FileView.tsx';
@@ -46,7 +46,7 @@ export const GroupPanel = memo(function GroupPanel({
   diff,
   controls,
   onJumpToFile,
-  homes,
+  notes: sides,
   paths,
   activeNote,
   noteActions,
@@ -56,7 +56,8 @@ export const GroupPanel = memo(function GroupPanel({
   diff: DiffPayload | undefined;
   controls: FileControls;
   onJumpToFile: (fileId: string, line?: number) => void;
-  homes?: ReadonlyMap<number, string>;
+  /** The group's notes, numbered down the whole tour (`sideNotes`). */
+  notes: readonly SideNote[];
   /** The page's key code paths panel, when it is shown: every group then keeps the column for it. */
   paths?: { panel: RefObject<HTMLDivElement | null>; reserve: number };
   /** The current note, when it is one of this group's. */
@@ -109,11 +110,6 @@ export const GroupPanel = memo(function GroupPanel({
     state.stages.notes.state !== 'failed';
   const flagCounts = useMemo(() => sectionFlagCounts(state, group), [state, group]);
   const section = notes?.section;
-  // The group's decisions and walk stops are notes beside the lines they are about.
-  const sides = useMemo(
-    () => sideNotes(state, group, homes ?? new Map()),
-    [state.decisions, state.walkthrough, group, homes],
-  );
   const foldedHunks = useMemo(() => {
     const byFile = new Map<string, string[]>();
     for (const { fileId, hunkId } of section?.skimHunks ?? []) {

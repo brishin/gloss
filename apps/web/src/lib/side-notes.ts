@@ -10,7 +10,7 @@ export interface SideNote {
   /** `<group key>/<source><index>`: stable while the tour's notes are. */
   id: string;
   groupKey: string;
-  /** Its number down the group, from 1. */
+  /** Its number down the whole tour, from 1: numbers run on from one group to the next. */
   n: number;
   level?: FlagLevel;
   /** An urgent or high decision: its text shows without the note being current. */
@@ -39,15 +39,23 @@ const flagOf = (priority: DecisionPriority | undefined): FlagLevel | undefined =
 export const noteGroup = (id: string): string => id.slice(0, id.lastIndexOf('/'));
 
 /**
- * A group's notes in reading order: the ones about the group as a whole, then the ones on
- * lines, file by file down the page. `homes` says where each change-wide decision is read
- * (`walkHomes`).
+ * Every group's notes in reading order, numbered down the whole tour. In each group: the ones
+ * about the group as a whole, then the ones on lines, file by file down the page. `homes` says
+ * where each change-wide decision is read (`walkHomes`).
  */
 export function sideNotes(
   tour: Pick<TourState, 'decisions' | 'walkthrough'>,
-  group: GroupView,
+  groups: readonly GroupView[],
   homes: ReadonlyMap<number, string>,
 ): SideNote[] {
+  return groups.flatMap((group) => groupNotes(tour, group, homes)).map((note, index) => ({ ...note, n: index + 1 }));
+}
+
+function groupNotes(
+  tour: Pick<TourState, 'decisions' | 'walkthrough'>,
+  group: GroupView,
+  homes: ReadonlyMap<number, string>,
+): Draft[] {
   const files = orderedFileIds(group);
   const inGroup = (fileId: string | undefined) => fileId !== undefined && files.includes(fileId);
   const own = group.notes?.decisions ?? [];
@@ -151,7 +159,7 @@ export function sideNotes(
   return drafts
     .map((note, index) => ({ note, index }))
     .toSorted((a, b) => rank(a.note) - rank(b.note) || (a.note.from ?? 0) - (b.note.from ?? 0) || a.index - b.index)
-    .map(({ note }, index) => ({ ...note, n: index + 1 }));
+    .map(({ note }) => note);
 }
 
 /** A place n/p stop at: a note, or a file that has none. */
@@ -166,8 +174,9 @@ export function readStops(
   groups: readonly GroupView[],
   homes: ReadonlyMap<number, string>,
 ): ReadStop[] {
+  const all = sideNotes(tour, groups, homes);
   return groups.flatMap((group) => {
-    const notes = sideNotes(tour, group, homes);
+    const notes = all.filter((note) => note.groupKey === group.key);
     return [
       ...notes.filter((note) => note.fileId === undefined).map((note) => ({ note })),
       ...orderedFileIds(group).flatMap((fileId): ReadStop[] => {
