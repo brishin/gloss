@@ -569,7 +569,7 @@ function PathRail({
   return (
     <div className="path-rail" ref={box}>
       <div className="path-rail-head">
-        <span>Key code path</span>
+        <span>Key code paths</span>
         {kinds.has('changed') && (
           <span className="path-rail-key">
             <span className="walk-mark changed" />
