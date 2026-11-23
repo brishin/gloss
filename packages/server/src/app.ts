@@ -190,7 +190,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           }
           const recent: RecentTours = {
             ...(viewer ? { viewer } : {}),
-            ...inbox,
+            ...(inbox ? { reviewRequested: inbox.reviewRequested, authored: inbox.authored } : {}),
             tours: (authors.size ? cache.listRecent(RECENT_LIMIT) : tours).map((tour) => withPullStates(tour, pulls)),
           };
           return recent;
