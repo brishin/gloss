@@ -27,6 +27,7 @@ import {
   type SavedReview,
   toReviewComments,
 } from './review-draft.ts';
+import { readStops, type SideNote } from './side-notes.ts';
 import {
   groupNode,
   initialSidebar,
@@ -45,6 +46,7 @@ import {
   OVERVIEW,
   orderedFileIds,
   WALKTHROUGH,
+  walkHomes,
 } from './tour-view.ts';
 
 /**
@@ -76,6 +78,8 @@ export interface Spied {
   groupKey?: string;
   fileId?: string;
   visible?: { groupKeys: readonly string[]; fileIds: readonly string[] };
+  /** The notes whose lines are on screen, and the last one above the middle of it. */
+  notes?: { shown: readonly string[]; passed?: string };
 }
 
 export interface Model {
@@ -92,6 +96,10 @@ export interface Model {
   restoring?: Position;
   /** The file at the reading line (scroll-spy), or the one just jumped to. */
   activeFileId?: string;
+  /** The note the reader stepped to or picked (`side-notes.ts`), while its lines are on screen. */
+  activeNote?: string;
+  /** The last note above the middle of the screen: where n/p step from when no note is current. */
+  passedNote?: string;
   /** Files the reader expanded or collapsed themselves. */
   expanded: Readonly<Record<string, boolean>>;
   /** Files whose folded hunks the reader opened (`Section.skimHunks`). */
@@ -139,8 +147,12 @@ export type Msg =
   | { type: 'StackStepped'; by: Step }
   /** `line` (new side) lands the jump on that line of the file's diff, when the diff shows it. */
   | { type: 'FileJumped'; fileId: string; line?: number }
-  | { type: 'FileStepped'; by: Step }
-  | { type: 'NoteStepped'; by: Step }
+  /** n/p: the next note or, in a file with none, the next file. */
+  | { type: 'StopStepped'; by: Step }
+  /** A click on a note, or on its number on the code path. */
+  | { type: 'NoteSelected'; id: string }
+  /** Escape: no note is current. */
+  | { type: 'NoteCleared' }
   /** The reader scrolled (or the page moved under them): the position follows the page. */
   | { type: 'Scrolled'; spied: Spied }
   | { type: 'ExpandedToggled'; fileId: string }
@@ -216,12 +228,13 @@ export type Cmd =
    * `line` (new side), that line's row lands mid-screen instead, once its hunk has rendered.
    */
   | { type: 'ScrollToFile'; fileId: string; line?: number }
+  /** Puts a note's first line mid-screen once its hunk has rendered; a note on no line shows its card. */
+  | { type: 'ScrollToNote'; id: string; fileId?: string; line?: number; deleted?: boolean }
   /** Scrolls to the group or file and holds it there while the page above it still grows. */
   | { type: 'RestoreGroup'; key: string }
   | { type: 'RestoreFile'; fileId: string }
   /** Reads the position off the page once it has rendered. */
   | { type: 'MeasurePosition' }
-  | { type: 'StepNote'; by: Step }
   | { type: 'SetTitle'; title: string }
   | { type: 'LoadReview'; diffId: string }
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
@@ -361,7 +374,7 @@ export function isFileExpanded(
 export const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /** Keys that may be shortcuts, so the browser's own use of them is held back. */
-export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonp][xv?raycdq');
+export const SHORTCUT_KEYS: ReadonlySet<string> = new Set('jkJKonpxv?raycdq');
 
 /** Questions can be asked once the tour is finished: the model answers from the whole tour. */
 export const canAsk = (model: Model): boolean => !model.exported && model.tour.status === 'complete';
@@ -406,13 +419,9 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
     case 'o':
       return { type: 'GroupSelected', key: OVERVIEW };
     case 'n':
-      return { type: 'FileStepped', by: 1 };
+      return { type: 'StopStepped', by: 1 };
     case 'p':
-      return { type: 'FileStepped', by: -1 };
-    case ']':
-      return { type: 'NoteStepped', by: 1 };
-    case '[':
-      return { type: 'NoteStepped', by: -1 };
+      return { type: 'StopStepped', by: -1 };
     case 'x':
       return active ? { type: 'ExpandedToggled', fileId: active } : undefined;
     case 'v':
@@ -432,7 +441,9 @@ export function keyToMsg(model: Model, key: string): Msg | undefined {
           ? { type: 'CommentsClosed' }
           : model.navOpen
             ? { type: 'NavClosed' }
-            : undefined;
+            : model.activeNote
+              ? { type: 'NoteCleared' }
+              : undefined;
     default:
       return undefined;
   }
@@ -570,10 +581,14 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'FileJumped':
       return jump(model, msg.fileId, true, msg.line);
-    case 'FileStepped':
-      return stepFile(model, msg.by);
-    case 'NoteStepped':
-      return [model, [{ type: 'StepNote', by: msg.by }]];
+    case 'StopStepped':
+      return stepStop(model, msg.by);
+    case 'NoteSelected': {
+      const note = notesOf(model).find((candidate) => candidate.id === msg.id);
+      return note ? jumpToNote(model, note) : [model, []];
+    }
+    case 'NoteCleared':
+      return model.activeNote ? [{ ...model, activeNote: undefined }, []] : [model, []];
     case 'Scrolled':
       return scrolled(model, msg.spied);
     case 'ExpandedToggled': {
@@ -755,7 +770,7 @@ function save(model: Model, also: readonly Cmd[] = []): Next {
 function select(model: Model, key: string): Next {
   const position = { g: key === OVERVIEW ? undefined : key, f: undefined };
   return [
-    { ...model, navOpen: false, position, activeFileId: undefined },
+    { ...model, navOpen: false, position, activeFileId: undefined, activeNote: undefined },
     [
       { type: 'Navigate', position, replace: false },
       key === OVERVIEW ? { type: 'ScrollToTop' } : { type: 'ScrollToGroup', key },
@@ -774,6 +789,7 @@ function jump(model: Model, fileId: string, push = false, line?: number): Next {
       navOpen: false,
       position,
       activeFileId: fileId,
+      activeNote: undefined,
       expanded: { ...model.expanded, [fileId]: model.expanded[fileId] ?? true },
     },
     [
@@ -783,7 +799,80 @@ function jump(model: Model, fileId: string, push = false, line?: number): Next {
   ];
 }
 
-/** n/p walk every file down the page, across groups. */
+/** Every note down the page, in reading order. */
+function notesOf(model: Model, groups = groupsOf(model)): SideNote[] {
+  return readStops(model.tour, groups, walkHomes(groups)).flatMap((stop) => ('note' in stop ? [stop.note] : []));
+}
+
+/** Makes a note current and brings its lines mid-screen, opening its file. */
+function jumpToNote(model: Model, note: SideNote): Next {
+  const moved = note.groupKey !== selectedKey(model);
+  const position = moved ? { g: note.groupKey, f: undefined } : model.position;
+  const fileId = note.fileId;
+  return [
+    {
+      ...model,
+      navOpen: false,
+      position,
+      activeNote: note.id,
+      passedNote: note.id,
+      activeFileId: fileId ?? (moved ? undefined : model.activeFileId),
+      // Also a file the reader collapsed: the note is about lines in it.
+      expanded: fileId ? { ...model.expanded, [fileId]: true } : model.expanded,
+    },
+    [{ type: 'ScrollToNote', id: note.id, fileId, line: note.from, deleted: note.side === 'deletions' }],
+  ];
+}
+
+/**
+ * n/p walk every stop down the page, across groups: each note, and each file that has none.
+ * With no note current they start from where the reader is: the last note above the middle of
+ * the screen when it is in the current file, else the current file.
+ */
+function stepStop(model: Model, by: Step): Next {
+  const groups = groupsOf(model);
+  const stops = readStops(model.tour, groups, walkHomes(groups));
+  const noteAt = (id: string | undefined) =>
+    id === undefined ? -1 : stops.findIndex((stop) => 'note' in stop && stop.note.id === id);
+  const fileOf = (stop: (typeof stops)[number]) => ('note' in stop ? stop.note.fileId : stop.fileId);
+  const go = (index: number): Next => {
+    const stop = stops[index];
+    return !stop ? [model, []] : 'note' in stop ? jumpToNote(model, stop.note) : jump(model, stop.fileId);
+  };
+  const current = noteAt(model.activeNote);
+  if (current >= 0) {
+    return go(current + by);
+  }
+  const active = model.activeFileId;
+  if (!active) {
+    // At a group's head (or the overview): forward is the group's first stop.
+    const group = currentGroup(model, groups);
+    const first = group
+      ? stops.findIndex((stop) =>
+          'note' in stop ? stop.note.groupKey === group.key : group.fileIds.includes(stop.fileId),
+        )
+      : 0;
+    return by > 0 ? go(first) : [model, []];
+  }
+  const passed = noteAt(model.passedNote);
+  if (passed >= 0 && fileOf(stops[passed]!) === active) {
+    return go(by > 0 ? passed + 1 : passed);
+  }
+  const first = stops.findIndex((stop) => fileOf(stop) === active);
+  if (first < 0) {
+    return [model, []];
+  }
+  // Still at the group's head (none of its notes is passed): its notes about the group come first.
+  const group = groupOfFile(groups, active);
+  const lead = stops.findIndex((stop) => 'note' in stop && stop.note.groupKey === group?.key);
+  if (lead >= 0 && lead < first && passed < lead) {
+    return go(by > 0 ? lead : lead - 1);
+  }
+  // A file's first note is still ahead; a file with none is itself the stop the reader is at.
+  return go(by > 0 && 'note' in stops[first]! ? first : first + by);
+}
+
+/** `v` moves on to the next file down the page, across groups. */
 function stepFile(model: Model, by: Step): Next {
   const groups = groupsOf(model);
   const order = fileOrder(groups);
@@ -797,7 +886,7 @@ function stepFile(model: Model, by: Step): Next {
  * The position follows the page as it scrolls. A group with no file at the reading line yet
  * (its summary is) makes its first file current, so x and v work as soon as it is reached.
  */
-function scrolled(model: Model, { groupKey, fileId, visible }: Spied): Next {
+function scrolled(model: Model, { groupKey, fileId, visible, notes }: Spied): Next {
   // A position being restored is where the page is headed; what passes by on the way is not.
   if (model.restoring) {
     return [model, []];
@@ -818,11 +907,26 @@ function scrolled(model: Model, { groupKey, fileId, visible }: Spied): Next {
         ? fileId
         : order[0];
   const g = group?.key ?? (key === WALKTHROUGH && hasWalkStop(model.tour, groups) ? WALKTHROUGH : undefined);
-  if ((g ?? OVERVIEW) === selected && active === model.activeFileId) {
+  // A note stays current while its lines are on screen; the group it is in does not matter.
+  const activeNote =
+    model.activeNote && notes && !notes.shown.includes(model.activeNote) ? undefined : model.activeNote;
+  const passedNote = notes ? notes.passed : model.passedNote;
+  if (
+    (g ?? OVERVIEW) === selected &&
+    active === model.activeFileId &&
+    activeNote === model.activeNote &&
+    passedNote === model.passedNote
+  ) {
     return [model, []];
   }
   return [
-    { ...model, position: g === model.position.g ? model.position : { g, f: undefined }, activeFileId: active },
+    {
+      ...model,
+      position: g === model.position.g ? model.position : { g, f: undefined },
+      activeFileId: active,
+      activeNote,
+      passedNote,
+    },
     [],
   ];
 }
@@ -928,6 +1032,7 @@ const SCROLLS: ReadonlySet<Cmd['type']> = new Set([
   'ScrollToTop',
   'ScrollToGroup',
   'ScrollToFile',
+  'ScrollToNote',
   'RestoreGroup',
   'RestoreFile',
 ]);

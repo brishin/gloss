@@ -2,32 +2,18 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Spinner } from '@astryxdesign/core/Spinner';
-import type {
-  Decision,
-  DiffPayload,
-  FileChange,
-  FileNote,
-  GroupView,
-  LineNote,
-  ReviewThread,
-  TourState,
-} from '@gloss/protocol';
-import { memo, useMemo } from 'react';
+import type { DiffPayload, FileChange, FileNote, GroupView, LineNote, ReviewThread, TourState } from '@gloss/protocol';
+import { memo, type RefObject, useMemo, useRef } from 'react';
 import type { DraftComment, ReviewDraft } from '../lib/review-draft.ts';
+import { sideNotes } from '../lib/side-notes.ts';
 import { isFileExpanded } from '../lib/tour-model.ts';
-import {
-  isGeneratedFile,
-  orderedFileIds,
-  risksByFile,
-  sectionDecisions,
-  sectionFlagCounts,
-  shortPath,
-} from '../lib/tour-view.ts';
-import { DecisionCard, FileView } from './FileView.tsx';
+import { isGeneratedFile, orderedFileIds, risksByFile, sectionFlagCounts } from '../lib/tour-view.ts';
+import { FileView } from './FileView.tsx';
 import { FlagCounts } from './icons.tsx';
+import { type NoteActions, NoteLane } from './NoteLane.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import type { ThreadControls } from './Threads.tsx';
-import { inlineCode, SectionWalk } from './Walkthrough.tsx';
+import { inlineCode } from './Walkthrough.tsx';
 
 /** What a flag on a hunk says, by its kind (`Section.hunkFlags`). */
 const HUNK_FLAG_TEXT = {
@@ -36,7 +22,6 @@ const HUNK_FLAG_TEXT = {
 
 const NO_FILE_NOTES: FileNote[] = [];
 const NO_LINE_NOTES: LineNote[] = [];
-const NO_DECISIONS: Decision[] = [];
 const NO_RISKS: never[] = [];
 const NO_DRAFTS: DraftComment[] = [];
 const NO_THREADS: ReviewThread[] = [];
@@ -62,7 +47,9 @@ export const GroupPanel = memo(function GroupPanel({
   controls,
   onJumpToFile,
   homes,
-  pathHomeKey,
+  paths,
+  activeNote,
+  noteActions,
 }: {
   group: GroupView;
   state: TourState;
@@ -70,9 +57,13 @@ export const GroupPanel = memo(function GroupPanel({
   controls: FileControls;
   onJumpToFile: (fileId: string, line?: number) => void;
   homes?: ReadonlyMap<number, string>;
-  /** The group the key code path is read in. */
-  pathHomeKey?: string;
+  /** The page's key code paths panel, when it is shown: every group then keeps the column for it. */
+  paths?: { panel: RefObject<HTMLDivElement | null>; reserve: number };
+  /** The current note, when it is one of this group's. */
+  activeNote?: string;
+  noteActions: NoteActions;
 }) {
+  const filesBox = useRef<HTMLDivElement>(null);
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
   const changes = useMemo(() => new Map<string, FileChange>(diff?.files.map((file) => [file.id, file])), [diff]);
   const notes = group.notes;
@@ -98,7 +89,6 @@ export const GroupPanel = memo(function GroupPanel({
   const byFile = useMemo(() => {
     const fileNotes = new Map<string, FileNote[]>();
     const lineNotes = new Map<string, LineNote[]>();
-    const decisions = new Map<string, Decision[]>();
     for (const note of notes?.fileNotes ?? []) {
       fileNotes.set(note.fileId, [...(fileNotes.get(note.fileId) ?? []), note]);
     }
@@ -109,12 +99,7 @@ export const GroupPanel = memo(function GroupPanel({
     for (const { flag, ...at } of notes?.section?.hunkFlags ?? []) {
       lineNotes.set(at.fileId, [...(lineNotes.get(at.fileId) ?? []), { ...at, text: HUNK_FLAG_TEXT[flag] }]);
     }
-    for (const decision of notes?.decisions ?? []) {
-      if (decision.fileId) {
-        decisions.set(decision.fileId, [...(decisions.get(decision.fileId) ?? []), decision]);
-      }
-    }
-    return { fileNotes, lineNotes, decisions };
+    return { fileNotes, lineNotes };
   }, [notes]);
   const notesPending =
     !notes &&
@@ -122,20 +107,12 @@ export const GroupPanel = memo(function GroupPanel({
     group.key !== 'generated' &&
     state.stages.notes.state !== 'done' &&
     state.stages.notes.state !== 'failed';
-  const decisions = useMemo(() => sectionDecisions(state, group.key), [state, group.key]);
   const flagCounts = useMemo(() => sectionFlagCounts(state, group), [state, group]);
-  // A group with a walk reads as its stops, then its diffs.
   const section = notes?.section;
-  const wide = useMemo(
-    () =>
-      (state.walkthrough?.decisions ?? [])
-        .filter((walk) => homes?.get(walk.decision) === group.key)
-        .map((walk) => ({ walk, decision: state.decisions?.[walk.decision] })),
-    [state.walkthrough, state.decisions, homes, group.key],
-  );
-  const path = useMemo(
-    () => (pathHomeKey === group.key && state.walkthrough ? shortPath(state.walkthrough) : undefined),
-    [state.walkthrough, group.key, pathHomeKey],
+  // The group's decisions and walk stops are notes beside the lines they are about.
+  const sides = useMemo(
+    () => sideNotes(state, group, homes ?? new Map()),
+    [state.decisions, state.walkthrough, group, homes],
   );
   const foldedHunks = useMemo(() => {
     const byFile = new Map<string, string[]>();
@@ -144,10 +121,6 @@ export const GroupPanel = memo(function GroupPanel({
     }
     return byFile;
   }, [section?.skimHunks]);
-  const walked = !!section?.points.length || wide.length > 0 || !!path;
-  // A change-wide decision read as a stop here is not also a card above the walk.
-  const cards = decisions.filter((decision) => !homes?.has(state.decisions?.indexOf(decision) ?? -1));
-
   return (
     <div className="page">
       <header className="page-head">
@@ -174,65 +147,55 @@ export const GroupPanel = memo(function GroupPanel({
         ) : group.phase === 'provisional' ? (
           <span className="muted">Grouped by path while the model reads the change…</span>
         ) : null}
-        {/* Decisions about the group as a whole; ones in code sit on their files and lines below. */}
-        {cards.length > 0 && (
-          <div className="section-decisions">
-            {cards.map((decision, index) => (
-              <DecisionCard key={index} decision={decision} />
-            ))}
-          </div>
-        )}
+        {section?.intro && <p className="walk-intro">{inlineCode(section.intro)}</p>}
       </header>
-      {section && walked && (
-        <SectionWalk
-          groupKey={group.key}
-          section={section}
-          diff={diff}
-          onJumpToFile={onJumpToFile}
-          wide={wide}
-          path={path}
-          comments={controls.review.comments}
-          composing={controls.review.composing?.place ? controls.review.composing : undefined}
-          reviewer={controls.reviewer}
-        />
-      )}
-      {section && (walked || section.rest) && (
-        <div className="section-rest">
-          <Heading level={2}>All changes</Heading>
-          {section.rest && <p>{inlineCode(section.rest)}</p>}
-        </div>
-      )}
-      <div className="files">
-        {order.map((fileId) => {
-          const summary = files.get(fileId);
-          if (!summary) {
-            return <Skeleton key={fileId} height={32} />;
-          }
-          return (
-            <FileView
-              key={fileId}
-              diffId={diff?.id}
-              summary={summary}
-              change={changes.get(fileId)}
-              fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
-              lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
-              decisions={byFile.decisions.get(fileId) ?? NO_DECISIONS}
-              risks={risks.get(fileId) ?? NO_RISKS}
-              generated={isGeneratedFile(group, summary)}
-              foldedHunks={controls.unfolded.has(fileId) ? undefined : foldedHunks.get(fileId)}
-              onUnfoldHunks={controls.onUnfoldHunks}
-              expanded={isFileExpanded(controls, group, summary)}
-              viewed={controls.viewed.has(fileId)}
-              onToggleExpanded={controls.onToggleExpanded}
-              onToggleViewed={controls.onToggleViewed}
-              drafts={drafts.get(fileId) ?? NO_DRAFTS}
-              composing={composing?.fileId === fileId ? composing : undefined}
-              reviewer={controls.reviewer}
-              threads={threads.get(summary.path) ?? NO_THREADS}
-              threadControls={controls.threads}
+      <div className="noted-box">
+        <div className="noted">
+          <div className="files" ref={filesBox}>
+            {order.map((fileId) => {
+              const summary = files.get(fileId);
+              if (!summary) {
+                return <Skeleton key={fileId} height={32} />;
+              }
+              return (
+                <FileView
+                  key={fileId}
+                  diffId={diff?.id}
+                  summary={summary}
+                  change={changes.get(fileId)}
+                  fileNotes={byFile.fileNotes.get(fileId) ?? NO_FILE_NOTES}
+                  lineNotes={byFile.lineNotes.get(fileId) ?? NO_LINE_NOTES}
+                  risks={risks.get(fileId) ?? NO_RISKS}
+                  generated={isGeneratedFile(group, summary)}
+                  foldedHunks={controls.unfolded.has(fileId) ? undefined : foldedHunks.get(fileId)}
+                  onUnfoldHunks={controls.onUnfoldHunks}
+                  expanded={isFileExpanded(controls, group, summary)}
+                  viewed={controls.viewed.has(fileId)}
+                  onToggleExpanded={controls.onToggleExpanded}
+                  onToggleViewed={controls.onToggleViewed}
+                  drafts={drafts.get(fileId) ?? NO_DRAFTS}
+                  composing={composing?.fileId === fileId ? composing : undefined}
+                  reviewer={controls.reviewer}
+                  threads={threads.get(summary.path) ?? NO_THREADS}
+                  threadControls={controls.threads}
+                />
+              );
+            })}
+          </div>
+          {(sides.length > 0 || paths) && (
+            <NoteLane
+              notes={sides}
+              files={files}
+              filesBox={filesBox}
+              active={activeNote}
+              actions={noteActions}
+              onJumpToFile={onJumpToFile}
+              frames={state.walkthrough?.frames}
+              panel={paths?.panel}
+              reserve={paths?.reserve}
             />
-          );
-        })}
+          )}
+        </div>
       </div>
     </div>
   );

@@ -128,16 +128,16 @@ describe('jumping', () => {
   });
 
   test('n and p walk every file down the page, across groups', () => {
-    const [atF2] = run(model({ position: { g: 'a' }, activeFileId: 'f1' }), { type: 'FileStepped', by: 1 });
+    const [atF2] = run(model({ position: { g: 'a' }, activeFileId: 'f1' }), { type: 'StopStepped', by: 1 });
     expect(atF2.activeFileId).toBe('f2');
-    const [atF3, cmds] = run(atF2, { type: 'FileStepped', by: 1 });
+    const [atF3, cmds] = run(atF2, { type: 'StopStepped', by: 1 });
     expect(atF3.activeFileId).toBe('f3');
     expect(atF3.position.g).toBe('b');
     expect(cmds.filter((cmd) => cmd.type === 'Navigate').every((cmd) => cmd.type === 'Navigate' && cmd.replace)).toBe(
       true,
     );
-    expect(run(atF3, { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f3');
-    expect(run(model(), { type: 'FileStepped', by: 1 })[0].activeFileId).toBe('f1');
+    expect(run(atF3, { type: 'StopStepped', by: 1 })[0].activeFileId).toBe('f3');
+    expect(run(model(), { type: 'StopStepped', by: 1 })[0].activeFileId).toBe('f1');
   });
 
   test('the walkthrough is a stop between the overview and the groups, only when the tour has one', () => {
@@ -324,14 +324,102 @@ describe('viewed', () => {
   });
 });
 
+describe('notes', () => {
+  // Group `a` decides twice in f2 (lines 30 and 10) and once about the group; f1 and f3 have no notes.
+  const noted = (overrides: Partial<Model> = {}) =>
+    model({
+      position: { g: 'a' },
+      tour: tour({
+        notes: {
+          a: {
+            decisions: [
+              { text: 'late', priority: 'low', fileId: 'f2', side: 'additions', line: 30 },
+              { text: 'early', priority: 'high', fileId: 'f2', side: 'additions', line: 10 },
+              { text: 'whole', priority: 'medium' },
+            ],
+          },
+        },
+      } as never),
+      ...overrides,
+    });
+  const next = { type: 'StopStepped', by: 1 } as const;
+  const back = { type: 'StopStepped', by: -1 } as const;
+  const at = (model: Model) => model.activeNote ?? model.activeFileId;
+
+  test('n walks a group as its notes, then the files that have none', () => {
+    const seen: (string | undefined)[] = [];
+    let current = noted();
+    for (let step = 0; step < 6; step++) {
+      [current] = run(current, next);
+      seen.push(at(current));
+    }
+    expect(seen).toEqual(['a/d2', 'f1', 'a/d1', 'a/d0', 'f3', 'f3']);
+    expect(current.position.g).toBe('b');
+  });
+
+  test('p walks them back', () => {
+    const [onLate] = run(noted(), { type: 'NoteSelected', id: 'a/d0' });
+    const [onEarly, cmds] = run(onLate, back);
+    expect(onEarly.activeNote).toBe('a/d1');
+    expect(onEarly.activeFileId).toBe('f2');
+    expect(cmds).toContainEqual({ type: 'ScrollToNote', id: 'a/d1', fileId: 'f2', line: 10, deleted: false });
+    expect(at(run(onEarly, back)[0])).toBe('f1');
+  });
+
+  test('a note opens its file, and a note about the group scrolls to its card', () => {
+    const [onLate] = run(noted({ expanded: { f2: false } }), { type: 'NoteSelected', id: 'a/d0' });
+    expect(onLate.expanded.f2).toBe(true);
+    const [, cmds] = run(noted(), { type: 'NoteSelected', id: 'a/d2' });
+    expect(cmds).toContainEqual({
+      type: 'ScrollToNote',
+      id: 'a/d2',
+      fileId: undefined,
+      line: undefined,
+      deleted: false,
+    });
+  });
+
+  test('with no note current, n and p start from the note the reader scrolled past', () => {
+    const scrolledTo = (passed: string | undefined) =>
+      run(noted({ activeFileId: 'f2' }), {
+        type: 'Scrolled',
+        spied: { groupKey: 'a', fileId: 'f2', notes: { shown: [], passed } },
+      })[0];
+    expect(run(scrolledTo('a/d1'), next)[0].activeNote).toBe('a/d0');
+    expect(run(scrolledTo('a/d1'), back)[0].activeNote).toBe('a/d1');
+    // At the group's head, its note about the group comes before its first file.
+    expect(run(noted({ activeFileId: 'f1' }), next)[0].activeNote).toBe('a/d2');
+    expect(at(run(noted({ activeFileId: 'f1', passedNote: 'a/d2' }), next)[0])).toBe('a/d1');
+    // None of the file's notes passed yet: its first one is still ahead.
+    expect(run(scrolledTo('a/d2'), next)[0].activeNote).toBe('a/d1');
+    expect(at(run(scrolledTo('a/d2'), back)[0])).toBe('f1');
+  });
+
+  test('a note stays current only while its lines are on screen', () => {
+    const [on] = run(noted(), { type: 'NoteSelected', id: 'a/d1' });
+    const spied = (shown: string[]): Spied => ({ groupKey: 'a', fileId: 'f2', notes: { shown, passed: 'a/d1' } });
+    expect(run(on, { type: 'Scrolled', spied: spied(['a/d1']) })[0].activeNote).toBe('a/d1');
+    expect(run(on, { type: 'Scrolled', spied: spied(['a/d0']) })[0].activeNote).toBeUndefined();
+  });
+
+  test('a jump to a group or a file, and Escape, leave no note current', () => {
+    const [on] = run(noted(), { type: 'NoteSelected', id: 'a/d1' });
+    expect(run(on, { type: 'GroupSelected', key: 'b' })[0].activeNote).toBeUndefined();
+    expect(run(on, { type: 'FileJumped', fileId: 'f1' })[0].activeNote).toBeUndefined();
+    expect(keyToMsg(on, 'Escape')).toEqual({ type: 'NoteCleared' });
+    expect(run(on, { type: 'KeyPressed', key: 'Escape' })[0].activeNote).toBeUndefined();
+  });
+});
+
 describe('keyToMsg', () => {
   const base = model({ position: { g: 'a' } });
   test.each([
     ['j', base, { type: 'GroupStepped', by: 1 }],
     ['k', base, { type: 'GroupStepped', by: -1 }],
     ['o', base, { type: 'GroupSelected', key: OVERVIEW }],
-    ['n', base, { type: 'FileStepped', by: 1 }],
-    [']', base, { type: 'NoteStepped', by: 1 }],
+    ['n', base, { type: 'StopStepped', by: 1 }],
+    ['p', base, { type: 'StopStepped', by: -1 }],
+    [']', base, undefined],
     ['x', base, undefined],
     ['x', { ...base, activeFileId: 'f1' }, { type: 'ExpandedToggled', fileId: 'f1' }],
     ['v', base, undefined],
