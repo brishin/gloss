@@ -3,7 +3,6 @@ import { Markdown } from '@astryxdesign/core/Markdown';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { RegistryContext } from '@effect/atom-react';
 import {
-  type Decision,
   type FileChange,
   type FileNote,
   type FileSummary,
@@ -21,7 +20,7 @@ import { memo, type ReactNode, useContext, useMemo } from 'react';
 import { fileContentsAtom } from '../lib/client.ts';
 import { anchorFromRange, type CommentAnchor, type DraftComment } from '../lib/review-draft.ts';
 import { placeThreads } from '../lib/threads-model.ts';
-import { decisionFlag, type FlagLevel, isLfsImage, lfsLabel, noteFlag, splitPath } from '../lib/tour-view.ts';
+import { type FlagLevel, isLfsImage, lfsLabel, noteFlag, splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
 import { LfsImageDiff } from './LfsImageDiff.tsx';
 import { CommentComposer, DraftCommentCard, type Reviewer } from './ReviewComments.tsx';
@@ -76,18 +75,9 @@ function NoteCard({ text, critical, className }: { text: string; critical?: bool
   );
 }
 
-export function DecisionCard({ decision, className }: { decision: Decision; className?: string }) {
-  return (
-    <FlagCard level={decisionFlag(decision)} className={className}>
-      {decision.text}
-    </FlagCard>
-  );
-}
-
-/** What a diff line carries, rendered under the line: gloss's notes and decisions, and the reviewer's comments. */
+/** What a diff line carries, rendered under the line: gloss's notes, and the reviewer's comments. */
 type LineAnnotation =
   | { kind: 'note'; note: LineNote }
-  | { kind: 'decision'; decision: Decision }
   | { kind: 'draft'; comment: DraftComment }
   | { kind: 'thread'; thread: ReviewThread }
   | { kind: 'composer' };
@@ -106,7 +96,6 @@ export const FileView = memo(function FileView({
   change,
   fileNotes,
   lineNotes,
-  decisions,
   risks,
   generated,
   foldedHunks,
@@ -128,8 +117,6 @@ export const FileView = memo(function FileView({
   change: FileChange | undefined;
   fileNotes: readonly FileNote[];
   lineNotes: readonly LineNote[];
-  /** Decisions in this file; one without a line shows with the file notes. */
-  decisions: readonly Decision[];
   risks: readonly RiskNote[];
   generated: boolean;
   /** Ids of this file's hunks the section marks unimportant, until the reader opens them; they fold under one line. */
@@ -183,11 +170,6 @@ export const FileView = memo(function FileView({
         lineNumber: thread.line!,
         metadata: { kind: 'thread' as const, thread },
       })),
-      ...decisions.flatMap((decision) =>
-        decision.side && decision.line !== undefined
-          ? [{ side: decision.side, lineNumber: decision.line, metadata: { kind: 'decision' as const, decision } }]
-          : [],
-      ),
       ...lineNotes.map((note) => ({
         side: note.side,
         lineNumber: note.line,
@@ -206,7 +188,7 @@ export const FileView = memo(function FileView({
         : []),
     ],
     // Not the composer's text: the annotations keep their identity while the reviewer types.
-    [placed, decisions, lineNotes, drafts, composingDraft, composingSide, composingLine],
+    [placed, lineNotes, drafts, composingDraft, composingSide, composingLine],
   );
   // Controlled, so the lines stay marked only while their comment is written. Left to pierre, the
   // selection outlives the comment and pins the gutter's "+" to it: every later comment lands there.
@@ -250,7 +232,6 @@ export const FileView = memo(function FileView({
   );
   // A tour cached before LFS detection has no `lfs` on its summaries; the loaded diff still tells.
   const lfs = useMemo(() => summary.lfs ?? (change && lfsPointer(change)), [summary.lfs, change]);
-  const fileDecisions = decisions.filter((decision) => decision.line === undefined);
   const { dir, base } = splitPath(summary.path);
 
   return (
@@ -288,16 +269,13 @@ export const FileView = memo(function FileView({
           ))}
         </div>
       )}
-      {expanded && risks.length + fileNotes.length + fileDecisions.length > 0 && (
+      {expanded && risks.length + fileNotes.length > 0 && (
         <div className="file-notes">
           {/* A confirmed risk is a warning flag on its file, read before the file's other flags. */}
           {risks.map((risk, index) => (
             <FlagCard key={`r${index}`} level="warning">
               {risk.text}
             </FlagCard>
-          ))}
-          {fileDecisions.map((decision, index) => (
-            <DecisionCard key={`d${index}`} decision={decision} />
           ))}
           {fileNotes.map((note, index) => (
             <NoteCard key={index} text={note.text} critical={note.critical} />
@@ -337,8 +315,6 @@ export const FileView = memo(function FileView({
                 threadControls && <ThreadCard thread={annotation.metadata.thread} controls={threadControls} />
               ) : annotation.metadata?.kind === 'draft' ? (
                 reviewer && <DraftCommentCard comment={annotation.metadata.comment} reviewer={reviewer} />
-              ) : annotation.metadata?.kind === 'decision' ? (
-                <DecisionCard className="line-note" decision={annotation.metadata.decision} />
               ) : annotation.metadata ? (
                 <NoteCard
                   className="line-note"

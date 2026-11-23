@@ -8,7 +8,6 @@ import type {
   DiffPayload,
   Excerpt,
   FileChange,
-  Section,
   Snippet,
   Walkthrough as WalkthroughData,
 } from '@gloss/protocol';
@@ -161,113 +160,6 @@ const WalkthroughBody = memo(function WalkthroughBody({
         />
       )}
     </div>
-  );
-});
-
-/**
- * A group read as the walkthrough reads the change: its stops in reading order, each a claim,
- * its reason and the few lines that show it, above the group's open diffs.
- */
-export const SectionWalk = memo(function SectionWalk({
-  groupKey,
-  section,
-  diff,
-  onJumpToFile,
-  wide = [],
-  path,
-  comments,
-  composing,
-  reviewer,
-}: {
-  groupKey: string;
-  section: Section;
-  diff: DiffPayload | undefined;
-  onJumpToFile: (fileId: string, line?: number) => void;
-  /** Change-wide decisions read here instead of in the walkthrough, with their decisions. */
-  wide?: readonly { walk: DecisionWalk; decision: Decision | undefined }[];
-  /** The key code path, when this section is where it is read. */
-  path?: Pick<WalkthroughData, 'frames' | 'steps'>;
-} & WalkReview) {
-  const review = useMemo(() => ({ comments, composing, reviewer }), [comments, composing, reviewer]);
-  const files = useMemo(() => new Map(diff?.files.map((file) => [file.id, file])), [diff]);
-  // The section places the change-wide decisions among its stops; one it did not place leads.
-  const placed = new Set(section.points.map((point) => point.wide));
-  type Stop = { walk: DecisionWalk; decision: Decision | undefined } | { point: Section['points'][number] };
-  const stops: Stop[] = [
-    ...wide.filter(({ walk }) => !placed.has(walk.decision)),
-    ...section.points.flatMap((point) =>
-      point.kind === 'wide' ? wide.filter(({ walk }) => walk.decision === point.wide) : [{ point } as Stop],
-    ),
-  ];
-  // One count down the section: the code path's steps, then the stops.
-  const offset = path?.steps.length ?? 0;
-  return (
-    <ReviewContext.Provider value={review}>
-      {section.intro && <p className="walk-intro">{inlineCode(section.intro)}</p>}
-      {path && path.steps.length > 0 && (
-        <CallPath frames={path.frames} steps={path.steps} diff={diff} files={files} onOpen={onJumpToFile} />
-      )}
-      <ol className="walk-steps">
-        {stops.map((stop, index) =>
-          'walk' in stop ? (
-            <li key={`wide-${stop.walk.decision}`} className="walk-step">
-              <Heading level={2}>
-                <span className="walk-step-n">{index + 1 + offset}</span>
-                {stop.decision && (
-                  <span className="walk-flag">
-                    <FlagIcon level={decisionFlag(stop.decision)} />
-                  </span>
-                )}
-                {stop.walk.title}
-              </Heading>
-              <Explain walk={stop.walk} />
-              <DecisionCode walk={stop.walk} diff={diff} files={files} onOpen={onJumpToFile} />
-              {stop.walk.refs.length > 0 && (
-                <ul className="walk-refs">
-                  {stop.walk.refs.map((ref, at) => (
-                    <li key={at}>
-                      <span>{ref.label}</span>
-                      <FileRef
-                        path={files.get(ref.fileId)?.path}
-                        line={ref.line}
-                        onOpen={() => onJumpToFile(ref.fileId, ref.line)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ) : (
-            <li key={index} className="walk-step">
-              <Heading level={2}>
-                <span className="walk-step-n">{index + 1 + offset}</span>
-                {stop.point.priority && (
-                  <span className="walk-flag">
-                    <FlagIcon level={decisionFlag({ text: '', priority: stop.point.priority })} />
-                  </span>
-                )}
-                {stop.point.title}
-              </Heading>
-              <Explain walk={stop.point} />
-              {stop.point.see && (
-                <FileRef
-                  path={files.get(stop.point.see.fileId)?.path}
-                  line={stop.point.see.line}
-                  onOpen={() => onJumpToFile(stop.point.see!.fileId, stop.point.see!.line)}
-                />
-              )}
-              <DecisionCode
-                walk={{ ...stop.point, decision: index }}
-                place={`section:${groupKey}`}
-                diff={diff}
-                files={files}
-                onOpen={onJumpToFile}
-              />
-            </li>
-          ),
-        )}
-      </ol>
-    </ReviewContext.Provider>
   );
 });
 

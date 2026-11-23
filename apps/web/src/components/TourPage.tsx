@@ -19,8 +19,9 @@ import {
   SquareIcon,
   WorkflowIcon,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
+import { noteFrames, noteGroup, type SideNote, sideNotes } from '../lib/side-notes.ts';
 import { openThreads } from '../lib/threads-model.ts';
 import {
   canAsk,
@@ -33,12 +34,14 @@ import {
   tourStops,
 } from '../lib/tour-model.ts';
 import { tourProgram } from '../lib/tour-program.ts';
-import { hasWalkStop, OVERVIEW, pathHome, WALKTHROUGH, walkHomes } from '../lib/tour-view.ts';
+import { hasWalkStop, OVERVIEW, pathsShown, WALKTHROUGH, walkHomes } from '../lib/tour-view.ts';
 import { AskPanel } from './AskPanel.tsx';
 import { AutoToursSwitch } from './AutoToursSwitch.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
+import { KeyPaths } from './KeyPaths.tsx';
 import { Logo } from './Logo.tsx';
+import type { NoteActions } from './NoteLane.tsx';
 import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
 import { ReviewPanel } from './ReviewPanel.tsx';
@@ -62,14 +65,30 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   const groups = useMemo(() => groupsInOrder(state), [state]);
   const homes = useMemo(() => walkHomes(groups), [groups]);
   const walkStop = hasWalkStop(state, groups);
-  const pathHomeKey = useMemo(() => pathHome(groups), [groups]);
-  // The walkthrough stop shows only what no group's walk reads: not the code path once a group reads it.
+  // The key code paths have one panel for the whole page, beside the groups.
+  const frames = state.walkthrough?.frames;
+  const pathsOn = useMemo(() => pathsShown(state), [state.walkthrough, state.files]);
+  const pathsScope = useRef<HTMLDivElement>(null);
+  const pathsPanel = useRef<HTMLDivElement>(null);
+  const [pathsReserve, setPathsReserve] = useState(0);
+  const paths = useMemo(
+    () => (pathsOn ? { panel: pathsPanel, reserve: pathsReserve } : undefined),
+    [pathsOn, pathsReserve],
+  );
+  // The walkthrough stop shows only what nothing else reads: not the code paths while the panel has them.
   const leftover = useMemo(
-    () => (state.walkthrough && pathHomeKey ? { ...state.walkthrough, frames: [], steps: [] } : state.walkthrough),
-    [state.walkthrough, pathHomeKey],
+    () => (state.walkthrough && pathsOn ? { ...state.walkthrough, frames: [], steps: [] } : state.walkthrough),
+    [state.walkthrough, pathsOn],
   );
   const files = useMemo(() => new Map(state.files.map((file) => [file.id, file])), [state.files]);
+  const fileIds = useMemo(() => new Map(state.files.map((file) => [file.path, file.id])), [state.files]);
   const current = currentGroup(model, groups);
+  // The panel's calls carry the numbers of the notes of the group being read.
+  const pathNotes = useMemo(() => (current ? sideNotes(state, current, homes) : []), [state, current, homes]);
+  const inFrame = useMemo(
+    () => noteFrames(frames ?? [], pathNotes, (fileId) => files.get(fileId)?.path),
+    [frames, pathNotes, files],
+  );
   const index = current ? groups.indexOf(current) : -1;
   // The neighbouring stops: the overview, the walkthrough when there is one, then the groups.
   const selected = selectedKey(model, groups);
@@ -132,6 +151,35 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     }),
     [expanded, viewed, model.unfolded, dispatch, review, reviewer, threadControls],
   );
+  // The current note's actions start where a gutter click or the Ask button would, on its lines.
+  const noteActions = useMemo<NoteActions>(
+    () => ({
+      select: (id) => dispatch({ type: 'NoteSelected', id }),
+      comment: reviewable
+        ? ({ fileId, side, from, to }: SideNote) =>
+            fileId !== undefined &&
+            to !== undefined &&
+            dispatch({
+              type: 'CommentStarted',
+              anchor: { fileId, side: side ?? 'additions', line: to, startLine: from === to ? undefined : from },
+            })
+        : undefined,
+      ask: askable
+        ? ({ fileId, side, from, to }: SideNote) =>
+            dispatch({ type: 'AskOpened', context: { fileId, side: from === undefined ? undefined : side, from, to } })
+        : undefined,
+    }),
+    [reviewable, askable, dispatch],
+  );
+  const activeNote = model.activeNote;
+  const activeGroup = activeNote === undefined ? undefined : noteGroup(activeNote);
+  // "Note 3 of 5", while one is current.
+  const noted = useMemo(() => {
+    const group = groups.find((candidate) => candidate.key === activeGroup);
+    const notes = group ? sideNotes(state, group, homes) : [];
+    const at = notes.find((note) => note.id === activeNote);
+    return at && { n: at.n, of: notes.length };
+  }, [groups, activeGroup, activeNote, state, homes]);
   const reviewed = current ? current.fileIds.filter((id) => viewed.has(id)).length : 0;
 
   return (
@@ -292,6 +340,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             {current && (
               <span className="subbar-position">
                 Group {index + 1} of {groups.length}
+                {noted ? ` · Note ${noted.n} of ${noted.of}` : ''}
                 {reviewed ? ` · ${reviewed} of ${current.fileIds.length} files viewed` : ''}
               </span>
             )}
@@ -354,19 +403,39 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 />
               </section>
             )}
-            {groups.map((group) => (
-              <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
-                <GroupPanel
-                  group={group}
-                  state={state}
-                  diff={diff}
-                  controls={controls}
-                  onJumpToFile={jumpToFile}
-                  homes={homes}
-                  pathHomeKey={pathHomeKey}
-                />
-              </section>
-            ))}
+            <div className="paths-scope">
+              <div className="paths-body" ref={pathsScope} data-paths={pathsOn || undefined}>
+                {pathsOn && frames && (
+                  <KeyPaths
+                    frames={frames}
+                    fileIds={fileIds}
+                    scope={pathsScope}
+                    panel={pathsPanel}
+                    notes={pathNotes}
+                    inFrame={inFrame}
+                    activeNote={activeNote}
+                    onSelectNote={noteActions.select}
+                    onJumpToFile={jumpToFile}
+                    onReserve={setPathsReserve}
+                  />
+                )}
+                {groups.map((group) => (
+                  <section className="stop" key={group.key} id={`group-${group.key}`} data-group-key={group.key}>
+                    <GroupPanel
+                      group={group}
+                      state={state}
+                      diff={diff}
+                      controls={controls}
+                      onJumpToFile={jumpToFile}
+                      homes={homes}
+                      paths={paths}
+                      activeNote={activeGroup === group.key ? activeNote : undefined}
+                      noteActions={noteActions}
+                    />
+                  </section>
+                ))}
+              </div>
+            </div>
           </div>
         </main>
       </div>
