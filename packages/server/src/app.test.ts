@@ -527,6 +527,10 @@ describe('review API from other sites', () => {
   it.each([
     ['a simple text/plain request', { 'Content-Type': 'text/plain' }],
     ['JSON from another origin', { 'Content-Type': 'application/json', Origin: 'https://evil.example' }],
+    [
+      'JSON from another origin behind a TLS proxy',
+      { 'Content-Type': 'application/json', Origin: 'https://evil.example', 'X-Forwarded-Proto': 'https' },
+    ],
   ])('refuses %s without sending it', async (_, headers) => {
     expect((await post(headers)).status).toBe(403);
     expect(sent).toEqual([]);
@@ -536,6 +540,19 @@ describe('review API from other sites', () => {
     ['the same origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4777' }],
     ['an allowed origin', { 'Content-Type': 'application/json', Origin: 'http://localhost:4778' }],
     ['no origin (the CLI)', { 'Content-Type': 'application/json' }],
+    [
+      'the page a TLS proxy served (tailscale serve)',
+      { 'Content-Type': 'application/json', Origin: 'https://localhost:4777', 'X-Forwarded-Proto': 'https' },
+    ],
+    [
+      'the page a proxy served under its own host',
+      {
+        'Content-Type': 'application/json',
+        Origin: 'https://mini.tail0.ts.net',
+        'X-Forwarded-Proto': 'https',
+        'X-Forwarded-Host': 'mini.tail0.ts.net',
+      },
+    ],
   ])('accepts JSON from %s', async (_, headers) => {
     expect((await post(headers)).status).toBe(200);
   });
