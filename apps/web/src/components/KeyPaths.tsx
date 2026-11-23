@@ -135,11 +135,19 @@ export function KeyPaths({
       }
       return next;
     });
-  const jump = (fileId: string, line: number | undefined) => {
+  // The narrow page's list closes on a choice, so it is not over the code the choice goes to.
+  const close = () => {
     if (bar.current) {
       bar.current.open = false;
     }
+  };
+  const jump = (fileId: string, line: number | undefined) => {
+    close();
     onJumpToFile(fileId, line);
+  };
+  const selectNote = (id: string) => {
+    close();
+    onSelectNote(id);
   };
   const root = frames[paths[current]?.[0] ?? -1];
   const frame = frames[on];
@@ -157,7 +165,7 @@ export function KeyPaths({
           inFrame={inFrame}
           activeNote={activeNote}
           onToggle={() => toggle(index)}
-          onSelectNote={onSelectNote}
+          onSelectNote={selectNote}
           onJump={jump}
         />
       ))}
