@@ -9,14 +9,11 @@ import { splitPath } from '../lib/tour-view.ts';
 import { FlagIcon } from './icons.tsx';
 import { inlineCode } from './Walkthrough.tsx';
 
-/** A note held at the column's edge is one line: its height and the space between notes, in px. */
-const PIN = 30;
-const GAP = 6;
-/** The same for a tight column, where a waiting note is a line with no box. */
+/** A waiting note in the column is one line with no box: its height and the space between lines, in px. */
 const ROW = 22;
-const ROW_GAP = 2;
-/** The least room the open note is given when the column decides whether its notes fit, in px. */
-const OPEN = 160;
+const GAP = 2;
+/** The space between an open note and its neighbours. */
+const CARD_GAP = 6;
 /** A note's top sits this far above its first line, so its title is level with the line. */
 const LIFT = 5;
 /** Where a note's leader meets it, below its top. */
@@ -52,9 +49,10 @@ export interface NoteActions {
  * column's top or bottom edge as its title, so the column always lists what is above and below.
  * The page's key code paths panel (`KeyPaths.tsx`) shares the column: notes wait below it.
  *
- * When the screen is too short for the panel, one open note and every other note as a card, the
- * column is tight: a waiting note is one line with no box. That depends on the screen and the
- * group only, never on the scroll position, so the notes do not change shape while they are read.
+ * A waiting note is one line with no box. Two notes can be open, as cards: the current one, and
+ * the one the reader is at, which is the last note whose lines begin above the middle of the
+ * screen and are still on it. So a note opens as the page scrolls to its lines and closes as the
+ * next one takes over. The current note is drawn over any note it overlaps.
  *
  * In a page too narrow for a column the notes are a list above the diffs.
  */
@@ -67,8 +65,6 @@ export const NoteLane = memo(function NoteLane({
   onJumpToFile,
   panel,
   reserve = 0,
-  full = 0,
-  onTight,
 }: {
   notes: readonly SideNote[];
   files: ReadonlyMap<string, FileSummary>;
@@ -82,10 +78,6 @@ export const NoteLane = memo(function NoteLane({
   panel?: RefObject<HTMLElement | null>;
   /** The room the panel takes at the column's top while it stays with the screen, in px. */
   reserve?: number;
-  /** The room the whole panel needs, whatever it shows now: what the column counts on when it asks if the notes fit. */
-  full?: number;
-  /** Told when the column becomes tight or roomy, so the panel can make room too. */
-  onTight?: (tight: boolean) => void;
 }) {
   const lane = useRef<HTMLElement>(null);
   const topBox = useRef<HTMLDivElement>(null);
@@ -98,15 +90,8 @@ export const NoteLane = memo(function NoteLane({
   const retries = useRef(0);
   const [side, setSide] = useState(false);
   const [pins, setPins] = useState<Pins>(NO_PINS);
-  const [tight, setTight] = useState(false);
   const [settled, setSettled] = useState(false);
-  /** The tallest an open note has been: the column stays tight once one did not fit. */
-  const tallest = useRef(OPEN);
-  const pin = tight ? ROW : PIN;
-  const gap = tight ? ROW_GAP : GAP;
-
-  useEffect(() => onTight?.(tight && side), [onTight, tight, side]);
-  useEffect(() => () => onTight?.(false), [onTight]);
+  const [near, setNear] = useState<string>();
 
   /** Reads where every note's lines are. Costly (it searches the diffs), so only when the page changes shape. */
   const measure = () => {
@@ -190,23 +175,26 @@ export const NoteLane = memo(function NoteLane({
       if (pins !== NO_PINS) {
         setPins(NO_PINS);
       }
-      return;
-    }
-
-    // Do the notes fit as cards? Counted from the screen's height, not from where the page is.
-    const headRect = head.getBoundingClientRect();
-    const open = active === undefined ? undefined : cards.current.get(active);
-    tallest.current = Math.max(tallest.current, open?.offsetHeight ?? 0);
-    const bars = Number.parseFloat(getComputedStyle(head).top) - reserve;
-    const room = window.innerHeight - (Number.isFinite(bars) ? bars : 0) - full - 8;
-    const crowded = notes.length > 1 && tallest.current + (notes.length - 1) * (PIN + GAP) > room;
-    if (crowded !== tight) {
-      setTight(crowded);
+      if (near !== undefined) {
+        setNear(undefined);
+      }
       return;
     }
 
     // Notes whose lines went above the column's stuck top wait there, in order, as titles.
     // The current note waits there too, still open, while its lines are on screen.
+    const headRect = head.getBoundingClientRect();
+    // The note the reader is at. From where the lines are alone, so opening it cannot change the answer.
+    const middle = window.innerHeight / 2;
+    const at = notes.findLast((note) => {
+      const spot = spots.current.get(note.id);
+      const from = spot?.found ? laneRect.top + spot.top : Infinity;
+      return from <= middle && from + spot!.height > headRect.top;
+    })?.id;
+    if (at !== near) {
+      setNear(at);
+      return;
+    }
     const stuck = headRect.top > laneRect.top + 0.5;
     const top: string[] = [];
     let floor = headRect.top;
@@ -217,7 +205,7 @@ export const NoteLane = memo(function NoteLane({
           break;
         }
         top.push(note.id);
-        floor += (pins.top.includes(note.id) ? (cards.current.get(note.id)?.offsetHeight ?? pin) : pin) + gap;
+        floor += (pins.top.includes(note.id) ? (cards.current.get(note.id)?.offsetHeight ?? ROW) : ROW) + GAP;
       }
     }
 
@@ -229,20 +217,33 @@ export const NoteLane = memo(function NoteLane({
     const under = over && over.height > 0 && over.bottom > laneRect.top && over.top < laneRect.bottom;
     let next = stuck
       ? -Infinity
-      : Math.max(head.offsetHeight + (head.offsetHeight ? gap : 0), under ? over.bottom - laneRect.top + GAP : 0);
+      : Math.max(head.offsetHeight + (head.offsetHeight ? GAP : 0), under ? over.bottom - laneRect.top + CARD_GAP : 0);
+    let wide = false;
     for (const note of riding) {
       const spot = spots.current.get(note.id);
-      const at = Math.max((spot?.top ?? 0) - (note.fileId === undefined ? 0 : LIFT), next);
+      const height = pins.bottom.includes(note.id) ? ROW : (cards.current.get(note.id)?.offsetHeight ?? ROW);
+      // An open note keeps more room around it than two lines keep between them.
+      const card = height > ROW + 4;
+      const at = Math.max(
+        (spot?.top ?? 0) - (note.fileId === undefined ? 0 : LIFT),
+        next + (card && !wide && Number.isFinite(next) ? CARD_GAP - GAP : 0),
+      );
       tops.set(note.id, at);
-      const height = pins.bottom.includes(note.id) ? pin : (cards.current.get(note.id)?.offsetHeight ?? pin);
-      next = at + height + gap;
+      next = at + height + (card ? CARD_GAP : GAP);
+      wide = card;
     }
 
     // Notes that start below the screen wait at its bottom edge as titles.
     const bottom: string[] = [];
-    const limit = Math.min(window.innerHeight, laneRect.bottom) - 8;
+    // Against the screen alone, not the column's end: a note that rides can open and make the column
+    // longer, and a limit that moved with the column would send it back and forth.
+    const limit = window.innerHeight - 8;
     for (const note of riding.toReversed()) {
-      if (note.id === active || laneRect.top + tops.get(note.id)! + pin <= limit - bottom.length * (pin + gap)) {
+      if (
+        note.id === active ||
+        note.id === near ||
+        laneRect.top + tops.get(note.id)! + ROW <= limit - bottom.length * (ROW + GAP)
+      ) {
         break;
       }
       bottom.unshift(note.id);
@@ -279,7 +280,7 @@ export const NoteLane = memo(function NoteLane({
         leader.setAttribute('d', `M0 ${from}H14V${at + HEAD}H28`);
       }
     }
-    column.style.minHeight = `${Math.ceil(end + bottom.length * (pin + gap) + 8)}px`;
+    column.style.minHeight = `${Math.ceil(end + bottom.length * (ROW + GAP) + 8)}px`;
     // From here on a note that is pushed slides to its new place; the first placing is not a move.
     if (!settled) {
       requestAnimationFrame(() => setSettled(true));
@@ -341,7 +342,7 @@ export const NoteLane = memo(function NoteLane({
       box={keep(cards, note.id)}
       note={note}
       current={note.id === active}
-      held={held || (tight && side)}
+      open={side ? note.id === active || note.id === near : note.id === active || (note.key && !held)}
       files={files}
       actions={actions}
       onJumpToFile={onJumpToFile}
@@ -355,7 +356,6 @@ export const NoteLane = memo(function NoteLane({
       className="note-lane"
       ref={lane}
       data-side={side || undefined}
-      data-tight={(tight && side) || undefined}
       data-settled={settled || undefined}
       aria-label="Notes on this group"
       style={reserve ? ({ '--paths-reserve': `${reserve}px` } as CSSProperties) : undefined}
@@ -398,15 +398,14 @@ export const NoteLane = memo(function NoteLane({
 });
 
 /**
- * One note: its number, flag and title, then what it says. A decision that matters shows its
- * text at once; the others are their title until they are current. Held at the column's edge,
- * a note is its title alone (the current one stays open).
+ * One note: its number, flag and title, then, while it is open, what it says. In the list of a
+ * narrow page a decision that matters is open at once; in the column the lane says which are open.
  */
 function NoteCard({
   box,
   note,
   current,
-  held,
+  open,
   files,
   actions,
   onJumpToFile,
@@ -414,13 +413,12 @@ function NoteCard({
   box: (element: HTMLElement | null) => void;
   note: SideNote;
   current: boolean;
-  /** Waiting as its title: at the column's edge, or anywhere in a tight column. */
-  held: boolean;
+  /** Shown with its text: otherwise the note is its title. */
+  open: boolean;
   files: ReadonlyMap<string, FileSummary>;
   actions: NoteActions;
   onJumpToFile: (fileId: string, line?: number) => void;
 }) {
-  const open = current || (note.key && !held);
   const comment = current && note.from !== undefined ? actions.comment : undefined;
   const ask = current && note.fileId !== undefined ? actions.ask : undefined;
   return (
@@ -430,7 +428,6 @@ function NoteCard({
       data-level={note.level}
       data-current={current || undefined}
       data-open={open || undefined}
-      data-held={held || undefined}
       data-anchored={note.fileId === undefined ? undefined : ''}
     >
       <div className="side-note-top">

@@ -1601,42 +1601,48 @@
   }
 
   /*
-   * A tight column, for a screen too short for every note as a card: a waiting note is one line
-   * with no box. The current note stays a card.
+   * In the column a waiting note is one line with no box. An open note is a card: the current
+   * one, and a decision that matters while it rides beside its lines. The lines at the edges
+   * have no box of their own, so the edge covers what passes under it.
    */
-  /* The lines at the edges have no box of their own, so the edge covers what passes under it. */
-  [data-tight] > .lane-top,
-  [data-tight] > .lane-bottom {
+  [data-side] > .lane-top,
+  [data-side] > .lane-bottom {
     gap: 2px;
     background: var(--color-background-body);
   }
 
-  [data-tight] .side-note:not([data-current]) {
+  [data-side] .side-note:not([data-open]) {
     border-color: transparent;
     border-radius: var(--radius-inner);
     background: none;
   }
 
-  [data-tight] .side-note:not([data-current]) .side-note-head {
+  [data-side] .side-note:not([data-open]) .side-note-head {
     min-height: 20px;
     padding: 1px 8px;
   }
 
-  [data-tight] .side-note:not([data-current]) .side-note-head > .flag-icon {
+  [data-side] .side-note:not([data-open]) .side-note-head > .flag-icon {
     margin-top: 3px;
   }
 
-  [data-tight] .side-note:not([data-current]) .side-note-title {
+  [data-side] .side-note:not([data-open]) .side-note-title {
     color: var(--color-text-secondary);
     font-weight: var(--font-weight-medium);
   }
 
-  [data-tight] .side-note:not([data-current]):hover {
+  [data-side] .side-note:not([data-open]):hover {
     background: var(--color-background-muted);
   }
 
-  [data-tight] .side-note:not([data-current]):hover .side-note-title {
+  [data-side] .side-note:not([data-open]):hover .side-note-title {
     color: var(--color-text-primary);
+  }
+
+  /* The current note is over whatever it overlaps: the lines at the column's edges too. */
+  [data-side] .side-note[data-current],
+  [data-side] > .lane-top:has([data-current]) {
+    z-index: 4;
   }
 
   /* A note that another one pushes slides to its new place, and an opened note's text fades in. */
