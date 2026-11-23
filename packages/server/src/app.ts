@@ -122,6 +122,21 @@ export function withPullStates(tour: RecentTour, pulls: ReadonlyMap<string, Pull
   };
 }
 
+/**
+ * The origin the browser loaded the app from. Behind a TLS proxy such as `tailscale serve`, the
+ * request reaches Node as plain http, so the URL alone says `http://` while the page's `Origin`
+ * says `https://`; the proxy's `X-Forwarded-*` headers name what the browser used. A page on
+ * another site cannot set these headers without a preflight that CORS refuses, so trusting them
+ * here admits only the page the proxy itself served.
+ */
+function pageOrigin(c: Context): string {
+  const url = new URL(c.req.url);
+  const first = (name: string) => c.req.header(name)?.split(',')[0]?.trim() || undefined;
+  const proto = first('X-Forwarded-Proto');
+  const scheme = proto === 'http' || proto === 'https' ? proto : url.protocol.slice(0, -1);
+  return `${scheme}://${first('X-Forwarded-Host') ?? url.host}`;
+}
+
 /** The gloss HTTP API: start a tour, stream its events (SSE or NDJSON), fetch diffs. */
 export function createApp({ runtime, health, token, corsOrigins = [], setup, update, autoTours }: AppOptions): Hono {
   const app = new Hono();
@@ -382,7 +397,7 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     const origin = c.req.header('Origin');
     return (
       !!c.req.header('Content-Type')?.startsWith('application/json') &&
-      (origin === undefined || origin === new URL(c.req.url).origin || corsOrigins.includes(origin))
+      (origin === undefined || origin === pageOrigin(c) || corsOrigins.includes(origin))
     );
   };
 
