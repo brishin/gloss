@@ -4,7 +4,7 @@ import { lineRow } from '../lib/diff-dom.ts';
 import { callLocations } from '../lib/excerpt.ts';
 import type { SideNote } from '../lib/side-notes.ts';
 import { keyPaths } from '../lib/tour-view.ts';
-import { FlagIcon } from './icons.tsx';
+import { NoteIcon } from './icons.tsx';
 
 /** The space between the panel and the notes that wait below it, in px. */
 const GAP = 6;
@@ -52,13 +52,16 @@ export function KeyPaths({
   onReserve: (px: number) => void;
 }) {
   const paths = useMemo(() => keyPaths(frames), [frames]);
+  /** The calls the panel shows: a lone entry point is in no path, so it is never the call on screen. */
+  const calls = useMemo(() => new Set(paths.flat()), [paths]);
   const track = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDetailsElement>(null);
   /** Where each call's code is, from the top of the document. */
   const tops = useRef<(number | undefined)[]>([]);
   const [scrolled, setOn] = useState(-1);
   // The current note says where the reader is: its call is the marked one, not a nearer call.
-  const on = (activeNote === undefined ? undefined : inFrame.get(activeNote)) ?? scrolled;
+  const noted = activeNote === undefined ? undefined : inFrame.get(activeNote);
+  const on = noted !== undefined && calls.has(noted) ? noted : scrolled;
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
   const [all, setAll] = useState(false);
   const trail = !all;
@@ -69,7 +72,7 @@ export function KeyPaths({
     const middle = window.scrollY + window.innerHeight / 2;
     let next = -1;
     tops.current.forEach((top, index) => {
-      if (top !== undefined && top <= middle && top >= (tops.current[next] ?? -Infinity)) {
+      if (calls.has(index) && top !== undefined && top <= middle && top >= (tops.current[next] ?? -Infinity)) {
         next = index;
       }
     });
@@ -197,7 +200,7 @@ export function KeyPaths({
       )}
     </div>
   );
-  const kinds = new Set(frames.map((entry) => entry.status));
+  const kinds = new Set([...calls].map((index) => frames[index]!.status));
   return (
     <>
       <details className="key-paths-bar" ref={bar}>
@@ -211,9 +214,9 @@ export function KeyPaths({
         <div className="key-paths" ref={panel}>
           <div className="key-paths-head">
             <span>Key code paths</span>
-            {frames.length > 1 && (
+            {calls.size > 1 && (
               <button type="button" className="key-paths-all" aria-expanded={all} onClick={() => setAll(!all)}>
-                {all ? 'Less' : `All ${frames.length} calls`}
+                {all ? 'Less' : `All ${calls.size} calls`}
               </button>
             )}
             {!trail && kinds.has('changed') && (
@@ -277,11 +280,12 @@ function Path({
         const fileId = frame.path === undefined ? undefined : fileIds.get(frame.path);
         const location = locations[at]!;
         const file = location.startsWith(':') ? '' : location.replace(/:\d+$/, '');
+        const here = notes.filter((note) => inFrame.get(note.id) === index);
         const name = (
           <>
             <span className={`walk-mark ${frame.status}`} />
             <code className="walk-call">
-              {frame.receiver && `${frame.receiver}.`}
+              {frame.receiver && <span>{frame.receiver}.</span>}
               <b>{frame.name}</b>
             </code>
           </>
@@ -316,28 +320,30 @@ function Path({
             ) : (
               <span className="key-path-call">{name}</span>
             )}
-            {notes
-              .filter((note) => inFrame.get(note.id) === index)
-              .map((note) => (
-                <button
-                  key={note.id}
-                  type="button"
-                  className="note-chip"
-                  data-current={note.id === activeNote || undefined}
-                  title={note.title}
-                  onClick={() => onSelectNote(note.id)}
-                >
-                  {note.level && <FlagIcon level={note.level} />}
-                  {note.n}
-                </button>
-              ))}
-            {open || path.length === 1 ? (
+            {open ? (
               <code className="walk-at">
                 {file}
                 <span>{location.slice(file.length)}</span>
               </code>
             ) : (
               <span className="key-path-count">{path.length} calls</span>
+            )}
+            {here.length > 0 && (
+              <span className="key-path-notes">
+                {here.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="note-chip"
+                    data-current={note.id === activeNote || undefined}
+                    title={note.title}
+                    onClick={() => onSelectNote(note.id)}
+                  >
+                    <NoteIcon level={note.level} />
+                    {note.n}
+                  </button>
+                ))}
+              </span>
             )}
           </div>
         );
