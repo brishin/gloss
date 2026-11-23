@@ -53,7 +53,9 @@ export function KeyPaths({
   const bar = useRef<HTMLDetailsElement>(null);
   /** Where each call's code is, from the top of the document. */
   const tops = useRef<(number | undefined)[]>([]);
-  const [on, setOn] = useState(-1);
+  const [scrolled, setOn] = useState(-1);
+  // The current note says where the reader is: its call is the marked one, not a nearer call.
+  const on = (activeNote === undefined ? undefined : inFrame.get(activeNote)) ?? scrolled;
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
 
   const place = useRef(() => {});

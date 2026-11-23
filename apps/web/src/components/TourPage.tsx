@@ -19,7 +19,7 @@ import {
   SquareIcon,
   WorkflowIcon,
 } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
 import { noteFrames, noteGroup, type SideNote, sideNotes } from '../lib/side-notes.ts';
 import { openThreads } from '../lib/threads-model.ts';
@@ -173,6 +173,18 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
   );
   const activeNote = model.activeNote;
   const activeGroup = activeNote === undefined ? undefined : noteGroup(activeNote);
+  // A note or call that was clicked keeps the keyboard focus, and its focus ring reads as a second
+  // current note once n or p moves on. The step lets go of it.
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (
+      focused instanceof HTMLElement &&
+      focused.closest('.note-lane, .key-paths, .key-paths-bar') &&
+      !focused.closest('[data-current]')
+    ) {
+      focused.blur();
+    }
+  }, [activeNote]);
   // "Note 3 of 5", while one is current.
   const noted = useMemo(() => {
     const group = groups.find((candidate) => candidate.key === activeGroup);
