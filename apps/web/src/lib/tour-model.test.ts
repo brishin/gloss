@@ -367,7 +367,7 @@ describe('notes', () => {
   });
 
   test('a note opens its file, and a note about the group scrolls to its card', () => {
-    const [onLate] = run(noted({ expanded: {} }), { type: 'NoteSelected', id: 'a/d0' });
+    const [onLate] = run(noted({ expanded: { f2: false } }), { type: 'NoteSelected', id: 'a/d0' });
     expect(onLate.expanded.f2).toBe(true);
     const [, cmds] = run(noted(), { type: 'NoteSelected', id: 'a/d2' });
     expect(cmds).toContainEqual({

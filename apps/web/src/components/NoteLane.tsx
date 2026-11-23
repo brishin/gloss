@@ -198,6 +198,10 @@ export const NoteLane = memo(function NoteLane({
       }
     }
     if (!beside) {
+      // The list is in normal flow: nothing a column layout left on the cards may move them.
+      for (const element of cards.current.values()) {
+        element.style.transform = '';
+      }
       column.style.minHeight = '';
       if (pins !== NO_PINS) {
         setPins(NO_PINS);

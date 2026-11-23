@@ -825,7 +825,8 @@ function jumpToNote(model: Model, note: SideNote): Next {
       activeNote: note.id,
       passedNote: note.id,
       activeFileId: fileId ?? (moved ? undefined : model.activeFileId),
-      expanded: fileId ? { ...model.expanded, [fileId]: model.expanded[fileId] ?? true } : model.expanded,
+      // Also a file the reader collapsed: the note is about lines in it.
+      expanded: fileId ? { ...model.expanded, [fileId]: true } : model.expanded,
     },
     [{ type: 'ScrollToNote', id: note.id, fileId, line: note.from, deleted: note.side === 'deletions' }],
   ];
