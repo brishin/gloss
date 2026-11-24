@@ -15,9 +15,22 @@ export interface ReviewersModel {
   found?: { query: string; candidates: readonly ReviewerCandidate[] };
   /** GitHub refused the last change; cleared by the next one. */
   error?: string;
+  /** A change is on its way to GitHub. */
+  sending: boolean;
+  /**
+   * Changes picked while one is on its way, sent one by one in order: two at once could reach
+   * GitHub out of order, and an older answer would overwrite the newer picks on screen.
+   */
+  queued: readonly Change[];
 }
 
-export const emptyReviewers: ReviewersModel = { open: false, query: '' };
+/** One ask or withdrawal for GitHub. */
+export interface Change {
+  add?: readonly Who[];
+  remove?: readonly Who[];
+}
+
+export const emptyReviewers: ReviewersModel = { open: false, query: '', sending: false, queued: [] };
 
 export type ReviewersMsg =
   | { type: 'ReviewersOpened' }
@@ -41,8 +54,9 @@ export type ReviewersCmd =
 
 /**
  * The picker's state, and the PR as it should show now: an ask shows as pending at once, and a
- * withdrawn one goes, before GitHub answers. GitHub's answer then replaces both lists; a refusal
- * leaves the error and asks for the stack again (`refetch`) to put the lists back.
+ * withdrawn one goes, before GitHub answers. Changes go to GitHub one at a time; once the last
+ * answer is in, it replaces both lists, and a refusal leaves the error and asks for the stack
+ * again (`refetch`) to put the lists back.
  */
 export function updateReviewers(
   state: ReviewersModel,
@@ -54,7 +68,7 @@ export function updateReviewers(
     case 'ReviewersOpened':
       return { state: { ...state, open: true, error: undefined }, cmds: [] };
     case 'ReviewersClosed':
-      return { state: { ...emptyReviewers }, cmds: [] };
+      return { state: { ...emptyReviewers, sending: state.sending, queued: state.queued }, cmds: [] };
     case 'ReviewerQueryChanged': {
       const query = msg.query;
       const search = query.trim() && ref ? [{ type: 'SearchReviewers' as const, ref, query: query.trim() }] : [];
@@ -70,13 +84,12 @@ export function updateReviewers(
       }
       const asked: Reviewer = { login: msg.who.login, state: 'pending', ...(msg.who.team ? { team: true } : {}) };
       return {
-        state: { ...state, query: '', found: undefined, error: undefined },
+        ...send({ ...state, query: '', found: undefined, error: undefined }, ref, { add: [msg.who] }),
         pull: {
           ...pull,
           reviewers: [...(pull.reviewers ?? []), asked],
           suggestedReviewers: pull.suggestedReviewers?.filter((one) => one.login !== msg.who.login),
         },
-        cmds: [{ type: 'ChangeReviewers', ref, add: [msg.who] }],
       };
     }
     case 'ReviewerRemoved':
@@ -84,19 +97,41 @@ export function updateReviewers(
         return { state, cmds: [] };
       }
       return {
-        state: { ...state, error: undefined },
+        ...send({ ...state, error: undefined }, ref, { remove: [msg.who] }),
         pull: { ...pull, reviewers: pull.reviewers?.filter((reviewer) => reviewer.login !== msg.who.login) },
-        cmds: [{ type: 'ChangeReviewers', ref, remove: [msg.who] }],
       };
     case 'ReviewersChanged':
-      return {
-        state,
-        pull: pull && { ...pull, reviewers: msg.result.reviewers, suggestedReviewers: msg.result.suggestedReviewers },
-        cmds: [],
-      };
-    case 'ReviewersFailed':
-      return { state: { ...state, error: msg.error }, cmds: [], refetch: true };
+    case 'ReviewersFailed': {
+      const failed = msg.type === 'ReviewersFailed' ? { error: msg.error } : {};
+      const [next, ...rest] = state.queued;
+      if (next && ref) {
+        // Newer picks are on screen already; this answer predates them.
+        return {
+          state: { ...state, ...failed, queued: rest },
+          cmds: [{ type: 'ChangeReviewers', ref, ...next }],
+        };
+      }
+      const done = { ...state, ...failed, sending: false, queued: [] };
+      return msg.type === 'ReviewersFailed'
+        ? { state: done, cmds: [], refetch: true }
+        : {
+            state: done,
+            pull: pull && {
+              ...pull,
+              reviewers: msg.result.reviewers,
+              suggestedReviewers: msg.result.suggestedReviewers,
+            },
+            cmds: [],
+          };
+    }
   }
+}
+
+/** Sends a change now, or after the one on its way. */
+function send(state: ReviewersModel, ref: PullRef, change: Change): { state: ReviewersModel; cmds: ReviewersCmd[] } {
+  return state.sending
+    ? { state: { ...state, queued: [...state.queued, change] }, cmds: [] }
+    : { state: { ...state, sending: true }, cmds: [{ type: 'ChangeReviewers', ref, ...change }] };
 }
 
 /**
@@ -113,8 +148,8 @@ export function pickerRows(
     (one) => !taken.has(one.login) && (!needle || one.login.toLowerCase().includes(needle)),
   );
   const shown = new Set(suggested.map((one) => one.login));
-  const found = needle
-    ? (state.found?.candidates ?? []).filter((one) => !taken.has(one.login) && !shown.has(one.login))
-    : [];
+  // Matches for an earlier query would let Enter ask someone the reader no longer means.
+  const current = state.found?.query === state.query.trim() ? state.found.candidates : [];
+  const found = needle ? current.filter((one) => !taken.has(one.login) && !shown.has(one.login)) : [];
   return { suggested, found };
 }

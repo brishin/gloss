@@ -50,7 +50,35 @@ describe('updateReviewers', () => {
   });
 });
 
+describe('serialized changes', () => {
+  test('a pick while one is on its way waits, and only the last answer reaches the screen', () => {
+    const first = updateReviewers(emptyReviewers, { type: 'ReviewerAdded', who: { login: 'defunkt' } }, ref, pull);
+    const second = updateReviewers(first.state, { type: 'ReviewerAdded', who: { login: 'mojombo' } }, ref, first.pull);
+    expect(second.cmds).toEqual([]);
+    expect(second.pull?.reviewers?.map((one) => one.login)).toEqual(['octocat', 'defunkt', 'mojombo']);
+    const early = { reviewers: [{ login: 'defunkt', state: 'pending' as const }], suggestedReviewers: [] };
+    const answered = updateReviewers(second.state, { type: 'ReviewersChanged', result: early }, ref, second.pull);
+    expect(answered.pull).toBeUndefined();
+    expect(answered.cmds).toEqual([{ type: 'ChangeReviewers', ref, add: [{ login: 'mojombo' }] }]);
+    const last = {
+      reviewers: [
+        { login: 'defunkt', state: 'pending' as const },
+        { login: 'mojombo', state: 'pending' as const },
+      ],
+      suggestedReviewers: [],
+    };
+    const done = updateReviewers(answered.state, { type: 'ReviewersChanged', result: last }, ref, second.pull);
+    expect(done.pull?.reviewers).toEqual(last.reviewers);
+    expect(done.state.sending).toBe(false);
+  });
+});
+
 describe('pickerRows', () => {
+  test('matches for an earlier query are not offered', () => {
+    const state = { ...emptyReviewers, query: 'bob', found: { query: 'alice', candidates: [{ login: 'alice' }] } };
+    expect(pickerRows(pull, state).found).toEqual([]);
+  });
+
   test('suggestions first, then matches not already shown, reviewing or the author', () => {
     const state = {
       ...emptyReviewers,
