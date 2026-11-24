@@ -2557,7 +2557,8 @@
     gap: var(--spacing-1-5);
   }
 
-  .comment-actions .muted {
+  .comment-actions .muted,
+  .comment-actions .comment-quote {
     margin-right: auto;
   }
 

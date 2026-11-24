@@ -589,7 +589,7 @@ function ExcerptDiff({
       lineAnnotations={annotations}
       renderAnnotation={(annotation) =>
         annotation.metadata?.kind === 'composer' ? (
-          here && placed && <CommentComposer anchor={here} body={here.body} reviewer={placed} />
+          here && placed && <CommentComposer anchor={here} reviewer={placed} />
         ) : annotation.metadata?.kind === 'draft' ? (
           placed && <DraftCommentCard comment={annotation.metadata.comment} reviewer={placed} />
         ) : annotation.metadata ? (
