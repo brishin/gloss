@@ -86,7 +86,10 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
               ? 'title'
               : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
                 ? 'ask'
-                : undefined,
+                : // A new search interrupts the last one, so its pause is a debounce: one request per name typed.
+                  cmd.type === 'SearchReviewers'
+                  ? 'reviewer-search'
+                  : undefined,
     subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
@@ -266,7 +269,7 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
         ),
       );
     case 'SearchReviewers':
-      // A short pause so a typed name asks once, not once per key; answers to older queries are dropped.
+      // Keyed: the next key interrupts this pause, so a typed name asks once; older answers are dropped too.
       return once(
         Effect.sleep('200 millis').pipe(
           Effect.andThen(request((client) => client.searchReviewers(cmd.ref.owner, cmd.ref.repo, cmd.query))),
