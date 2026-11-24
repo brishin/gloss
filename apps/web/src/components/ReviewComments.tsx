@@ -57,7 +57,7 @@ export function CommentComposer({ anchor, reviewer }: { anchor: Composing; revie
       <div className="comment-actions">
         {quote && (
           <span className="comment-quote">
-            <CheckboxInput size="sm" label="Quote note" value={!!quoting} onChange={reviewer.toggleQuote} />
+            <CheckboxInput size="sm" label="Include note" value={!!quoting} onChange={reviewer.toggleQuote} />
           </span>
         )}
         <Button size="sm" variant="ghost" label="Cancel" onClick={reviewer.cancel} />
