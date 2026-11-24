@@ -1,6 +1,6 @@
 import type { GroupView, TourState } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
-import { noteFrames, readStops, sideNotes } from './side-notes.ts';
+import { noteFrames, noteQuote, readStops, sideNotes } from './side-notes.ts';
 
 const snippet = (fileId: string, from: number, to = from + 2) => ({
   fileId,
@@ -189,5 +189,13 @@ describe('noteFrames', () => {
     );
     const found = noteFrames(frames, notes, (fileId) => `src/${fileId}.ts`);
     expect(notes.map((note) => found.get(note.id))).toEqual([undefined, 1, 1, 2]);
+  });
+});
+
+describe('noteQuote', () => {
+  test('quotes the title, then each part of the note as its own paragraph', () => {
+    expect(
+      noteQuote({ title: 'Retries `fetch` twice', why: 'Flaky CI.\nSee #12.', instead: 'a backoff', check: '' }),
+    ).toBe('> **Retries `fetch` twice**\n>\n> Flaky CI.\n> See #12.\n>\n> Instead of: a backoff');
   });
 });

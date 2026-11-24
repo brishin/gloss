@@ -25,6 +25,7 @@ import {
   emptyReview,
   type ReviewDraft,
   type SavedReview,
+  composedBody,
   toReviewComments,
 } from './review-draft.ts';
 import { readStops, type SideNote } from './side-notes.ts';
@@ -193,7 +194,9 @@ export type Msg =
   | { type: 'ReviewSent'; diffId: string; verdict: ReviewVerdict; url: string }
   | { type: 'ReviewFailed'; diffId: string; error: string }
   | { type: 'ReviewNoticeDismissed' }
-  | { type: 'CommentStarted'; anchor: CommentAnchor; place?: string }
+  /** `quote` is the note the comment is written from, quoted at its top unless unchecked. */
+  | { type: 'CommentStarted'; anchor: CommentAnchor; place?: string; quote?: string }
+  | { type: 'CommentQuoteToggled' }
   | { type: 'CommentEdited'; id: string; place?: string }
   | { type: 'CommentBodyChanged'; body: string }
   | { type: 'CommentCancelled' }
@@ -754,13 +757,29 @@ function stepReview(model: Model, msg: Msg): Next {
     case 'ReviewNoticeDismissed':
       return [set({ sent: undefined }), []];
     case 'CommentStarted':
-      return canReview(model) ? [set({ composing: { ...msg.anchor, body: '', place: msg.place } }), []] : [model, []];
+      return canReview(model)
+        ? [
+            set({
+              composing: {
+                ...msg.anchor,
+                body: '',
+                place: msg.place,
+                ...(msg.quote ? { quote: msg.quote, quoting: true } : {}),
+              },
+            }),
+            [],
+          ]
+        : [model, []];
     case 'CommentEdited': {
       const draft = review.comments.find((comment) => comment.id === msg.id);
       return draft ? [set({ composing: { ...draft, editing: draft.id, place: msg.place } }), []] : [model, []];
     }
     case 'CommentBodyChanged':
       return review.composing ? [set({ composing: { ...review.composing, body: msg.body } }), []] : [model, []];
+    case 'CommentQuoteToggled':
+      return review.composing?.quote
+        ? [set({ composing: { ...review.composing, quoting: !review.composing.quoting } }), []]
+        : [model, []];
     case 'CommentCancelled':
       return review.composing ? [set({ composing: undefined }), []] : [model, []];
     case 'CommentSaved': {
@@ -769,8 +788,13 @@ function stepReview(model: Model, msg: Msg): Next {
       if (!composing || !path || !composing.body.trim()) {
         return [model, []];
       }
-      const { editing, place: _place, ...anchor } = composing;
-      const draft = { ...anchor, id: editing ?? `${anchor.fileId}:${anchor.side}:${anchor.line}:${Date.now()}`, path };
+      const { editing, place: _place, quote: _quote, quoting: _quoting, ...anchor } = composing;
+      const draft = {
+        ...anchor,
+        body: composedBody(composing),
+        id: editing ?? `${anchor.fileId}:${anchor.side}:${anchor.line}:${Date.now()}`,
+        path,
+      };
       const comments = editing
         ? review.comments.map((comment) => (comment.id === editing ? draft : comment))
         : [...review.comments, draft];

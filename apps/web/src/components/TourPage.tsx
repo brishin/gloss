@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { SENT_LABEL } from '../lib/review-draft.ts';
-import { noteFrames, noteGroup, type SideNote, sideNotes } from '../lib/side-notes.ts';
+import { noteFrames, noteGroup, noteQuote, type SideNote, sideNotes } from '../lib/side-notes.ts';
 import { openThreads } from '../lib/threads-model.ts';
 import {
   canAsk,
@@ -120,6 +120,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             cancel: () => dispatch({ type: 'CommentCancelled' }),
             save: () => dispatch({ type: 'CommentSaved' }),
             remove: (id) => dispatch({ type: 'CommentRemoved', id }),
+            toggleQuote: () => dispatch({ type: 'CommentQuoteToggled' }),
             ask: askable ? () => dispatch({ type: 'CommentAsked' }) : undefined,
           }
         : undefined,
@@ -161,13 +162,16 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     () => ({
       select: (id) => dispatch({ type: 'NoteSelected', id }),
       comment: reviewable
-        ? ({ fileId, side, from, to }: SideNote) =>
-            fileId !== undefined &&
-            to !== undefined &&
-            dispatch({
-              type: 'CommentStarted',
-              anchor: { fileId, side: side ?? 'additions', line: to, startLine: from === to ? undefined : from },
-            })
+        ? (note: SideNote) => {
+            const { fileId, side, from, to } = note;
+            if (fileId !== undefined && to !== undefined) {
+              dispatch({
+                type: 'CommentStarted',
+                anchor: { fileId, side: side ?? 'additions', line: to, startLine: from === to ? undefined : from },
+                quote: noteQuote(note),
+              });
+            }
+          }
         : undefined,
       ask: askable
         ? ({ fileId, side, from, to }: SideNote) =>

@@ -38,6 +38,21 @@ const flagOf = (priority: DecisionPriority | undefined): FlagLevel | undefined =
 /** The group a note id belongs to. */
 export const noteGroup = (id: string): string => id.slice(0, id.lastIndexOf('/'));
 
+/** What a note says, as a Markdown quote to open a review comment written from it. */
+export function noteQuote(note: Pick<SideNote, 'title' | 'why' | 'instead' | 'check'>): string {
+  const parts = [
+    `**${note.title}**`,
+    note.why,
+    note.instead && `Instead of: ${note.instead}`,
+    note.check && `Check: ${note.check}`,
+  ];
+  return parts
+    .filter((part): part is string => !!part?.trim())
+    .flatMap((part, index) => [...(index ? [''] : []), ...part.trim().split('\n')])
+    .map((line) => (line ? `> ${line}` : '>'))
+    .join('\n');
+}
+
 /**
  * Every group's notes in reading order, numbered down the whole tour. In each group: the ones
  * about the group as a whole, then the ones on lines, file by file down the page. `homes` says

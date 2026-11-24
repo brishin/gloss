@@ -1,8 +1,9 @@
 import { Button } from '@astryxdesign/core/Button';
+import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { type KeyboardEvent, useEffect, useRef } from 'react';
-import type { CommentAnchor, DraftComment } from '../lib/review-draft.ts';
+import type { CommentAnchor, Composing, DraftComment } from '../lib/review-draft.ts';
 
 /** What a file's diff needs to take line comments; absent when the tour cannot be reviewed (a local diff). */
 export interface Reviewer {
@@ -13,6 +14,8 @@ export interface Reviewer {
   cancel: () => void;
   save: () => void;
   remove: (id: string) => void;
+  /** Turns the quote of the note a comment is written from on or off. */
+  toggleQuote: () => void;
   /** Asks the tour's model about the selected lines instead, with the box's text as the question. */
   ask?: () => void;
 }
@@ -34,15 +37,8 @@ export function submitKeys(onSubmit: () => void, onCancel?: () => void) {
 const lines = (anchor: CommentAnchor) =>
   anchor.startLine !== undefined ? `lines ${anchor.startLine}–${anchor.line}` : `line ${anchor.line}`;
 
-export function CommentComposer({
-  anchor,
-  body,
-  reviewer,
-}: {
-  anchor: CommentAnchor;
-  body: string;
-  reviewer: Reviewer;
-}) {
+export function CommentComposer({ anchor, reviewer }: { anchor: Composing; reviewer: Reviewer }) {
+  const { body, quote, quoting } = anchor;
   // Rendered into the diff after the gutter click, so `autofocus` alone does not take.
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => input.current?.focus(), []);
@@ -59,6 +55,11 @@ export function CommentComposer({
         hasAutoFocus
       />
       <div className="comment-actions">
+        {quote && (
+          <span className="comment-quote">
+            <CheckboxInput size="sm" label="Include note" value={!!quoting} onChange={reviewer.toggleQuote} />
+          </span>
+        )}
         <Button size="sm" variant="ghost" label="Cancel" onClick={reviewer.cancel} />
         {reviewer.ask && <Button size="sm" variant="secondary" label="Ask" onClick={reviewer.ask} />}
         <Button size="sm" variant="primary" label="Add to review" isDisabled={!body.trim()} onClick={reviewer.save} />

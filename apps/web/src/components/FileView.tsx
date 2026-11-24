@@ -309,8 +309,7 @@ export const FileView = memo(function FileView({
             selectedLines={selectedLines}
             renderAnnotation={(annotation) =>
               annotation.metadata?.kind === 'composer' ? (
-                composing &&
-                reviewer && <CommentComposer anchor={composing} body={composing.body} reviewer={reviewer} />
+                composing && reviewer && <CommentComposer anchor={composing} reviewer={reviewer} />
               ) : annotation.metadata?.kind === 'thread' ? (
                 threadControls && <ThreadCard thread={annotation.metadata.thread} controls={threadControls} />
               ) : annotation.metadata?.kind === 'draft' ? (

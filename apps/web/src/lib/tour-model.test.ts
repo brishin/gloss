@@ -660,6 +660,37 @@ describe('review', () => {
     expect(editing.review.composing).toMatchObject({ editing: draft.id, place: undefined });
   });
 
+  test('a comment from a note opens with the note quoted, unless the quote is unchecked', () => {
+    const start = {
+      type: 'CommentStarted',
+      anchor: { fileId: 'f1', side: 'additions', line: 2 },
+      quote: '> **Retries twice**',
+    } as const;
+    const [quoted] = run(
+      reviewable(),
+      start,
+      { type: 'CommentBodyChanged', body: 'why twice?' },
+      { type: 'CommentSaved' },
+    );
+    expect(quoted.review.comments[0]!.body).toBe('> **Retries twice**\n\nwhy twice?');
+    expect(quoted.review.comments[0]).not.toHaveProperty('quote');
+    const [plain] = run(
+      reviewable(),
+      start,
+      { type: 'CommentQuoteToggled' },
+      { type: 'CommentBodyChanged', body: 'why twice?' },
+      { type: 'CommentSaved' },
+    );
+    expect(plain.review.comments[0]!.body).toBe('why twice?');
+    // A gutter comment has no note to quote.
+    const [gutter] = run(
+      reviewable(),
+      { type: 'CommentStarted', anchor: start.anchor },
+      { type: 'CommentQuoteToggled' },
+    );
+    expect(gutter.review.composing).not.toHaveProperty('quoting');
+  });
+
   test('request changes without a word opens the dialog with the reason instead of sending', () => {
     const [next, cmds] = run(
       reviewable(),

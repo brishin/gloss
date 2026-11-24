@@ -18,8 +18,20 @@ export interface DraftComment extends CommentAnchor {
 /**
  * A line comment being written. `editing` is the draft it replaces; `place` is the walkthrough
  * diff it is written in (undefined: the file's diff in its group), since a line can show in both.
+ * `quote` is the note it was started from, as a Markdown quote that opens the comment while
+ * `quoting` is on.
  */
-export type Composing = CommentAnchor & { body: string; editing?: string; place?: string };
+export type Composing = CommentAnchor & {
+  body: string;
+  editing?: string;
+  place?: string;
+  quote?: string;
+  quoting?: boolean;
+};
+
+/** The comment a composer saves: the words, under the note's quote while it is on. */
+export const composedBody = ({ body, quote, quoting }: Composing): string =>
+  quote && quoting ? `${quote}\n\n${body.trim()}` : body;
 
 export interface ReviewDraft {
   /** The review panel is open. */
