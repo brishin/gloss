@@ -17,6 +17,7 @@ import {
   pullStateDetail,
   REVIEW_DECISION_LABEL,
   REVIEW_STATE_LABEL,
+  reviewerAvatar,
   splitPath,
   WALKTHROUGH,
 } from '../lib/tour-view.ts';
@@ -360,7 +361,7 @@ function ReviewerFaces({ reviewers }: { reviewers: readonly Reviewer[] }) {
             ) : (
               <img
                 className="reviewer-avatar"
-                src={`https://github.com/${encodeURIComponent(reviewer.login)}.png?size=40`}
+                src={reviewerAvatar(reviewer)}
                 alt=""
                 width={18}
                 height={18}

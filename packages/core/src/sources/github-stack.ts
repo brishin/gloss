@@ -193,12 +193,12 @@ interface PullGraphJson {
 }
 
 interface ReviewJson {
-  author: { login: string } | null;
+  author: { login: string; avatarUrl?: string } | null;
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
 }
 
 interface ReviewRequestJson {
-  requestedReviewer: { login?: string; combinedSlug?: string } | null;
+  requestedReviewer: { login?: string; avatarUrl?: string; combinedSlug?: string } | null;
 }
 
 interface SuggestionJson {
@@ -244,7 +244,7 @@ export function reviewersOf(
 ): Reviewer[] {
   const pending: Reviewer[] = requests.flatMap(({ requestedReviewer: who }) =>
     who?.login
-      ? [{ login: who.login, state: 'pending' as const }]
+      ? [{ login: who.login, state: 'pending' as const, ...(who.avatarUrl ? { avatar: who.avatarUrl } : {}) }]
       : who?.combinedSlug
         ? [{ login: who.combinedSlug, team: true, state: 'pending' as const }]
         : [],
@@ -252,7 +252,9 @@ export function reviewersOf(
   const asked = new Set(pending.map((reviewer) => reviewer.login));
   const reviewed: Reviewer[] = reviews.flatMap(({ author: by, state }) => {
     const mapped = REVIEW_STATE[state];
-    return by && mapped && by.login !== author && !asked.has(by.login) ? [{ login: by.login, state: mapped }] : [];
+    return by && mapped && by.login !== author && !asked.has(by.login)
+      ? [{ login: by.login, state: mapped, ...(by.avatarUrl ? { avatar: by.avatarUrl } : {}) }]
+      : [];
   });
   return [...reviewed, ...pending];
 }
@@ -283,10 +285,17 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
       headRepository { nameWithOwner } reviewDecision
-      latestReviews(first: 20) { nodes { author { login } state } }
+      latestReviews(first: 20) { nodes { author { login avatarUrl(size: 40) } state } }
       latestOpinionatedReviews(first: 100) { nodes { author { login } state } }
       reviewRequests(first: 20) {
-        nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
+        nodes {
+          requestedReviewer {
+            ... on User { login avatarUrl(size: 40) }
+            ... on Bot { login avatarUrl(size: 40) }
+            ... on Mannequin { login avatarUrl(size: 40) }
+            ... on Team { combinedSlug }
+          }
+        }
       }
       suggestedReviewers { isAuthor isCommenter reviewer { login } }
     }
