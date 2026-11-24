@@ -133,6 +133,19 @@ describe('reviewersOf', () => {
     ]);
   });
 
+  test("keeps GitHub's picture: a bot has none at github.com/<login>.png", () => {
+    const bot = 'https://avatars.githubusercontent.com/in/158384?v=4';
+    expect(
+      reviewersOf(
+        [{ author: { login: 'devin-ai-integration', avatarUrl: bot }, state: 'COMMENTED' }],
+        [{ requestedReviewer: { login: 'copilot', avatarUrl: 'c.png' } }],
+      ),
+    ).toEqual([
+      { login: 'devin-ai-integration', state: 'commented', avatar: bot },
+      { login: 'copilot', state: 'pending', avatar: 'c.png' },
+    ]);
+  });
+
   test('a re-requested reviewer is pending, once', () => {
     expect(reviewersOf([review('a', 'APPROVED')], [user('a')])).toEqual([{ login: 'a', state: 'pending' }]);
   });

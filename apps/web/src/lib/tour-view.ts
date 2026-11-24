@@ -222,6 +222,14 @@ export const REVIEW_DECISION_LABEL: Record<ReviewDecision, string> = {
 };
 
 /** What a reviewer's mark means, after their login in its tooltip. */
+/**
+ * A reviewer's picture: the one GitHub gave with the reviewer, else the login's. A bot (say
+ * `devin-ai-integration`) has none at `github.com/<login>.png`, so its face needs GitHub's URL.
+ */
+export function reviewerAvatar({ login, avatar }: { login: string; avatar?: string }): string {
+  return avatar ?? `https://github.com/${encodeURIComponent(login)}.png?size=40`;
+}
+
 export const REVIEW_STATE_LABEL: Record<ReviewState, string> = {
   approved: 'approved',
   changes: 'requested changes',

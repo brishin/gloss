@@ -13,6 +13,8 @@ export const ReviewerSchema = v.object({
   login: v.string(),
   team: v.optional(v.boolean()),
   state: ReviewStateSchema,
+  /** GitHub's picture for them; a bot has none at `github.com/<login>.png`. */
+  avatar: v.optional(v.string()),
 });
 export type Reviewer = v.InferOutput<typeof ReviewerSchema>;
 

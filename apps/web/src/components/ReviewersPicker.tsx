@@ -8,6 +8,7 @@ import { UserPlusIcon, UsersIcon, XIcon } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useRef } from 'react';
 import { pickerRows, type ReviewersModel, type Who } from '../lib/reviewers-model.ts';
 import type { Msg } from '../lib/tour-model.ts';
+import { reviewerAvatar } from '../lib/tour-view.ts';
 
 const WHY_LABEL = { wrote: 'Wrote these files', reviewed: 'Reviewed these files' } as const;
 
@@ -18,7 +19,7 @@ const STATE_LABEL = {
   pending: 'Waiting',
 } as const;
 
-function Face({ login, team }: Who) {
+function Face({ login, team, avatar }: Who & { avatar?: string }) {
   return team ? (
     <span className="reviewer-team picker-face">
       <Icon icon={UsersIcon} size="xsm" />
@@ -26,7 +27,7 @@ function Face({ login, team }: Who) {
   ) : (
     <img
       className="reviewer-avatar picker-face"
-      src={`https://github.com/${encodeURIComponent(login)}.png?size=40`}
+      src={reviewerAvatar({ login, avatar })}
       alt=""
       width={20}
       height={20}
@@ -104,7 +105,7 @@ export function ReviewersPicker({
         <div className="picker-rows picker-current">
           {current.map((reviewer) => (
             <div key={reviewer.login} className="picker-row">
-              <Face login={reviewer.login} team={reviewer.team} />
+              <Face login={reviewer.login} team={reviewer.team} avatar={reviewer.avatar} />
               <span className="picker-login">{reviewer.login}</span>
               <span className="picker-aside">{STATE_LABEL[reviewer.state]}</span>
               {reviewer.state === 'pending' && (
