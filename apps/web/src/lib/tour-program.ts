@@ -86,7 +86,10 @@ export function tourProgram(ref: SourceRef, router: AnyRouter) {
               ? 'title'
               : cmd.type === 'StartAsk' || cmd.type === 'StopAsk'
                 ? 'ask'
-                : undefined,
+                : // A new search interrupts the last one, so its pause is a debounce: one request per name typed.
+                  cmd.type === 'SearchReviewers'
+                  ? 'reviewer-search'
+                  : undefined,
     subscriptions: () => Stream.mergeAll([keys, scrollSpy, history(router)], { concurrency: 'unbounded' }),
   });
 }
@@ -263,6 +266,31 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
       return once(
         request((client) => client.threads(cmd.ref)).pipe(
           Effect.map((threads): Msg => ({ type: 'ThreadsLoaded', threads })),
+        ),
+      );
+    case 'SearchReviewers':
+      // Keyed: the next key interrupts this pause, so a typed name asks once; older answers are dropped too.
+      return once(
+        Effect.sleep('200 millis').pipe(
+          Effect.andThen(request((client) => client.searchReviewers(cmd.ref.owner, cmd.ref.repo, cmd.query))),
+          Effect.map((candidates): Msg => ({ type: 'ReviewersFound', query: cmd.query, candidates })),
+        ),
+      );
+    case 'ChangeReviewers':
+      return Stream.fromEffect(
+        request((client) =>
+          client.requestReviewers({
+            owner: cmd.ref.owner,
+            repo: cmd.ref.repo,
+            number: cmd.ref.number,
+            ...(cmd.add ? { add: [...cmd.add] } : {}),
+            ...(cmd.remove ? { remove: [...cmd.remove] } : {}),
+          }),
+        ).pipe(
+          Effect.match({
+            onSuccess: (result): Msg => ({ type: 'ReviewersChanged', result }),
+            onFailure: ({ cause }): Msg => ({ type: 'ReviewersFailed', error: reviewError(cause) }),
+          }),
         ),
       );
     case 'ReplyToThread':

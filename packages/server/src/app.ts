@@ -32,6 +32,7 @@ import {
   JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
+  ReviewersRequestSchema,
   reviewProblem,
   ThreadReplyRequestSchema,
   ThreadResolveRequestSchema,
@@ -441,6 +442,46 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           onFailure: (error) => c.json({ error: error.message }, 502),
         }),
       ),
+    );
+  });
+
+  // Asking for a review acts as the user on GitHub (and notifies the reviewer): only the app may send one.
+  app.post('/api/reviewers', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Review requests are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(ReviewersRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success || !(parsed.output.add?.length || parsed.output.remove?.length)) {
+      return c.json({ error: 'Expected reviewers to add or remove' }, 400);
+    }
+    return run(
+      Repos.use((repos) => repos.requestReviewers(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: (result) => c.json(result),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
+  });
+
+  app.get('/api/reviewers', async (c) => {
+    const owner = c.req.query('owner');
+    const repo = c.req.query('repo');
+    const query = c.req.query('q')?.trim() ?? '';
+    if (!owner || !repo) {
+      return c.json({ error: 'Expected owner and repo' }, 400);
+    }
+    if (!query) {
+      return c.json([]);
+    }
+    return run(
+      Repos.use((repos) => repos.searchReviewers(owner, repo, query)).pipe(
+        Effect.match({
+          onSuccess: (candidates) => c.json(candidates),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
     );
   });
 

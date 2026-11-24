@@ -472,6 +472,103 @@
     background: var(--color-background-body);
   }
 
+  /* Reviewers and the ask for more take the head's right end, over the notes column. */
+  .pull-head:has(> .pull-head-corner) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-content: center;
+    column-gap: var(--spacing-4);
+    row-gap: var(--spacing-1);
+  }
+
+  .pull-head > :not(.pull-head-corner) {
+    grid-column: 1;
+  }
+
+  .pull-head-corner {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+  }
+
+  .pull-head-corner .reviewers {
+    gap: 7px;
+  }
+
+  .reviewers-picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    font-size: var(--font-size-base);
+  }
+
+  .picker-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .picker-current {
+    margin-inline: calc(-1 * var(--spacing-2));
+    padding: var(--spacing-1) var(--spacing-2) 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .picker-row {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-height: 30px;
+    padding: 0 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  button.picker-row {
+    cursor: pointer;
+  }
+
+  button.picker-row:hover,
+  button.picker-row:focus-visible {
+    background: var(--color-background-muted);
+  }
+
+  button.picker-row:focus-visible {
+    outline: 2px solid var(--gloss-ink);
+    outline-offset: -2px;
+  }
+
+  .picker-face {
+    flex: none;
+    width: 20px;
+    height: 20px;
+  }
+
+  .picker-login {
+    font-weight: var(--font-weight-medium, 500);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .picker-aside {
+    margin-left: auto;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .picker-empty {
+    margin: 0;
+    padding: var(--spacing-1) 6px;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+  }
+
   .pull-head h1 {
     overflow: hidden;
     text-overflow: ellipsis;

@@ -75,6 +75,8 @@ const unscripted = (): Repos['Service'] => ({
   review: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   threads: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   replyToThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  requestReviewers: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  searchReviewers: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   resolveThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   contents: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   lfs: () => Effect.fail(new RepoError({ message: 'unscripted' })),
@@ -511,6 +513,28 @@ describe('comment threads API', () => {
       { ...target, body: 'done' },
       { ...target, resolved: true },
     ]);
+  });
+});
+
+describe('reviewers API', () => {
+  it('asks for reviews only as JSON from the app, and searches collaborators', async () => {
+    const sent: unknown[] = [];
+    const result = { reviewers: [{ login: 'octocat', state: 'pending' as const }], suggestedReviewers: [] };
+    const { app } = setup(scripted().run, {
+      repos: {
+        requestReviewers: (request) => (sent.push(request), Effect.succeed(result)),
+        searchReviewers: (_owner, _repo, query) => Effect.succeed([{ login: `${query}cat` }]),
+      },
+    });
+    const post = (body: unknown, type = 'application/json') =>
+      app.request('/api/reviewers', { method: 'POST', headers: { 'Content-Type': type }, body: JSON.stringify(body) });
+    const request = { owner: 'o', repo: 'r', number: 1, add: [{ login: 'octocat' }] };
+    expect((await post(request, 'text/plain')).status).toBe(403);
+    expect((await post({ owner: 'o', repo: 'r', number: 1 })).status).toBe(400);
+    expect(await (await post(request)).json()).toEqual(result);
+    expect(sent).toEqual([request]);
+    expect(await (await app.request('/api/reviewers?owner=o&repo=r&q=octo')).json()).toEqual([{ login: 'octocat' }]);
+    expect(await (await app.request('/api/reviewers?owner=o&repo=r&q=')).json()).toEqual([]);
   });
 });
 

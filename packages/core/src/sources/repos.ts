@@ -8,6 +8,9 @@ import type {
   FileContents,
   LfsObject,
   ResolvedAsset,
+  ReviewerCandidate,
+  ReviewersRequest,
+  ReviewersResult,
   ReviewRequest,
   ReviewResult,
   ReviewThread,
@@ -20,6 +23,7 @@ import type {
 import { Context, Data, Deferred, Effect, Exit, Layer, Semaphore } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
 import { submitGithubReview } from './github-review.ts';
+import { requestGithubReviewers, searchGithubReviewers } from './github-reviewers.ts';
 import { resolveGithubStack } from './github-stack.ts';
 import { fetchReviewThreads, replyToGithubThread, resolveGithubThread } from './github-threads.ts';
 import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
@@ -50,6 +54,10 @@ export class Repos extends Context.Service<
     stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Effect.Effect<Stack, RepoError>;
     /** Posts a review as the `gh` login; GitHub's refusal is the error. */
     review(review: ReviewRequest): Effect.Effect<ReviewResult, RepoError>;
+    /** Asks for reviews or withdraws asks as the `gh` login; GitHub's refusal is the error. */
+    requestReviewers(request: ReviewersRequest): Effect.Effect<ReviewersResult, RepoError>;
+    /** Collaborators of the repo matching `query`. */
+    searchReviewers(owner: string, repo: string, query: string): Effect.Effect<ReviewerCandidate[], RepoError>;
     /** The PR's line comment threads already on GitHub. */
     threads(ref: Extract<SourceRef, { kind: 'github-pr' }>): Effect.Effect<ReviewThread[], RepoError>;
     /** Replies to a thread as the `gh` login. */
@@ -84,6 +92,10 @@ export class Repos extends Context.Service<
         stack: (ref) => Effect.tryPromise({ try: (signal) => resolveGithubStack(ref, signal), catch: repoError }),
         review: (review) =>
           Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
+        requestReviewers: (request) =>
+          Effect.tryPromise({ try: (signal) => requestGithubReviewers(request, signal), catch: repoError }),
+        searchReviewers: (owner, repo, query) =>
+          Effect.tryPromise({ try: (signal) => searchGithubReviewers(owner, repo, query, signal), catch: repoError }),
         threads: (ref) => Effect.tryPromise({ try: (signal) => fetchReviewThreads(ref, signal), catch: repoError }),
         replyToThread: (reply) =>
           Effect.tryPromise({ try: (signal) => replyToGithubThread(reply, signal), catch: repoError }),
