@@ -34,7 +34,17 @@ import {
 import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchema } from './setup.ts';
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
-import { PullStateSchema, type Stack, StackNameSchema, StackSchema } from './stack.ts';
+import {
+  PullStateSchema,
+  ReviewerCandidateSchema,
+  type ReviewerCandidate,
+  type ReviewersRequest,
+  type ReviewersResult,
+  ReviewersResultSchema,
+  type Stack,
+  StackNameSchema,
+  StackSchema,
+} from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
 import { type AutoToursState, AutoToursStateSchema, type UpdateStatus, UpdateStatusSchema } from './update.ts';
 
@@ -120,6 +130,10 @@ export interface GlossClient {
   stackName(stack: Stack): Promise<string>;
   /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
   review(review: ReviewRequest): Promise<ReviewResult>;
+  /** Asks for reviews on a PR or withdraws asks, as the backend's `gh` login; resolves with the reviewers after. */
+  requestReviewers(request: ReviewersRequest): Promise<ReviewersResult>;
+  /** Collaborators of the repo matching `query`, who can be asked to review. */
+  searchReviewers(owner: string, repo: string, query: string): Promise<ReviewerCandidate[]>;
   /** The PR's line comment threads already on GitHub, resolved ones too. */
   threads(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<ReviewThread[]>;
   /** Replies to a thread as the backend's `gh` login; resolves with the new comment. */
@@ -284,6 +298,14 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(review),
       }),
+    requestReviewers: (body) =>
+      json(ReviewersResultSchema, '/api/reviewers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    searchReviewers: (owner, repo, query) =>
+      json(v.array(ReviewerCandidateSchema), `/api/reviewers?${new URLSearchParams({ owner, repo, q: query })}`),
     threads: (ref) =>
       json(
         v.array(ReviewThreadSchema),

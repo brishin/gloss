@@ -28,6 +28,13 @@ import {
   composedBody,
   toReviewComments,
 } from './review-draft.ts';
+import {
+  emptyReviewers,
+  type ReviewersCmd,
+  type ReviewersModel,
+  type ReviewersMsg,
+  updateReviewers,
+} from './reviewers-model.ts';
 import { readStops, type SideNote } from './side-notes.ts';
 import {
   groupNode,
@@ -122,6 +129,8 @@ export interface Model {
   ask: AskModel;
   /** The PR's comment threads already on GitHub (PRs only). */
   threads: ThreadsModel;
+  /** The picker that asks for reviews (PRs only). */
+  reviewers: ReviewersModel;
   /** The page is a static export (`gloss export`): no backend, so nothing can run, ask or review. */
   exported: boolean;
 }
@@ -205,7 +214,8 @@ export type Msg =
   /** The comment box's Ask: its lines become the question's context, and its text the question. */
   | { type: 'CommentAsked' }
   | AskMsg
-  | ThreadsMsg;
+  | ThreadsMsg
+  | ReviewersMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
@@ -266,7 +276,8 @@ export type Cmd =
   | { type: 'SaveRail'; hidden: boolean }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
   | AskCmd
-  | ThreadsCmd;
+  | ThreadsCmd
+  | ReviewersCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -294,6 +305,7 @@ export function initialModel(
     review: emptyReview,
     ask: emptyAsk,
     threads: emptyThreads,
+    reviewers: emptyReviewers,
     exported,
   };
 }
@@ -513,6 +525,26 @@ function step(model: Model, msg: Msg): Next {
         return [model, cmds];
       }
       return [{ ...model, threads, ask: threads.open ? { ...model.ask, open: false } : model.ask }, cmds];
+    }
+    case 'ReviewersOpened':
+    case 'ReviewersClosed':
+    case 'ReviewerQueryChanged':
+    case 'ReviewersFound':
+    case 'ReviewerAdded':
+    case 'ReviewerRemoved':
+    case 'ReviewersChanged':
+    case 'ReviewersFailed': {
+      const ref = model.ref.kind === 'github-pr' && !model.exported ? model.ref : undefined;
+      const next = updateReviewers(model.reviewers, msg, ref, currentPull(model));
+      const stack =
+        next.pull && model.stack
+          ? {
+              ...model.stack,
+              members: model.stack.members.map((member) => (member.number === next.pull!.number ? next.pull! : member)),
+            }
+          : model.stack;
+      const refetch: Cmd[] = next.refetch && ref ? [{ type: 'FetchStack', ref }] : [];
+      return [{ ...model, reviewers: next.state, stack }, [...next.cmds, ...refetch]];
     }
     case 'CommentAsked': {
       const composing = model.review.composing;

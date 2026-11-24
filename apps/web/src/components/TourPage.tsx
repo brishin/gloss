@@ -300,7 +300,13 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
           dispatch={dispatch}
         />
         <main className="main">
-          <PullHead state={state} pull={currentPull(model)} groups={groups} />
+          <PullHead
+            state={state}
+            pull={currentPull(model)}
+            groups={groups}
+            reviewers={model.exported ? undefined : model.reviewers}
+            dispatch={dispatch}
+          />
           <div className="subbar">
             <span className="rail-toggle">
               <IconButton

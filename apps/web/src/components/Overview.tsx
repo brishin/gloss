@@ -6,6 +6,8 @@ import type { Affected, GroupView, ReviewState, Reviewer, StackMember, TourState
 import { UsersIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import { githubBodyToMarkdown } from '../lib/github-markdown.ts';
+import type { ReviewersModel } from '../lib/reviewers-model.ts';
+import type { Msg } from '../lib/tour-model.ts';
 import {
   decisionFlag,
   decisionsInOrder,
@@ -20,22 +22,29 @@ import {
 } from '../lib/tour-view.ts';
 import { DescriptionMedia } from './DescriptionMedia.tsx';
 import { FlagIcon, RefIcon } from './icons.tsx';
+import { ReviewersPicker } from './ReviewersPicker.tsx';
 import { TourVisual } from './TourVisual.tsx';
 
 /**
- * The change's title and its numbers: PR state, reviewers, branches, size, groups, notes.
- * Pinned under the top bar on every stop, at one fixed height (`--head-h`), so the title is
- * always in view and nothing below shifts as reviewers or stats load.
+ * The change's title and its numbers: PR state, branches, size, groups, notes; the reviewers
+ * and the ask for more sit at the right end, over the notes column. Pinned under the top bar on
+ * every stop, at one fixed height (`--head-h`), so the title is always in view and nothing below
+ * shifts as reviewers or stats load.
  */
 export const PullHead = memo(function PullHead({
   state,
   pull,
   groups,
+  reviewers,
+  dispatch,
 }: {
   state: TourState;
   /** The PR as GitHub has it now, fetched fresh on open (never from the tour cache). */
   pull?: StackMember;
   groups: GroupView[];
+  /** The review-request picker; without it (an export) the faces show alone. */
+  reviewers?: ReviewersModel;
+  dispatch?: (msg: Msg) => void;
 }) {
   const all = state.files.reduce(
     (sum, file) => ({ adds: sum.adds + file.additions, dels: sum.dels + file.deletions }),
@@ -52,7 +61,6 @@ export const PullHead = memo(function PullHead({
       {meta && (
         <div className="stats">
           {pull && <PullStateLine pull={pull} />}
-          {pull?.reviewers && <ReviewerFaces reviewers={pull.reviewers} />}
           <span>
             {meta.baseRef} ← {meta.headRef}
             {meta.author ? ` · ${meta.author}` : ''}
@@ -77,6 +85,14 @@ export const PullHead = memo(function PullHead({
           )}
         </div>
       )}
+      {pull && (pull.reviewers?.length || pull.canRequestReviews) ? (
+        <div className="pull-head-corner">
+          {pull.reviewers && pull.reviewers.length > 0 && <ReviewerFaces reviewers={pull.reviewers} />}
+          {pull.canRequestReviews && reviewers && dispatch && (
+            <ReviewersPicker pull={pull} reviewers={reviewers} dispatch={dispatch} />
+          )}
+        </div>
+      ) : null}
     </header>
   );
 });

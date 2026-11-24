@@ -8,6 +8,7 @@ import {
   walkStack,
   reviewDecisionOf,
   reviewersOf,
+  suggestionsOf,
 } from './github-stack.ts';
 import { pullState } from './github.ts';
 
@@ -189,5 +190,31 @@ describe('reviewDecisionOf', () => {
       { author: { login: 'b' }, state: 'APPROVED' as const },
     ];
     expect(reviewDecisionOf(null, reviewersOf(reviews, []))).toBe('changes');
+  });
+});
+
+describe('suggestionsOf', () => {
+  const suggestion = (login: string, isAuthor: boolean, isCommenter: boolean) => ({
+    isAuthor,
+    isCommenter,
+    reviewer: { login },
+  });
+
+  test('leaves out the viewer, the author and anyone already reviewing', () => {
+    expect(
+      suggestionsOf(
+        [
+          suggestion('me', true, true),
+          suggestion('writer', true, false),
+          suggestion('asked', true, false),
+          suggestion('owner', true, false),
+          suggestion('reader', true, true),
+        ],
+        { viewer: 'me', author: 'owner', reviewers: [{ login: 'asked', state: 'pending' }] },
+      ),
+    ).toEqual([
+      { login: 'writer', why: 'wrote' },
+      { login: 'reader', why: 'reviewed' },
+    ]);
   });
 });

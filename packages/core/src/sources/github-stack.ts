@@ -1,4 +1,12 @@
-import type { PullState, ReviewDecision, Reviewer, SourceRef, Stack, StackMember } from '@gloss/protocol';
+import type {
+  PullState,
+  ReviewDecision,
+  Reviewer,
+  SourceRef,
+  Stack,
+  StackMember,
+  SuggestedReviewer,
+} from '@gloss/protocol';
 import { ghJson, ghPaginated, pullState } from './github.ts';
 
 type GithubRef = Extract<SourceRef, { kind: 'github-pr' }>;
@@ -77,7 +85,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     headRef,
     ...(blurb ? { blurb } : {}),
   });
-  const { since, mergedBy, queuePosition, reviewers, reviewDecision } = current;
+  const { since, mergedBy, queuePosition, reviewers, reviewDecision, suggestedReviewers, canRequestReviews } = current;
   return [
     ...below.map(member),
     {
@@ -87,6 +95,8 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
       ...(queuePosition ? { queuePosition } : {}),
       ...(reviewers?.length ? { reviewers } : {}),
       ...(reviewDecision ? { reviewDecision } : {}),
+      ...(suggestedReviewers?.length ? { suggestedReviewers } : {}),
+      ...(canRequestReviews ? { canRequestReviews } : {}),
     },
     ...above.map(member),
   ];
@@ -152,7 +162,9 @@ function toPull(pull: PullJson, repo: string): StackPull {
 
 interface PullGraphJson {
   data?: {
+    viewer?: { login: string } | null;
     repository?: {
+      viewerPermission?: 'ADMIN' | 'MAINTAIN' | 'WRITE' | 'TRIAGE' | 'READ' | null;
       pullRequest?: {
         number: number;
         title: string;
@@ -173,6 +185,7 @@ interface PullGraphJson {
         latestReviews: { nodes: ReviewJson[] } | null;
         latestOpinionatedReviews: { nodes: ReviewJson[] } | null;
         reviewRequests: { nodes: ReviewRequestJson[] } | null;
+        suggestedReviewers?: SuggestionJson[] | null;
       } | null;
       defaultBranchRef: { name: string } | null;
     } | null;
@@ -187,6 +200,31 @@ interface ReviewJson {
 interface ReviewRequestJson {
   requestedReviewer: { login?: string; combinedSlug?: string } | null;
 }
+
+interface SuggestionJson {
+  isAuthor: boolean;
+  isCommenter: boolean;
+  reviewer: { login: string } | null;
+}
+
+/**
+ * GitHub's suggestions without the viewer (GitHub suggests you on others' PRs), the PR's author
+ * and anyone already reviewing or asked. `reviewed` wins when both apply: it is the stronger reason.
+ */
+export function suggestionsOf(
+  suggestions: readonly SuggestionJson[],
+  skip: { viewer?: string; author?: string; reviewers: readonly Reviewer[] },
+): SuggestedReviewer[] {
+  const taken = new Set([skip.viewer, skip.author, ...skip.reviewers.map((reviewer) => reviewer.login)]);
+  return suggestions.flatMap(({ reviewer, isAuthor, isCommenter }) =>
+    reviewer && !taken.has(reviewer.login) && (isAuthor || isCommenter)
+      ? [{ login: reviewer.login, why: isCommenter ? ('reviewed' as const) : ('wrote' as const) }]
+      : [],
+  );
+}
+
+/** Asking for reviews takes triage access or more. */
+const MAY_REQUEST = new Set(['ADMIN', 'MAINTAIN', 'WRITE', 'TRIAGE']);
 
 const REVIEW_STATE: Partial<Record<ReviewJson['state'], Reviewer['state']>> = {
   APPROVED: 'approved',
@@ -238,8 +276,9 @@ export function reviewDecisionOf(
 }
 
 const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $repo) {
-    defaultBranchRef { name }
+    defaultBranchRef { name } viewerPermission
     pullRequest(number: $number) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
       createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
@@ -249,6 +288,7 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
       reviewRequests(first: 20) {
         nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { combinedSlug } } }
       }
+      suggestedReviewers { isAuthor isCommenter reviewer { login } }
     }
   }
 }`;
@@ -313,6 +353,14 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         pull.reviewDecision,
         reviewersOf(pull.latestOpinionatedReviews?.nodes ?? [], [], pull.author?.login),
       );
+      const suggestedReviewers = isOpen(state)
+        ? suggestionsOf(pull.suggestedReviewers ?? [], {
+            viewer: json.data?.viewer?.login,
+            author: pull.author?.login,
+            reviewers,
+          })
+        : [];
+      const canRequestReviews = isOpen(state) && MAY_REQUEST.has(json.data?.repository?.viewerPermission ?? '');
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
@@ -324,6 +372,8 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         ...(queue ? { queuePosition: queue.position } : {}),
         ...(reviewers.length ? { reviewers } : {}),
         ...(reviewDecision ? { reviewDecision } : {}),
+        ...(suggestedReviewers.length ? { suggestedReviewers } : {}),
+        ...(canRequestReviews ? { canRequestReviews } : {}),
         ...(pull.author?.login ? { author: pull.author.login } : {}),
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,

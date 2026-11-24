@@ -16,6 +16,16 @@ export const ReviewerSchema = v.object({
 });
 export type Reviewer = v.InferOutput<typeof ReviewerSchema>;
 
+/**
+ * Someone GitHub suggests for review: `wrote` code in the changed files before (git blame), or
+ * `reviewed` them before.
+ */
+export const SuggestedReviewerSchema = v.object({
+  login: v.string(),
+  why: v.picklist(['wrote', 'reviewed']),
+});
+export type SuggestedReviewer = v.InferOutput<typeof SuggestedReviewerSchema>;
+
 /** Where the PR's review stands as a whole: approved, or changes requested. */
 export const ReviewDecisionSchema = v.picklist(['approved', 'changes']);
 export type ReviewDecision = v.InferOutput<typeof ReviewDecisionSchema>;
@@ -39,6 +49,13 @@ export const StackMemberSchema = v.object({
   reviewers: v.optional(v.array(ReviewerSchema)),
   /** Approved or changes requested, as GitHub decides it. Only the PR asked about has it. */
   reviewDecision: v.optional(ReviewDecisionSchema),
+  /**
+   * GitHub's suggested reviewers, less the viewer, the author and anyone already reviewing.
+   * Only the PR asked about has it.
+   */
+  suggestedReviewers: v.optional(v.array(SuggestedReviewerSchema)),
+  /** Whether the viewer may ask for reviews on the PR (triage access or more). Only the PR asked about has it. */
+  canRequestReviews: v.optional(v.boolean()),
   /** The opening words of the PR's description, without its template lines; context for naming the stack. */
   blurb: v.optional(v.string()),
 });
@@ -60,3 +77,30 @@ export type Stack = v.InferOutput<typeof StackSchema>;
 /** A stack's short name, as the backend's fast model gives it for the side rail. */
 export const StackNameSchema = v.object({ name: v.string() });
 export type StackName = v.InferOutput<typeof StackNameSchema>;
+
+/**
+ * Asks for reviews on a PR, or withdraws asks, as the backend's `gh` login. Logins are users';
+ * a team is its `org/slug`.
+ */
+export const ReviewersRequestSchema = v.object({
+  owner: v.string(),
+  repo: v.string(),
+  number: v.number(),
+  add: v.optional(v.array(v.object({ login: v.pipe(v.string(), v.minLength(1)), team: v.optional(v.boolean()) }))),
+  remove: v.optional(v.array(v.object({ login: v.pipe(v.string(), v.minLength(1)), team: v.optional(v.boolean()) }))),
+});
+export type ReviewersRequest = v.InferOutput<typeof ReviewersRequestSchema>;
+
+/** The PR's reviewers and suggestions as GitHub has them after a change. */
+export const ReviewersResultSchema = v.object({
+  reviewers: v.array(ReviewerSchema),
+  suggestedReviewers: v.array(SuggestedReviewerSchema),
+});
+export type ReviewersResult = v.InferOutput<typeof ReviewersResultSchema>;
+
+/** Someone who can be asked to review: a collaborator matching a search. */
+export const ReviewerCandidateSchema = v.object({
+  login: v.string(),
+  name: v.optional(v.string()),
+});
+export type ReviewerCandidate = v.InferOutput<typeof ReviewerCandidateSchema>;
