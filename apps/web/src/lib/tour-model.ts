@@ -107,6 +107,8 @@ export interface Model {
   /** Files marked viewed, kept per diff in this browser. */
   viewed: ReadonlySet<string>;
   navOpen: boolean;
+  /** The reader hid the side rail (kept in this browser), giving the diffs and notes its width. */
+  railHidden: boolean;
   helpOpen: boolean;
   sidebar: SidebarState;
   /** The GitHub review being written (PRs only). */
@@ -162,6 +164,7 @@ export type Msg =
   /** `v`: marks the current file viewed and moves on, or unmarks it. */
   | { type: 'ActiveFileViewed' }
   | { type: 'NavToggled' }
+  | { type: 'RailToggled' }
   | { type: 'NavClosed' }
   | { type: 'HelpSet'; open: boolean }
   | { type: 'HelpToggled' }
@@ -256,13 +259,21 @@ export type Cmd =
   | { type: 'RevealRailRow' }
   /** Leaves this tour for another one. */
   | { type: 'OpenRef'; ref: SourceRef }
+  /** Remembers in this browser whether the side rail is hidden. */
+  | { type: 'SaveRail'; hidden: boolean }
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
   | AskCmd
   | ThreadsCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
 
-export function initialModel(ref: SourceRef, position: Position, stack?: Stack, exported = false): Model {
+export function initialModel(
+  ref: SourceRef,
+  position: Position,
+  stack?: Stack,
+  exported = false,
+  railHidden = false,
+): Model {
   return {
     ref,
     stack,
@@ -274,6 +285,7 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
     unfolded: new Set(),
     viewed: new Set(),
     navOpen: false,
+    railHidden,
     helpOpen: false,
     sidebar: initialSidebar,
     review: emptyReview,
@@ -287,8 +299,8 @@ export function initialModel(ref: SourceRef, position: Position, stack?: Stack, 
  * `stack` is this PR's stack as an earlier page in this tab loaded it, so the rail opens with
  * it in place while the fresh one loads.
  */
-export function init(ref: SourceRef, position: Position, stack?: Stack, exported = false): Next {
-  const model = initialModel(ref, position, stack, exported);
+export function init(ref: SourceRef, position: Position, stack?: Stack, exported = false, railHidden = false): Next {
+  const model = initialModel(ref, position, stack, exported, railHidden);
   const fetchStack: Cmd[] =
     ref.kind === 'github-pr'
       ? [
@@ -625,6 +637,11 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'NavToggled':
       return [{ ...model, navOpen: !model.navOpen }, []];
+    case 'RailToggled':
+      return [
+        { ...model, railHidden: !model.railHidden, navOpen: false },
+        [{ type: 'SaveRail', hidden: !model.railHidden }],
+      ];
     case 'NavClosed':
       return model.navOpen ? [{ ...model, navOpen: false }, []] : [model, []];
     case 'HelpSet':

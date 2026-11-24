@@ -167,6 +167,16 @@ describe('jumping', () => {
     expect(run(model(), { type: 'GroupStepped', by: 1 })[0].position.g).toBe('a');
   });
 
+  test('hiding the rail is remembered, and closes a drawer it came back as', () => {
+    const [hidden, saved] = run(model(), { type: 'RailToggled' });
+    expect(hidden.railHidden).toBe(true);
+    expect(saved).toEqual([{ type: 'SaveRail', hidden: true }]);
+    const [shown, cmds] = run(hidden, { type: 'NavToggled' }, { type: 'RailToggled' });
+    expect(shown).toMatchObject({ railHidden: false, navOpen: false });
+    expect(cmds).toEqual([{ type: 'SaveRail', hidden: false }]);
+    expect(initialModel(REF, {}, undefined, false, true).railHidden).toBe(true);
+  });
+
   test('a vanished group falls back to the overview', () => {
     const [stepped] = run(model({ position: { g: 'gone' } }), { type: 'GroupStepped', by: 1 });
     expect(stepped.position.g).toBe('a');
