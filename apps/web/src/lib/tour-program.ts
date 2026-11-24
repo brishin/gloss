@@ -66,7 +66,13 @@ const knownStacks = new Map<string, Stack>();
 /** The tour page's program for one ref. The page creates one per mount, so two tours never share state. */
 export function tourProgram(ref: SourceRef, router: AnyRouter) {
   return makeProgram(glossRuntime, {
-    init: init(ref, readPosition(router.state.location.search), knownStacks.get(serializeRef(ref)), isExport()),
+    init: init(
+      ref,
+      readPosition(router.state.location.search),
+      knownStacks.get(serializeRef(ref)),
+      isExport(),
+      storage(() => localStorage.getItem(RAIL_KEY) === 'hidden') ?? false,
+    ),
     update,
     run: (cmd) => run(cmd, router),
     key: (cmd) =>
@@ -134,6 +140,12 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
               ? localStorage.setItem(askKey(cmd.diffId), JSON.stringify(cmd.turns))
               : localStorage.removeItem(askKey(cmd.diffId)),
           ),
+        ),
+      );
+    case 'SaveRail':
+      return once(
+        Effect.sync(() =>
+          storage(() => (cmd.hidden ? localStorage.setItem(RAIL_KEY, 'hidden') : localStorage.removeItem(RAIL_KEY))),
         ),
       );
     case 'SaveAskModel':
@@ -369,6 +381,7 @@ const ASK_INPUT = '.ask-panel textarea, .ask-panel [contenteditable="true"]';
 
 const askKey = (diffId: string) => `gloss.ask.${diffId}`;
 const ASK_MODEL_KEY = 'gloss.ask.model';
+const RAIL_KEY = 'gloss.rail';
 
 /** A one-shot command: its message if it has one. A failure sends nothing. */
 function once<E, R>(effect: Effect.Effect<Msg | void, E, R>): Stream.Stream<Msg, never, R> {

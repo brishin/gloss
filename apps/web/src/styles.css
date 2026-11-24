@@ -1394,7 +1394,7 @@
     background: color-mix(in oklch, var(--gloss-ink) 11%, transparent);
   }
 
-  @container noted (min-width: 1040px) {
+  @container noted (min-width: 820px) {
     .noted:has(> .note-lane) {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 348px;
@@ -1993,7 +1993,7 @@
     box-shadow: var(--shadow-high);
   }
 
-  @container paths (min-width: 1040px) {
+  @container paths (min-width: 820px) {
     [data-paths] > .stop,
     [data-paths] > .key-paths-bar {
       --sticky-h: var(--bars-h);
@@ -2982,6 +2982,44 @@
     flex: none;
   }
 
+  .rail-toggle {
+    display: inline-flex;
+    flex: none;
+  }
+
+  /* The reader hid the rail: the diffs and their notes take its width. It comes back over the page on a touch screen. */
+  @media (min-width: 768px) {
+    .tour[data-rail-hidden] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tour[data-rail-hidden] .sidebar {
+      display: none;
+      position: fixed;
+      top: var(--topbar-h);
+      bottom: 0;
+      left: 0;
+      z-index: 30;
+      align-self: stretch;
+      width: min(320px, 86vw);
+      max-height: none;
+      background: var(--color-background-surface);
+      box-shadow: var(--shadow-high);
+    }
+
+    .tour[data-rail-hidden][data-nav-open='true'] .sidebar {
+      display: flex;
+    }
+
+    .tour[data-rail-hidden] .nav-scrim {
+      display: block;
+      position: fixed;
+      inset: var(--topbar-h) 0 0 0;
+      z-index: 25;
+      background: rgb(0 0 0 / 0.4);
+    }
+  }
+
   @media (max-width: 767px) {
     .topbar {
       gap: var(--spacing-2);
@@ -3030,6 +3068,10 @@
     .nav-toggle {
       display: inline-flex;
       flex: none;
+    }
+
+    .rail-toggle {
+      display: none;
     }
 
     .nav-item {

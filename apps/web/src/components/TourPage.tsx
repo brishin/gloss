@@ -15,6 +15,8 @@ import {
   KeyboardIcon,
   MessageCircleQuestionIcon,
   MessagesSquareIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   RotateCwIcon,
   SquareIcon,
   WorkflowIcon,
@@ -276,7 +278,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         </div>
       </header>
 
-      <div className="tour" data-nav-open={navOpen}>
+      <div className="tour" data-nav-open={navOpen} data-rail-hidden={model.railHidden || undefined}>
         {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={() => dispatch({ type: 'NavClosed' })} />}
         <GroupSidebar
           sourceRef={sourceRef}
@@ -296,6 +298,21 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         <main className="main">
           <PullHead state={state} pull={currentPull(model)} groups={groups} />
           <div className="subbar">
+            <span className="rail-toggle">
+              <IconButton
+                variant="ghost"
+                size="sm"
+                label={model.railHidden ? 'Show groups' : 'Hide groups'}
+                tooltip={model.railHidden ? 'Show groups' : 'Hide groups'}
+                icon={<Icon icon={model.railHidden ? PanelLeftOpenIcon : PanelLeftCloseIcon} />}
+                onClick={() =>
+                  // On a touch screen a hidden rail comes back over the page, so the notes keep their column.
+                  dispatch({
+                    type: model.railHidden && matchMedia('(pointer: coarse)').matches ? 'NavToggled' : 'RailToggled',
+                  })
+                }
+              />
+            </span>
             <span className="nav-toggle">
               <Button
                 size="sm"
