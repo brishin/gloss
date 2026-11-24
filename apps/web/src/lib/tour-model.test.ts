@@ -64,6 +64,27 @@ function run(start: Model, ...msgs: Msg[]): [Model, Cmd[]] {
 
 const types = (cmds: readonly Cmd[]) => cmds.map((cmd) => cmd.type);
 
+describe('host summary', () => {
+  test('tells the iOS app the groups and the one in view, only when they change', () => {
+    const start = model();
+    const [, first] = update(start, { type: 'GroupSelected', key: 'b' });
+    expect(first).toContainEqual({
+      type: 'TellHost',
+      summary: {
+        title: undefined,
+        running: true,
+        group: 'b',
+        groups: [
+          { key: 'a', label: 'Alpha', summary: undefined, critical: false, files: 2 },
+          { key: 'b', label: 'Beta', summary: undefined, critical: false, files: 1 },
+        ],
+      },
+    });
+    const [, again] = update(start, { type: 'HelpToggled' });
+    expect(types(again)).not.toContain('TellHost');
+  });
+});
+
 describe('init', () => {
   test('starts the tour and holds the position from the URL until it can be shown', () => {
     const [start, cmds] = init(REF, { g: 'a', f: 'f2' });

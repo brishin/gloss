@@ -244,6 +244,8 @@ export type Cmd =
   /** Reads the position off the page once it has rendered. */
   | { type: 'MeasurePosition' }
   | { type: 'SetTitle'; title: string }
+  /** Tells a native host (the iOS app around this page) what to show beside it. */
+  | { type: 'TellHost'; summary: HostSummary }
   | { type: 'LoadReview'; diffId: string }
   | { type: 'SaveReview'; diffId: string; saved: SavedReview }
   | { type: 'SubmitReview'; diffId: string; request: ReviewRequest }
@@ -368,6 +370,29 @@ export const isRunning = (model: Model): boolean =>
   model.tour.status === 'running' ||
   model.connection === 'connecting' ||
   (model.connection === 'streaming' && model.tour.status === 'idle');
+
+/** What the iOS app shows around the page: the PR's title and the groups, with the one in view. */
+export interface HostSummary {
+  title?: string;
+  running: boolean;
+  group: string;
+  groups: { key: string; label: string; summary?: string; critical: boolean; files: number }[];
+}
+
+export function hostSummary(model: Model, groups = groupsOf(model)): HostSummary {
+  return {
+    title: model.tour.meta?.title,
+    running: isRunning(model),
+    group: selectedKey(model, groups),
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      summary: group.summary,
+      critical: group.critical,
+      files: group.fileIds.length,
+    })),
+  };
+}
 
 export function pageTitle(model: Model): string {
   return [currentGroup(model)?.label, model.tour.meta?.title ?? describeRef(model.ref), 'gloss']
@@ -1048,6 +1073,10 @@ function settle(prev: Model | undefined, model: Model, cmds: readonly Cmd[], fro
   const title = pageTitle(next);
   if (!prev || pageTitle(prev) !== title) {
     out.push({ type: 'SetTitle', title });
+  }
+  const summary = hostSummary(next, groups);
+  if (!prev || JSON.stringify(hostSummary(prev, prevGroups)) !== JSON.stringify(summary)) {
+    out.push({ type: 'TellHost', summary });
   }
   return [next, out];
 }
