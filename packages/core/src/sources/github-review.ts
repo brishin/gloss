@@ -1,4 +1,5 @@
 import type { ReviewRequest, ReviewResult } from '@gloss/protocol';
+import { type Duration, Effect } from 'effect';
 import { CommandError } from './exec.ts';
 import { gh, ghPaginated, githubViewer } from './github.ts';
 
@@ -67,58 +68,66 @@ export function landedReview(
 }
 
 export interface SubmitSteps {
-  post(payload: string): Promise<string>;
-  reviews(): Promise<readonly PostedReviewJson[]>;
-  viewer(): Promise<string>;
-  wait(ms: number): Promise<void>;
-  now(): number;
+  /** Posts the review payload; resolves with GitHub's reply. */
+  post(payload: string): Effect.Effect<string, unknown>;
+  /** The PR's reviews and the viewer's login, to find a review a failed post created anyway. */
+  reviews: Effect.Effect<readonly [readonly PostedReviewJson[], string], unknown>;
 }
-
-/** Waits before each retry. Long enough for a review GitHub was still creating behind a 504 to show up. */
-const RETRY_DELAYS_MS = [5_000, 10_000];
 
 /**
- * Posts a review, riding out GitHub's transient errors: after one, it waits, looks for a review the
- * failed try created anyway (so a review is never posted twice), and only then tries again.
+ * Posts a review, riding out GitHub's transient errors. After one it waits, looks for a review the
+ * failed post created anyway (so a review is never posted twice), and only then posts again.
  */
-export async function submitReviewWith(review: ReviewRequest, steps: SubmitSteps): Promise<ReviewResult> {
-  const payload = JSON.stringify(reviewPayload(review));
-  const since = steps.now();
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const created = JSON.parse(await steps.post(payload)) as { html_url: string };
-      return { url: created.html_url };
-    } catch (error) {
-      const delay = RETRY_DELAYS_MS[attempt];
-      if (!isTransient(error) || delay === undefined) {
-        throw error;
-      }
-      await steps.wait(delay);
-      const landed = await Promise.all([steps.reviews(), steps.viewer()])
-        .then(([reviews, viewer]) => landedReview(reviews, viewer, review, since))
-        .catch(() => undefined);
-      if (landed) {
-        return { url: landed.html_url };
-      }
-    }
-  }
-}
+export const submitReviewWith = (
+  review: ReviewRequest,
+  steps: SubmitSteps,
+  wait: Duration.Input = '5 seconds',
+): Effect.Effect<ReviewResult, unknown> =>
+  Effect.suspend(() => {
+    const payload = JSON.stringify(reviewPayload(review));
+    const since = Date.now();
+    const landed = steps.reviews.pipe(
+      Effect.map(([reviews, viewer]) => landedReview(reviews, viewer, review, since)),
+      Effect.orElseSucceed(() => undefined),
+    );
+    return steps.post(payload).pipe(
+      Effect.flatMap((out) =>
+        Effect.try({
+          try: () => ({ url: (JSON.parse(out) as { html_url: string }).html_url }),
+          catch: (error) => error,
+        }),
+      ),
+      Effect.catchIf(isTransient, (error) =>
+        Effect.sleep(wait).pipe(
+          Effect.andThen(landed),
+          Effect.flatMap((found) => (found ? Effect.succeed({ url: found.html_url }) : Effect.fail(error))),
+        ),
+      ),
+      Effect.retry({ times: 2, while: isTransient }),
+    );
+  });
 
 /** Submits a review as the user's `gh` login; GitHub's refusal (say, approving your own PR) becomes the error message. */
-export async function submitGithubReview(review: ReviewRequest, signal?: AbortSignal): Promise<ReviewResult> {
+export const submitGithubReview = (review: ReviewRequest): Effect.Effect<ReviewResult, Error> => {
   const path = `repos/${review.owner}/${review.repo}/pulls/${review.number}/reviews`;
-  try {
-    return await submitReviewWith(review, {
-      post: (payload) => gh(['--method', 'POST', path, '--input', '-'], signal, payload),
-      reviews: () => ghPaginated<PostedReviewJson>(`${path}?per_page=100`, signal),
-      viewer: () => githubViewer(signal),
-      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      now: () => Date.now(),
-    });
-  } catch (error) {
-    if (error instanceof CommandError && error.stderr.trim()) {
-      throw new Error(error.stderr.trim().replace(/^gh: /, ''), { cause: error });
-    }
-    throw error;
-  }
-}
+  return submitReviewWith(review, {
+    post: (payload) =>
+      Effect.tryPromise({
+        try: (signal) => gh(['--method', 'POST', path, '--input', '-'], signal, payload),
+        catch: (error) => error,
+      }),
+    reviews: Effect.tryPromise({
+      try: (signal) =>
+        Promise.all([ghPaginated<PostedReviewJson>(`${path}?per_page=100`, signal), githubViewer(signal)] as const),
+      catch: (error) => error,
+    }),
+  }).pipe(
+    Effect.mapError((error) =>
+      error instanceof CommandError && error.stderr.trim()
+        ? new Error(error.stderr.trim().replace(/^gh: /, ''), { cause: error })
+        : error instanceof Error
+          ? error
+          : new Error(String(error)),
+    ),
+  );
+};

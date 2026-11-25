@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { describe, expect, test } from 'vitest';
 import { CommandError } from './exec.ts';
 import { isTransient, type PostedReviewJson, reviewPayload, submitReviewWith } from './github-review.ts';
@@ -44,6 +45,7 @@ describe('submitReviewWith', () => {
   };
   const timeout = new CommandError('gh api failed', "gh: We couldn't respond to your request in time. (HTTP 504)", 1);
   const refused = new CommandError('gh api failed', 'gh: Can not approve your own pull request (HTTP 422)', 1);
+  const now = () => new Date().toISOString();
   const mine = {
     html_url: 'https://github.com/o/r/pull/1#pullrequestreview-9',
     user: { login: 'me' },
@@ -51,88 +53,66 @@ describe('submitReviewWith', () => {
     body: '',
   };
 
-  function steps(posts: (() => string)[], reviews: PostedReviewJson[] = []) {
-    const calls = { posts: 0, waits: [] as number[] };
-    return {
-      calls,
-      steps: {
-        post: async () => posts[calls.posts++]!(),
-        reviews: async () => reviews,
-        viewer: async () => 'me',
-        wait: async (ms: number) => void calls.waits.push(ms),
-        now: () => Date.parse('2026-11-25T15:00:00Z'),
-      },
-    };
+  function submit(posts: (() => string)[], reviews: () => PostedReviewJson[] = () => []) {
+    let tries = 0;
+    const result = Effect.runPromise(
+      submitReviewWith(
+        request,
+        {
+          post: () => Effect.try({ try: () => posts[tries++]!(), catch: (error) => error }),
+          reviews: Effect.sync(() => [reviews(), 'me'] as const),
+        },
+        '0 millis',
+      ),
+    );
+    return { result, tries: () => tries };
   }
+  const fail = (error: unknown) => () => {
+    throw error;
+  };
 
-  test('retries after a GitHub timeout that created nothing', async () => {
-    const { calls, steps: s } = steps([
-      () => {
-        throw timeout;
-      },
-      () => JSON.stringify({ html_url: 'u' }),
+  test('posts again after a GitHub timeout that created nothing', async () => {
+    const run = submit([fail(timeout), () => JSON.stringify({ html_url: 'u' })]);
+    await expect(run.result).resolves.toEqual({ url: 'u' });
+    expect(run.tries()).toBe(2);
+  });
+
+  test('does not post twice when the timed-out post created the review', async () => {
+    const run = submit([fail(timeout), () => JSON.stringify({ html_url: 'dup' })], () => [
+      { ...mine, submitted_at: now() },
     ]);
-    await expect(submitReviewWith(request, s)).resolves.toEqual({ url: 'u' });
-    expect(calls.posts).toBe(2);
+    await expect(run.result).resolves.toEqual({ url: mine.html_url });
+    expect(run.tries()).toBe(1);
   });
 
-  test('does not post twice when the timed-out try created the review', async () => {
-    const { calls, steps: s } = steps(
-      [
-        () => {
-          throw timeout;
-        },
-        () => JSON.stringify({ html_url: 'dup' }),
-      ],
-      [{ ...mine, submitted_at: '2026-11-25T15:00:08Z' }],
-    );
-    await expect(submitReviewWith(request, s)).resolves.toEqual({ url: mine.html_url });
-    expect(calls.posts).toBe(1);
-  });
-
-  test('ignores older or other reviews when looking for one that landed', async () => {
-    const { calls, steps: s } = steps(
-      [
-        () => {
-          throw timeout;
-        },
-        () => JSON.stringify({ html_url: 'u' }),
-      ],
-      [
-        { ...mine, submitted_at: '2026-11-25T14:00:00Z' },
-        { ...mine, user: { login: 'them' }, submitted_at: '2026-11-25T15:00:08Z' },
-        { ...mine, state: 'APPROVED', submitted_at: '2026-11-25T15:00:08Z' },
-      ],
-    );
-    await expect(submitReviewWith(request, s)).resolves.toEqual({ url: 'u' });
-    expect(calls.posts).toBe(2);
-  });
-
-  test('gives up after the last retry, and never retries a refusal', async () => {
-    const failing = steps([
-      () => {
-        throw timeout;
-      },
-      () => {
-        throw timeout;
-      },
-      () => {
-        throw timeout;
-      },
+  test('ignores older reviews, other logins and other verdicts', async () => {
+    const run = submit([fail(timeout), () => JSON.stringify({ html_url: 'u' })], () => [
+      { ...mine, submitted_at: '2020-01-01T00:00:00Z' },
+      { ...mine, user: { login: 'them' }, submitted_at: now() },
+      { ...mine, state: 'APPROVED', submitted_at: now() },
     ]);
-    await expect(submitReviewWith(request, failing.steps)).rejects.toBe(timeout);
-    expect(failing.calls.posts).toBe(3);
-
-    const refusing = steps([
-      () => {
-        throw refused;
-      },
-    ]);
-    await expect(submitReviewWith(request, refusing.steps)).rejects.toBe(refused);
-    expect(refusing.calls.posts).toBe(1);
+    await expect(run.result).resolves.toEqual({ url: 'u' });
+    expect(run.tries()).toBe(2);
   });
 
-  test('counts an unreadable reply as transient', () => {
+  test('posts again after a reply it cannot read', async () => {
+    const run = submit([() => '', () => JSON.stringify({ html_url: 'u' })]);
+    await expect(run.result).resolves.toEqual({ url: 'u' });
+    expect(run.tries()).toBe(2);
+  });
+
+  test('gives up after three posts, and never posts again after a refusal', async () => {
+    const failing = submit([fail(timeout), fail(timeout), fail(timeout)]);
+    await expect(failing.result).rejects.toBe(timeout);
+    expect(failing.tries()).toBe(3);
+
+    const refusing = submit([fail(refused)]);
+    await expect(refusing.result).rejects.toBe(refused);
+    expect(refusing.tries()).toBe(1);
+  });
+
+  test('counts only 5xx and unreadable replies as transient', () => {
+    expect(isTransient(timeout)).toBe(true);
     expect(isTransient(new CommandError('x', 'unexpected end of JSON input', 1))).toBe(true);
     expect(isTransient(new SyntaxError('Unexpected end of JSON input'))).toBe(true);
     expect(isTransient(refused)).toBe(false);

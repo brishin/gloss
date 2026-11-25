@@ -90,8 +90,7 @@ export class Repos extends Context.Service<
         asset: (url) =>
           Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),
         stack: (ref) => Effect.tryPromise({ try: (signal) => resolveGithubStack(ref, signal), catch: repoError }),
-        review: (review) =>
-          Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
+        review: (review) => submitGithubReview(review).pipe(Effect.mapError(repoError)),
         requestReviewers: (request) =>
           Effect.tryPromise({ try: (signal) => requestGithubReviewers(request, signal), catch: repoError }),
         searchReviewers: (owner, repo, query) =>
