@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { githubPulls, inboxTours, type PullsJson, pullsQuery } from './github.ts';
+import {
+  activityOf,
+  createInboxReader,
+  githubPulls,
+  type InboxJson,
+  type InboxNode,
+  inboxTours,
+  type PullsJson,
+  pullsQuery,
+  talkOf,
+} from './github.ts';
 
 describe('pullsQuery', () => {
   it('asks for every PR in one query, aliased by position, with names quoted', () => {
@@ -86,5 +96,170 @@ describe('inboxTours', () => {
     expect(inboxTours([node(1, 'b', 'a'), node(2, 'a', 'b')]).map((tour) => tour.stack?.members.length)).toEqual([
       2, 2,
     ]);
+  });
+});
+
+describe('activityOf', () => {
+  const bot = { __typename: 'Bot', login: 'devin-ai-integration' };
+  const user = (login: string) => ({ __typename: 'User', login, avatarUrl: `https://a/${login}` });
+  const pull: InboxNode = {
+    id: 'PR_7',
+    number: 7,
+    title: 't',
+    state: 'OPEN',
+    isDraft: false,
+    isInMergeQueue: false,
+    updatedAt: '2026-11-24T10:00:00Z',
+    author: { login: 'ana' },
+    baseRefName: 'main',
+    headRefName: 'x',
+    repository: { owner: { login: 'o' }, name: 'r' },
+    additions: 120,
+    deletions: 30,
+    reviewDecision: null,
+    commits: {
+      nodes: [{ commit: { oid: 'h2', statusCheckRollup: { state: 'FAILURE' } } }],
+    },
+    latestReviews: {
+      nodes: [
+        { author: bot, state: 'COMMENTED', submittedAt: '2026-11-24T08:00:00Z' },
+        { author: user('me'), state: 'APPROVED', submittedAt: '2026-11-24T08:30:00Z', commit: { oid: 'h1' } },
+      ],
+    },
+    latestOpinionatedReviews: { nodes: [{ author: user('me'), state: 'APPROVED' }] },
+    reviewRequests: {
+      nodes: [{ requestedReviewer: user('li') }, { requestedReviewer: { __typename: 'Bot', login: 'copilot' } }],
+    },
+    reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] },
+  };
+
+  it('leaves bots out of the reviewers and keeps the viewer review time', () => {
+    expect(activityOf(pull, 'me', { people: 3, bots: 3 })).toEqual({
+      additions: 120,
+      deletions: 30,
+      checks: 'failing',
+      updatedAt: '2026-11-24T10:00:00Z',
+      reviewers: [
+        { login: 'me', state: 'approved', avatar: 'https://a/me' },
+        { login: 'li', state: 'pending', avatar: 'https://a/li' },
+      ],
+      reviewDecision: 'approved',
+      openThreads: 1,
+      comments: { people: 3, bots: 3 },
+      viewerReviewedAt: '2026-11-24T08:30:00Z',
+      pushedSinceReview: true,
+    });
+  });
+
+  it('keeps a change request when its reviewer is asked again', () => {
+    const asked: InboxNode = {
+      ...pull,
+      latestReviews: { nodes: [{ author: user('ana'), state: 'APPROVED', submittedAt: null }] },
+      latestOpinionatedReviews: {
+        nodes: [
+          { author: user('ana'), state: 'APPROVED' },
+          { author: user('li'), state: 'CHANGES_REQUESTED' },
+        ],
+      },
+    };
+    expect(activityOf(asked, 'me').reviewDecision).toBe('changes');
+  });
+
+  it('reads an old inbox answer without the new fields', () => {
+    const bare: InboxNode = {
+      number: pull.number,
+      title: pull.title,
+      state: pull.state,
+      isDraft: pull.isDraft,
+      isInMergeQueue: pull.isInMergeQueue,
+      updatedAt: pull.updatedAt,
+      author: pull.author,
+      baseRefName: pull.baseRefName,
+      headRefName: pull.headRefName,
+      repository: pull.repository,
+    };
+    expect(activityOf(bare)).toEqual({
+      additions: 0,
+      deletions: 0,
+      updatedAt: pull.updatedAt,
+      reviewers: [],
+      openThreads: 0,
+    });
+  });
+
+  it('counts talk from people and bots; an empty review note is not talk', () => {
+    expect(
+      talkOf({
+        id: 'PR_7',
+        comments: { nodes: [{ author: bot }, { author: user('ana') }] },
+        reviews: {
+          nodes: [
+            { author: bot, body: 'Summary' },
+            { author: user('me'), body: ' ' },
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            { comments: { nodes: [{ author: bot }, { author: user('ana') }] } },
+            { comments: { nodes: [{ author: null }] } },
+          ],
+        },
+      }),
+    ).toEqual({ people: 3, bots: 3 });
+  });
+
+  it('reads details every time and talk only for PRs that changed', async () => {
+    let updatedAt = pull.updatedAt;
+    let failDetails = false;
+    const { number, title, state, isDraft, isInMergeQueue, author, baseRefName, headRefName, repository } = pull;
+    const thin: InboxNode = {
+      id: pull.id,
+      number,
+      title,
+      state,
+      isDraft,
+      isInMergeQueue,
+      updatedAt,
+      author,
+      baseRefName,
+      headRefName,
+      repository,
+    };
+    const asked: string[][] = [];
+    const detailed: string[][] = [];
+    const read = createInboxReader({
+      inbox: async () =>
+        ({
+          data: {
+            viewer: { login: 'me' },
+            review: { nodes: [] },
+            reviewed: { nodes: [{ ...thin, updatedAt }] },
+            authored: { nodes: [{ ...thin, id: 'PR_8', number: 8, author: { login: 'me' } }] },
+          },
+        }) satisfies InboxJson,
+      details: async (ids) => {
+        detailed.push([...ids]);
+        if (failDetails) throw new Error('502');
+        return ids.map((id) => ({ id, additions: 5, deletions: 1 }));
+      },
+      talk: async (ids) => {
+        asked.push([...ids]);
+        return ids.map((id) => ({ id, comments: { nodes: [{ author: user('ana') }] } }));
+      },
+    });
+    const first = await read();
+    await read();
+    updatedAt = '2026-11-25T00:00:00Z';
+    await read();
+    expect(asked).toEqual([['PR_7', 'PR_8'], ['PR_7']]);
+    expect(detailed).toEqual([
+      ['PR_7', 'PR_8'],
+      ['PR_7', 'PR_8'],
+      ['PR_7', 'PR_8'],
+    ]);
+    expect(first.reviewed[0]!.activity).toMatchObject({ additions: 5, comments: { people: 1, bots: 0 } });
+    failDetails = true;
+    const failed = await read();
+    expect(failed.authored[0]!.activity).toBeUndefined();
   });
 });

@@ -17,6 +17,7 @@ export type CacheKind =
   | 'followup'
   | 'notes'
   | 'stack-name'
+  | 'topic-icon'
   | 'tour'
   | 'trace';
 

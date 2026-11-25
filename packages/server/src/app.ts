@@ -4,6 +4,7 @@ import {
   editDecisionRules,
   ModelClient,
   nameStack,
+  pickTopicIcon,
   type PullSummary,
   type RepoClones,
   Repos,
@@ -36,6 +37,7 @@ import {
   reviewProblem,
   ThreadReplyRequestSchema,
   ThreadResolveRequestSchema,
+  TopicIconRequestSchema,
   EditRulesRequestSchema,
   SaveDecisionRulesSchema,
   serializeRef,
@@ -191,7 +193,9 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           }
           const recent: RecentTours = {
             ...(viewer ? { viewer } : {}),
-            ...(inbox ? { reviewRequested: inbox.reviewRequested, authored: inbox.authored } : {}),
+            ...(inbox
+              ? { reviewRequested: inbox.reviewRequested, reviewed: inbox.reviewed, authored: inbox.authored }
+              : {}),
             tours: (authors.size ? cache.listRecent(RECENT_LIMIT) : tours).map((tour) => withPullStates(tour, pulls)),
           };
           return recent;
@@ -415,6 +419,26 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       nameStack(parsed.output).pipe(
         Effect.match({
           onSuccess: (name) => c.json({ name }),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
+
+  // A POST for the same reason as stack names: it spends model tokens, so only the app may ask.
+  app.post('/api/topic/icon', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Topic icons are given only as JSON to the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(TopicIconRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Expected the titles of a PR or stack' }, 400);
+    }
+    return run(
+      pickTopicIcon(parsed.output).pipe(
+        Effect.match({
+          onSuccess: (icon) => c.json({ icon }),
           onFailure: (error) => c.json({ error: error.message }, 502),
         }),
       ),

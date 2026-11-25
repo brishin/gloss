@@ -26,7 +26,14 @@ import { submitGithubReview } from './github-review.ts';
 import { requestGithubReviewers, searchGithubReviewers } from './github-reviewers.ts';
 import { resolveGithubStack } from './github-stack.ts';
 import { fetchReviewThreads, replyToGithubThread, resolveGithubThread } from './github-threads.ts';
-import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
+import {
+  createInboxReader,
+  githubPulls,
+  githubViewer,
+  type Inbox,
+  type PullSummary,
+  resolveGithubAsset,
+} from './github.ts';
 import { readLfsObject } from './lfs.ts';
 
 /** A `gh` or git call failed; `message` is what the API answers with. */
@@ -76,6 +83,12 @@ export class Repos extends Context.Service<
       const viewer = yield* Effect.tryPromise((signal) => githubViewer(signal)).pipe(
         Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '1 hour' : 0)),
       );
+      // /api/recent reads it on every page and Watch PRs every few minutes; a short cache spares
+      // GitHub's rate limit (the inbox query is a few points; talk is read only for PRs that changed).
+      const readInbox = createInboxReader();
+      const inbox = yield* Effect.tryPromise((signal) => readInbox(signal)).pipe(
+        Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '30 seconds' : 0)),
+      );
       const lfs = yield* makeLfsCache();
       return {
         lfs: (diff, object) =>
@@ -85,7 +98,7 @@ export class Repos extends Context.Service<
           ),
         pulls: (refs) =>
           Effect.tryPromise((signal) => githubPulls(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
-        inbox: Effect.tryPromise((signal) => githubInbox(signal)).pipe(Effect.orElseSucceed(() => undefined)),
+        inbox: inbox.pipe(Effect.orElseSucceed(() => undefined)),
         viewer: viewer.pipe(Effect.orElseSucceed(() => undefined)),
         asset: (url) =>
           Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),

@@ -11,16 +11,25 @@ export const searchText = v.pipe(v.union([v.string(), v.number()]), v.transform(
 export const tourPositionSearch = { g: v.optional(searchText), f: v.optional(searchText) };
 
 /** The only mapping between refs and routes (mirrored by the CLI's `webPath`). */
-export function RefLink({ sourceRef, children }: { sourceRef: SourceRef; children: ReactNode }) {
+export function RefLink({
+  sourceRef,
+  className,
+  children,
+}: {
+  sourceRef: SourceRef;
+  className?: string;
+  children: ReactNode;
+}) {
   return sourceRef.kind === 'github-pr' ? (
     <Link
+      className={className}
       to="/gh/$owner/$repo/pull/$number"
       params={{ owner: sourceRef.owner, repo: sourceRef.repo, number: String(sourceRef.number) }}
     >
       {children}
     </Link>
   ) : (
-    <Link to="/local" search={{ repo: sourceRef.repo, target: sourceRef.target }}>
+    <Link className={className} to="/local" search={{ repo: sourceRef.repo, target: sourceRef.target }}>
       {children}
     </Link>
   );
