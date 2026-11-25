@@ -41,6 +41,7 @@ import { AskPanel } from './AskPanel.tsx';
 import { AutoToursSwitch } from './AutoToursSwitch.tsx';
 import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
+import { GithubIcon } from './icons.tsx';
 import { KeyPaths } from './KeyPaths.tsx';
 import { Logo } from './Logo.tsx';
 import { MergePanel } from './MergePanel.tsx';
@@ -223,6 +224,18 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
                 label={review.comments.length ? `Review (${review.comments.length})` : 'Review'}
               />
             </ReviewPanel>
+          )}
+          {state.meta?.url && (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Open on GitHub"
+              tooltip="Open on GitHub"
+              icon={<Icon icon={GithubIcon} />}
+              href={state.meta.url}
+              target="_blank"
+              rel="noreferrer"
+            />
           )}
           {!model.exported && (
             <>

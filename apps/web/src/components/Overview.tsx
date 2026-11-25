@@ -79,11 +79,6 @@ export const PullHead = memo(function PullHead({
           <span>
             <strong>{notes}</strong> {plural(notes, 'note')}
           </span>
-          {meta.url && (
-            <a href={meta.url} target="_blank" rel="noreferrer">
-              Open on GitHub
-            </a>
-          )}
         </div>
       )}
       {pull && (pull.reviewers?.length || pull.canRequestReviews) ? (
