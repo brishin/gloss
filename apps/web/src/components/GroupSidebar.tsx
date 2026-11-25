@@ -25,6 +25,7 @@ import {
   type SidebarState,
   STACK_NODE,
 } from '../lib/sidebar-tree.ts';
+import { useRefHref } from '../lib/source-routes.tsx';
 import type { Msg } from '../lib/tour-model.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
 import { CategoryIcon, CheckIcon, RefIcon } from './icons.tsx';
@@ -77,6 +78,7 @@ export function GroupSidebar({
   // The toured PR shows in place, in the first section that has it.
   const { sections, home } = railAround(recent, currentKey, fetched);
   const facts = inboxFacts(recent);
+  const hrefOf = useRefHref();
   /** Where an inbox PR stands, and its activity; nothing for a PR the inbox does not hold. */
   const pullInfo = (ref: SourceRef, author: string | undefined, state: StackMember['state'] | undefined) => {
     const key = serializeRef(ref);
@@ -217,6 +219,7 @@ export function GroupSidebar({
         sticky
         onToggle={(deep) => toggle(PR_NODE, deep)}
         onClick={() => activate(PR_NODE, OVERVIEW)}
+        href={hrefOf(sourceRef)}
       >
         <span className="tree-lead">
           <RefIcon kind={sourceRef.kind} state={currentMember?.state} />
@@ -306,6 +309,7 @@ export function GroupSidebar({
               parent={parent}
               hideAuthor={hideAuthor}
               onOpen={openFromRail}
+              href={hrefOf({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number })}
             >
               <PullEnd
                 {...pullInfo(
@@ -359,6 +363,7 @@ export function GroupSidebar({
           current={false}
           label={`${item.title} · ${describeRef(item.ref)}`}
           onClick={(event) => openFromRail(item.ref, event.currentTarget)}
+          href={hrefOf(item.ref)}
         >
           <span className="tree-lead">
             {facts.activity.has(serializeRef(item.ref)) ? (
@@ -482,12 +487,15 @@ function MemberRow({
   parent,
   hideAuthor,
   onOpen,
+  href,
   children,
 }: {
   stack: Stack;
   member: StackMember;
   parent: string;
   onOpen: (ref: SourceRef, row: HTMLElement) => void;
+  /** The member's page, so it opens in a new tab on middle-click or cmd/ctrl-click. */
+  href: string;
   /** The row's end: where the PR stands. */
   children?: ReactNode;
   /** Leaves this login's avatar off: in "My PRs" it would be on every row. */
@@ -499,6 +507,7 @@ function MemberRow({
       parent={parent}
       current={false}
       label={`#${member.number} ${member.title} (${member.state})`}
+      href={href}
       onClick={(event) =>
         onOpen({ kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number }, event.currentTarget)
       }

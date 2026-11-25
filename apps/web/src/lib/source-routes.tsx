@@ -55,6 +55,18 @@ export function navigateToPipeline(router: AnyRouter, ref: SourceRef, search: { 
     : router.navigate({ to: '/local/pipeline', search: { repo: ref.repo, target: ref.target, ...search } });
 }
 
+/** A ref's page as a URL, for links the browser can open in a new tab. */
+export function useRefHref() {
+  const router = useRouter();
+  return (ref: SourceRef) =>
+    ref.kind === 'github-pr'
+      ? router.buildLocation({
+          to: '/gh/$owner/$repo/pull/$number',
+          params: { owner: ref.owner, repo: ref.repo, number: String(ref.number) },
+        }).href
+      : router.buildLocation({ to: '/local', search: { repo: ref.repo, target: ref.target } }).href;
+}
+
 export function useNavigateToRef() {
   const router = useRouter();
   return (ref: SourceRef) => navigateToRef(router, ref);
