@@ -320,7 +320,7 @@ const MIGRATION_PIN = `SQL migrations are always key decisions: any migration fi
 const SKETCH_GUIDE = `What to draw
 - Draw the mechanism, not its name: the path a request takes, the boundary it crosses, the step, edge or state the change adds or removes. Pick the part only this change has (a walk and where it stops, a loop, a fan-out, what moved where) over plumbing every feature shares. Write the caption first, then draw every noun it names.
 - One figure, one claim, one focal point. The focal point is the thing the change adds, moves or fixes. A reader should find it in one second.
-- Four to nine boxes. Leave out what the decision does not turn on. Empty space is fine; crowding is not.
+- Four to twelve boxes. Use the width for the step or the catch the reader would otherwise miss, not for filler. Leave out what the decision does not turn on. Empty space is fine; crowding is not.
 
 Figure types. Pick the one whose shape is the mechanism. Every change is a before and an after, so that alone is no reason for bands.
 - architecture: a component added, removed, rewired or moved (service, worker, queue, store, cache, client, third-party API). Tiers left to right as regions with capital headings, boxes inside, arrows saying what flows.
@@ -332,7 +332,7 @@ Figure types. Pick the one whose shape is the mechanism. Every change is a befor
 - bands: a BEFORE band over an AFTER band on the same grid, so the step that differs sits in the same place in both. Only when the old path itself is what the reviewer must see.
 
 Canvas and type. These sizes are what the reader sees: the figure is shown at its own width, never scaled down.
-- viewBox width 640, 24 margins, height sized to the content (about 140-360). Everything inside the viewBox.
+- viewBox width 880, 24 margins, height sized to the content (about 140-480). Everything inside the viewBox.
 - Box labels 14px #1f2328, centered (text-anchor middle). A second line inside a box 12px #59636e. Code in font-family "ui-monospace,Menlo,monospace" 12.5px. Arrow labels 12px #59636e. Region and band headings 11px, font-weight 600, letter-spacing .06em, #59636e, in capitals.
 - Boxes 44 tall (56 for two lines is fine), rx 6. A box is at least 8px per character of its longest 14px line plus 32. Shorten the words before you widen the canvas.
 - Grid: shared rows and columns, even gaps of about 60 between boxes, arrows straight or with right angles only.

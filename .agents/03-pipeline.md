@@ -77,8 +77,9 @@ judges files: as an optional kind it was drawn once in five PRs, and as a define
 out as a shallow overview. It is the first candidate. `svg-sanitize.ts` parses it against an element
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
-`<img>`. `SKETCH_GUIDE` gives the house style (a 640 viewBox shown at its own width so 14px
-labels stay 14px, neutral boxes, one tinted focal box, a dashed-red removed part, labelled arrows,
+`<img>`. `SKETCH_GUIDE` gives the house style (an 880 viewBox shown at its own width so 14px
+labels stay 14px (the overview gives a visual up to 960px; on 8 PRs the wider canvas drew the
+step or catch a 640 one left out, where a taller 640 one did not), neutral boxes, one tinted focal box, a dashed-red removed part, labelled arrows,
 at most two dotted-leader notes for the catch) and two example figures. The sketch names its figure type (`form`:
 architecture, timeline, states, boundary, fan, shape or bands) before it draws; with bands as the only
 layout described, it drew before/after bands for most changes, so bands is listed last.

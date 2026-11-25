@@ -13,6 +13,7 @@ const WASH = '#f3f1fd';
 const BAD = '#cf222e';
 const GOOD = '#1a7f37';
 const WIDTH = 760;
+const SKETCH_WIDTH = 960;
 const MIN_SIDE = 400;
 const MAX_SIDE = 1200;
 const FONT = 'font-family="sans-serif"';
@@ -173,7 +174,13 @@ export function visualPng(visual: Visual): Uint8Array | undefined {
             : mermaidSvg(visual.source);
     const natural = new Resvg(source);
     // The web app never draws a diagram wider than its natural size.
-    const width = visual.kind === 'mermaid' || visual.kind === 'svg' ? Math.min(WIDTH, natural.width) : WIDTH;
+    // A sketch is drawn up to 880 wide and the page shows it at that size (up to 960).
+    const width =
+      visual.kind === 'svg'
+        ? Math.min(SKETCH_WIDTH, natural.width)
+        : visual.kind === 'mermaid'
+          ? Math.min(WIDTH, natural.width)
+          : WIDTH;
     const height = (natural.height * width) / natural.width;
     // Jev refuses a side outside about 280-1568 px: shrink tall pictures, pad small ones.
     const scale = Math.min(1, MAX_SIDE / height);
