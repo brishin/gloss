@@ -1,4 +1,4 @@
-import type { FileSummary, GroupView, RecentTour, Stack } from '@gloss/protocol';
+import type { FileSummary, GroupView, PullActivity, RecentTour, Stack, StackMember } from '@gloss/protocol';
 import { describe, expect, test } from 'vitest';
 import {
   countViewed,
@@ -125,6 +125,16 @@ describe('splitByViewer', () => {
   });
 });
 
+const activity = (extra: Partial<PullActivity> = {}): PullActivity => ({
+  additions: 1,
+  deletions: 1,
+  updatedAt: '2026-11-24T00:00:00Z',
+  reviewers: [],
+  openThreads: 0,
+  comments: { people: 0, bots: 0 },
+  ...extra,
+});
+
 describe('railSections', () => {
   const pr = (number: number, extra: Partial<RecentTour> = {}): RecentTour => ({
     ref: { kind: 'github-pr', owner: 'o', repo: 'r', number },
@@ -132,46 +142,66 @@ describe('railSections', () => {
     updatedAt: '',
     ...extra,
   });
-  const member = (number: number, state: 'open' | 'merged') => ({
+  const member = (number: number, state: 'open' | 'merged' | 'draft', extra: Partial<StackMember> = {}) => ({
     number,
     title: '',
     state,
+    author: 'me',
     baseRef: 'b',
     headRef: 'h',
+    ...extra,
   });
   const titles = (entries: ReturnType<typeof recentEntries>) =>
     entries.map((entry) => (entry.kind === 'tour' ? entry.tour.title : `stack ${entry.stack.members.length}`));
 
-  test('orders review requests, then mine, then other open recent tours, each PR once', () => {
+  test('splits the inbox by whose move it is, most pressing first, drafts apart, then other open tours', () => {
     const local: RecentTour = { ref: { kind: 'local', repo: '/r', target: 'HEAD' }, title: 'local', updatedAt: '' };
     const sections = railSections(
       {
         viewer: 'me',
-        reviewRequested: [pr(1), pr(9)],
+        reviewRequested: [
+          pr(1, { author: 'ana', activity: activity() }),
+          pr(9, { author: 'ana', activity: activity() }),
+        ],
+        reviewed: [pr(11, { author: 'li', activity: activity({ reviewers: [{ login: 'me', state: 'approved' }] }) })],
         authored: [
-          pr(2, { stack: { owner: 'o', repo: 'r', base: 'main', members: [member(2, 'open'), member(3, 'open')] } }),
+          pr(2, {
+            author: 'me',
+            stack: {
+              owner: 'o',
+              repo: 'r',
+              base: 'main',
+              members: [
+                member(2, 'open', { activity: activity({ reviewers: [{ login: 'ana', state: 'pending' }] }) }),
+                member(3, 'open', { activity: activity({ checks: 'failing' }) }),
+              ],
+            },
+          }),
+          pr(12, { author: 'me', state: 'open', activity: activity({ reviewDecision: 'approved' }) }),
+          pr(13, { author: 'me', state: 'draft', activity: activity() }),
         ],
         tours: [pr(3), pr(1), pr(4, { state: 'merged' }), pr(5, { state: 'open' }), local],
       },
       new Set(['github:o/r#9']),
     );
-    expect([titles(sections.reviewRequested), titles(sections.mine), titles(sections.recent)]).toEqual([
-      ['#1'],
-      ['stack 2'],
-      ['#5', 'local'],
-    ]);
+    expect([
+      titles(sections.yourMove),
+      titles(sections.waiting),
+      titles(sections.drafts),
+      titles(sections.recent),
+    ]).toEqual([['#1', 'stack 2', '#12'], ['#11'], ['#13'], ['#5', 'local']]);
   });
 
-  test("drops a stack once none of its PRs is open, and splits recent tours by author without GitHub's lists", () => {
+  test("drops a stack once none of its PRs is open, and lists recent tours, the viewer's first, without GitHub's lists", () => {
     const merged = { owner: 'o', repo: 'r', base: 'main', members: [member(6, 'merged'), member(7, 'merged')] };
     const sections = railSections(
       { viewer: 'me', tours: [pr(6, { stack: merged }), pr(8, { author: 'ana' }), pr(10, { author: 'me' })] },
       new Set(),
     );
-    expect([titles(sections.reviewRequested), titles(sections.mine), titles(sections.recent)]).toEqual([
+    expect([titles(sections.yourMove), titles(sections.waiting), titles(sections.recent)]).toEqual([
       [],
-      ['#10'],
-      ['#8'],
+      [],
+      ['#10', '#8'],
     ]);
   });
 });
@@ -193,8 +223,8 @@ describe('findEntry', () => {
       },
       new Set(),
     );
-    expect(findEntry(sections, 'github:o/r#3')).toBe(sections.mine[0]);
-    expect(findEntry(sections, 'github:o/r#1')).toBe(sections.reviewRequested[0]);
+    expect(findEntry(sections, 'github:o/r#3')).toBe(sections.waiting[1]);
+    expect(findEntry(sections, 'github:o/r#1')).toBe(sections.waiting[0]);
     expect(findEntry(sections, 'github:o/r#9')).toBeUndefined();
   });
 });
@@ -219,9 +249,8 @@ describe('railAround', () => {
   test("keeps the toured PR's row in place and drops the live stack's other rows", () => {
     const recent = { reviewRequested: [pr(2)], authored: [pr(3, { stack: stack(3, 4) }), pr(5)], tours: [] };
     const { sections, home } = railAround(recent, 'github:o/r#4', stack(2, 3, 4));
-    expect(titles(sections.reviewRequested)).toEqual([]);
-    expect(titles(sections.mine)).toEqual(['stack github:o/r#3', '#5']);
-    expect(home).toBe(sections.mine[0]);
+    expect(titles(sections.waiting)).toEqual(['stack github:o/r#3', '#5']);
+    expect(home).toBe(sections.waiting[0]);
   });
 
   test.each([
@@ -230,16 +259,15 @@ describe('railAround', () => {
   ])("puts a PR %s in its stack's row", (_, tours) => {
     const recent = { reviewRequested: [pr(2)], authored: [pr(3, { stack: stack(3, 4) }), pr(5)], tours };
     const { sections, home } = railAround(recent, 'github:o/r#6', stack(3, 4, 6));
-    expect(titles(sections.reviewRequested)).toEqual(['#2']);
-    expect(titles(sections.mine)).toEqual(['stack github:o/r#3', '#5']);
+    expect(titles(sections.waiting)).toEqual(['#2', 'stack github:o/r#3', '#5']);
     expect(titles(sections.recent)).toEqual([]);
-    expect(home).toBe(sections.mine[0]);
+    expect(home).toBe(sections.waiting[1]);
   });
 
   test('shows a recorded stack that overlaps the live one as its own tour', () => {
     const recent = { tours: [pr(3, { stack: stack(2, 3) })] };
     const { sections, home } = railAround(recent, 'github:o/r#1', stack(1, 2));
-    expect(titles(sections.mine)).toEqual(['#3']);
+    expect(titles(sections.recent)).toEqual(['#3']);
     expect(home).toBeUndefined();
   });
 });

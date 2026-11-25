@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { githubPulls, inboxTours, type PullsJson, pullsQuery } from './github.ts';
+import { activityOf, githubPulls, type InboxNode, inboxTours, type PullsJson, pullsQuery } from './github.ts';
 
 describe('pullsQuery', () => {
   it('asks for every PR in one query, aliased by position, with names quoted', () => {
@@ -86,5 +86,85 @@ describe('inboxTours', () => {
     expect(inboxTours([node(1, 'b', 'a'), node(2, 'a', 'b')]).map((tour) => tour.stack?.members.length)).toEqual([
       2, 2,
     ]);
+  });
+});
+
+describe('activityOf', () => {
+  const bot = { __typename: 'Bot', login: 'devin-ai-integration' };
+  const user = (login: string) => ({ __typename: 'User', login, avatarUrl: `https://a/${login}` });
+  const pull: InboxNode = {
+    number: 7,
+    title: 't',
+    state: 'OPEN',
+    isDraft: false,
+    isInMergeQueue: false,
+    updatedAt: '2026-11-24T10:00:00Z',
+    author: { login: 'ana' },
+    baseRefName: 'main',
+    headRefName: 'x',
+    repository: { owner: { login: 'o' }, name: 'r' },
+    additions: 120,
+    deletions: 30,
+    reviewDecision: null,
+    commits: {
+      nodes: [{ commit: { committedDate: '2026-11-24T09:00:00Z', statusCheckRollup: { state: 'FAILURE' } } }],
+    },
+    latestReviews: {
+      nodes: [
+        { author: bot, state: 'COMMENTED', submittedAt: '2026-11-24T08:00:00Z' },
+        { author: user('me'), state: 'APPROVED', submittedAt: '2026-11-24T08:30:00Z' },
+      ],
+    },
+    reviewRequests: {
+      nodes: [{ requestedReviewer: user('li') }, { requestedReviewer: { __typename: 'Bot', login: 'copilot' } }],
+    },
+    comments: { nodes: [{ author: bot }, { author: user('ana') }] },
+    reviews: {
+      nodes: [
+        { author: bot, body: 'Summary' },
+        { author: user('me'), body: '' },
+      ],
+    },
+    reviewThreads: {
+      nodes: [
+        { isResolved: false, comments: { nodes: [{ author: bot }, { author: user('ana') }] } },
+        { isResolved: true, comments: { nodes: [{ author: user('me') }] } },
+      ],
+    },
+  };
+
+  it('leaves bots out of the reviewers, counts their talk apart, and keeps the viewer review time', () => {
+    expect(activityOf(pull, 'me')).toEqual({
+      additions: 120,
+      deletions: 30,
+      checks: 'failing',
+      pushedAt: '2026-11-24T09:00:00Z',
+      updatedAt: '2026-11-24T10:00:00Z',
+      reviewers: [
+        { login: 'me', state: 'approved', avatar: 'https://a/me' },
+        { login: 'li', state: 'pending', avatar: 'https://a/li' },
+      ],
+      reviewDecision: 'approved',
+      openThreads: 1,
+      // People: ana's comment, ana's and me's line comments; the empty approval is not talk.
+      comments: { people: 3, bots: 3 },
+      viewerReviewedAt: '2026-11-24T08:30:00Z',
+    });
+  });
+
+  it('reads an old inbox answer without the new fields', () => {
+    const bare: InboxNode = {
+      number: pull.number,
+      title: pull.title,
+      state: pull.state,
+      isDraft: pull.isDraft,
+      isInMergeQueue: pull.isInMergeQueue,
+      updatedAt: pull.updatedAt,
+      author: pull.author,
+      baseRefName: pull.baseRefName,
+      headRefName: pull.headRefName,
+      repository: pull.repository,
+    };
+    expect(activityOf(bare)).toMatchObject({ additions: 0, deletions: 0, reviewers: [], openThreads: 0 });
   });
 });

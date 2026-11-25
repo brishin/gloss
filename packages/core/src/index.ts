@@ -17,4 +17,5 @@ export {
 } from './pipeline/orchestrator.ts';
 export { PROMPTS_VERSION } from './pipeline/prompts.ts';
 export { nameStack, STACK_NAME_VERSION } from './pipeline/stack-name.ts';
+export { pickTopicIcon, TOPIC_ICON_VERSION } from './pipeline/topic-icon.ts';
 export * from './sources/index.ts';

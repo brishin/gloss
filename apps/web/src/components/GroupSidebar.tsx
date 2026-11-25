@@ -3,11 +3,12 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { useAtomValue } from '@effect/atom-react';
-import type { FileSummary, GroupView, RecentTours, SourceRef, Stack, StackMember } from '@gloss/protocol';
+import type { FileSummary, GroupView, PullActivity, RecentTours, SourceRef, Stack, StackMember } from '@gloss/protocol';
 import { describeRef, serializeRef } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
 import { Fragment, type KeyboardEvent, type ReactNode } from 'react';
 import { recentToursAtom, stackNameAtom } from '../lib/client.ts';
+import { inboxFacts, standOf } from '../lib/dashboard.ts';
 import {
   CATEGORY_LABEL,
   countViewed,
@@ -16,6 +17,7 @@ import {
   isNodeOpen,
   PR_NODE,
   closedNode,
+  DRAFTS_NODE,
   isClosed,
   railAround,
   type RecentEntry,
@@ -25,7 +27,8 @@ import {
 } from '../lib/sidebar-tree.ts';
 import type { Msg } from '../lib/tour-model.ts';
 import { notedFileIds, OVERVIEW, orderedFileIds, risksByFile, splitPath, WALKTHROUGH } from '../lib/tour-view.ts';
-import { CategoryIcon, CheckIcon, RefIcon, StackIcon } from './icons.tsx';
+import { CategoryIcon, CheckIcon, RefIcon } from './icons.tsx';
+import { RailStand, Talk, TopicTile } from './PullBits.tsx';
 import { Progress, TreeRow } from './TreeRow.tsx';
 
 /**
@@ -73,6 +76,16 @@ export function GroupSidebar({
   const fetched = fetchedStack && fetchedStack.members.length > 1 ? fetchedStack : undefined;
   // The toured PR shows in place, in the first section that has it.
   const { sections, home } = railAround(recent, currentKey, fetched);
+  const facts = inboxFacts(recent);
+  /** Where an inbox PR stands, and its activity; nothing for a PR the inbox does not hold. */
+  const pullInfo = (ref: SourceRef, author: string | undefined, state: StackMember['state'] | undefined) => {
+    const key = serializeRef(ref);
+    const activity = facts.activity.get(key);
+    return {
+      activity,
+      stand: standOf({ author, state, activity, requested: facts.requested.has(key) }, viewer),
+    };
+  };
   // The live stack once fetched; until then the one the toured PR's row already has, so the rail
   // does not move while it loads.
   const stack = fetched ?? (home?.kind === 'stack' ? home.stack : undefined);
@@ -90,6 +103,7 @@ export function GroupSidebar({
     });
   };
 
+  const currentActivity = facts.activity.get(currentKey);
   const kept = filterGroups(groups, files, query);
   const isOpen = (id: string) => isNodeOpen(sidebar, id);
   const toggle = (id: string, deep: boolean) => dispatch({ type: 'SidebarToggled', node: id, deep });
@@ -214,7 +228,8 @@ export function GroupSidebar({
             {critical}
           </span>
         )}
-        {/* Your own PR sits in "My PRs", which shows no avatar of yours. */}
+        {currentActivity && <Talk comments={currentActivity.comments} compact />}
+        {/* Your own avatar would be on most rows. */}
         <Avatar login={(author ?? currentMember?.author) === viewer ? undefined : (author ?? currentMember?.author)} />
         {loading ? (
           <Spinner size="sm" shade="subtle" aria-label="Tour running" />
@@ -291,7 +306,15 @@ export function GroupSidebar({
               parent={parent}
               hideAuthor={hideAuthor}
               onOpen={openFromRail}
-            />
+            >
+              <PullEnd
+                {...pullInfo(
+                  { kind: 'github-pr', owner: stack.owner, repo: stack.repo, number: member.number },
+                  member.author,
+                  member.state,
+                )}
+              />
+            </MemberRow>
           ) : null,
         )}
       </div>
@@ -338,10 +361,15 @@ export function GroupSidebar({
           onClick={(event) => openFromRail(item.ref, event.currentTarget)}
         >
           <span className="tree-lead">
-            <RefIcon kind={item.ref.kind} state={item.state} />
+            {facts.activity.has(serializeRef(item.ref)) ? (
+              <TopicTile titles={[item.title]} seed={serializeRef(item.ref)} size={18} />
+            ) : (
+              <RefIcon kind={item.ref.kind} state={item.state} />
+            )}
           </span>
           <RefLabel sourceRef={item.ref} title={item.title} />
           <Avatar login={item.author === hideAuthor ? undefined : item.author} />
+          <PullEnd {...pullInfo(item.ref, item.author, item.state)} />
         </TreeRow>
       );
     }
@@ -368,9 +396,25 @@ export function GroupSidebar({
       </div>
       <div className="tree" role="tree" aria-label="PRs, groups and files" onKeyDown={onTreeKey}>
         {!home && currentBlock(undefined)}
-        <RailSection label="Review requested" entries={sections.reviewRequested} render={renderRecent(undefined)} />
-        <RailSection label="My PRs" entries={sections.mine} render={renderRecent(viewer)} />
-        <RailSection label="Recent" entries={sections.recent} render={renderRecent(undefined)} />
+        <RailSection label="Your move" entries={sections.yourMove} render={renderRecent(viewer)} />
+        <RailSection label="Waiting on others" entries={sections.waiting} render={renderRecent(viewer)} />
+        {sections.drafts.length > 0 && (
+          <TreeRow
+            id={DRAFTS_NODE}
+            parent=""
+            current={false}
+            expanded={isOpen(DRAFTS_NODE)}
+            label={`${sections.drafts.length} drafts`}
+            onToggle={(deep) => toggle(DRAFTS_NODE, deep)}
+            onClick={() => toggle(DRAFTS_NODE, false)}
+          >
+            <span className="nav-label tree-closed">
+              {sections.drafts.length === 1 ? '1 draft' : `${sections.drafts.length} drafts`}
+            </span>
+          </TreeRow>
+        )}
+        {(isOpen(DRAFTS_NODE) || (home && sections.drafts.includes(home))) && sections.drafts.map(renderRecent(viewer))}
+        <RailSection label="Recent" entries={sections.recent} render={renderRecent(viewer)} />
       </div>
     </nav>
   );
@@ -405,7 +449,16 @@ function StackHead({
       onClick={() => onToggle(false)}
     >
       <span className="tree-lead">
-        <StackIcon />
+        <TopicTile
+          titles={stack.members.map((member) => member.title)}
+          seed={serializeRef({
+            kind: 'github-pr',
+            owner: stack.owner,
+            repo: stack.repo,
+            number: stack.members[0]!.number,
+          })}
+          size={18}
+        />
       </span>
       {name ? (
         <span className="nav-label" title={`Onto ${stack.base}`}>
@@ -429,11 +482,14 @@ function MemberRow({
   parent,
   hideAuthor,
   onOpen,
+  children,
 }: {
   stack: Stack;
   member: StackMember;
   parent: string;
   onOpen: (ref: SourceRef, row: HTMLElement) => void;
+  /** The row's end: where the PR stands. */
+  children?: ReactNode;
   /** Leaves this login's avatar off: in "My PRs" it would be on every row. */
   hideAuthor?: string | undefined;
 }) {
@@ -455,8 +511,14 @@ function MemberRow({
         {member.title}
       </span>
       <Avatar login={member.author === hideAuthor ? undefined : member.author} />
+      {children}
     </TreeRow>
   );
+}
+
+/** A rail row's end for an inbox PR: a word when the viewer acts next, else the reviewers' faces. */
+function PullEnd({ stand, activity }: { stand: ReturnType<typeof standOf>; activity: PullActivity | undefined }) {
+  return activity ? <RailStand stand={stand} activity={activity} /> : null;
 }
 
 /** A labelled run of rows below the toured PR; nothing when it is empty. */

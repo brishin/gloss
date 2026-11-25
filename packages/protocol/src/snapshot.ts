@@ -222,6 +222,7 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
       })),
     stack: (ref) => found(serializeRef(ref) === serializeRef(snapshot.ref) ? snapshot.stack : undefined, 'That stack'),
     stackName: () => found(snapshot.stackName, 'The stack name'),
+    topicIcon: missing('Topic icons'),
     review: missing('Review'),
     requestReviewers: missing('Requesting reviewers'),
     searchReviewers: () => Promise.resolve([]),
