@@ -71,20 +71,27 @@ restated the schema change change-wide, and notes then skipped it as covered.
 The define call overgenerates two required candidate slots, `first`/`second` from the data
 kinds, each with an explicit `none`; asked for a 2-3 item list, the model returned one
 every time. A third candidate, the `sketch`, is an SVG the model draws itself (hand-drawn
-pictures explained decisions best in the bake-off). It has its own call on the define model
+pictures explained decisions best in the bake-off). It has its own call on the `sketch` tier
 (`SKETCH_SYSTEM`, the define prompt plus the tour's summary and decisions), run while Jev
 judges files: as an optional kind it was drawn once in five PRs, and as a define slot it came
 out as a shallow overview. It is the first candidate. `svg-sanitize.ts` parses it against an element
 and attribute allowlist (no script, style, links, images, foreignObject, entities or
 external `url()`), rejects anything else whole, and the web app shows it only as an
-`<img>`. `SKETCH_GUIDE` gives the house style (neutral boxes, one accent or dashed-red
-step, labelled arrows) and three example figures. The sketch names its figure type (`form`:
+`<img>`. `SKETCH_GUIDE` gives the house style (an 880 viewBox shown at its own width so 14px
+labels stay 14px (the overview gives a visual up to 960px; on 8 PRs the wider canvas drew the
+step or catch a 640 one left out, where a taller 640 one did not), neutral boxes, one tinted focal box, a dashed-red removed part, labelled arrows,
+at most two dotted-leader notes for the catch) and two example figures. The sketch names its figure type (`form`:
 architecture, timeline, states, boundary, fan, shape or bands) before it draws; with bands as the only
 layout described, it drew before/after bands for most changes, so bands is listed last.
 A sketch whose arrow ends touch no box is dropped (`looseEnds`): in the eval, arrows into
 empty space were how sketches failed to close a loop. `sketchGap` also drops one whose
 caption says "before" with no BEFORE band, or whose arrows are mostly unlabelled: prompt
 rules alone did not hold.
+`sketchLayout` lists the layout slips a reader sees (text wider than its box or outside the
+viewBox, text on text, a line through a label, an arrow through a box). When it finds any, or the
+sketch was dropped, one revise call (`buildSketchRevisePrompt`, trace step `sketch-revise`) gets
+the drawing and the list; the revision wins unless it is dropped or has more slips. In the eval
+Opus drafts had 9 slips on 8 PRs and revisions none.
 A tour with change-wide decisions also gets one more define-tier call right after the groups are defined (`WALKTHROUGH_SYSTEM`, a numbered diff and the decisions numbered from 0): the walkthrough reads each decision in code, so a reviewer understands it, sees where it lives and reads the few lines that build it (Brian's ask, 2026-11-03, after mocks in the project's mocks/decision-walkthrough/). Per decision: a short claim as title, why, the option not taken, what to check, 1-3 snippets of 2-12 lines with the line that makes the choice as `focus` and an optional note under it, and a tree only when it helps: calls when the decision runs across a call path or many callers reach it, concepts when it is a hierarchy (what counts, which case resolves how). The page hangs each snippet under the tree row that points at it. `normalizeWalkthrough` keeps one entry per listed decision, moves a snippet to the hunk that shows its focus, moves a focus the diff does not show onto the first added line, narrows a snippet to 16 rows around its focus, makes tree depths a tree, keeps a row's line only where the diff shows it, drops a tree with no child or a call path with nothing new, and drops an entry with no code. A second define-tier call beside it, `callpath` (`CALL_PATH_SYSTEM`, the prompt the walkthrough had before decisions), draws the change's key code paths ("Key code paths" on the page): one call tree per known entry point (frames; each depth-0 frame starts a path), the main one read in 2-4 steps of short excerpts, or none when there is no path (Brian's ask, 2026-11-03, after 0 of 16 decisions on two PRs got a tree, with or without "most decisions need none"; asked in the decisions call, the model left the path empty). Each path has its own budget (2-8 frames asked, 10 kept), and the prompt allows more paths for larger changes (`pathBudget`: 2, plus one per 5 source files, at most 6), because with one budget for the whole tree, diffs over 6 files flattened at about 9 frames and most of their source files had none (Brian's ask, 2026-11-23). It has its own cache version (`CALL_PATH_VERSION`). `normalizeWalkthrough` keeps a path with a call and something new on it, drops a function an earlier path shows (with the calls under it), keeps 6 paths, and needs at least two steps with code, and drops it when the decisions' call trees already show every new or changed frame. A tour with no change-wide decisions skips the decisions call but still asks for the path. It runs forked in the stream's scope beside placement and notes; the tour joins it before it finishes. A Jev `call_path` gate on the path was tried and dropped, because on 24 PRs it hid most walkthroughs worth showing.
 No visual candidates means no pick.
 `normalizeVisuals` clips text, clamps timeline positions, caps rows and

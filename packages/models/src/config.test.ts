@@ -34,6 +34,28 @@ describe('small tier', () => {
   });
 });
 
+describe('sketch tier', () => {
+  test.each([
+    ['defaults to Opus', {}, 'anthropic/claude-opus-5-5'],
+    [
+      'stays Opus when notes is Sonnet',
+      { GLOSS_MODEL_NOTES: 'anthropic/claude-sonnet-5-5' },
+      'anthropic/claude-opus-5-5',
+    ],
+    [
+      'follows an OpenAI notes tier, needing no Anthropic login',
+      { GLOSS_MODEL_NOTES: 'openai/gpt-6-sol' },
+      'openai/gpt-6-sol',
+    ],
+    ['follows the OpenAI profile', { GLOSS_PROFILE: 'openai' }, 'openai/gpt-6-sol'],
+    ['uses notes itself for another provider', { GLOSS_MODEL_NOTES: 'other/model' }, 'other/model'],
+    ['takes GLOSS_MODEL', { GLOSS_MODEL: 'other/one' }, 'other/one'],
+    ['takes GLOSS_MODEL_SKETCH', { GLOSS_MODEL_SKETCH: 'x/y' }, 'x/y'],
+  ])('%s', (_, env, sketch) => {
+    expect(loadConfig(env).tiers.sketch).toBe(sketch);
+  });
+});
+
 describe('decision rules', () => {
   test('save keeps the rest of the config, and no sets drops the key', () => {
     const home = mkdtempSync(join(tmpdir(), 'gloss-config-'));

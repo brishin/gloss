@@ -69,6 +69,7 @@ import {
   normalizeDecisionGroups,
   normalizeNotes,
   normalizeSketch,
+  sketchLayout,
   normalizeVisuals,
   normalizeWalkthrough,
 } from './normalize.ts';
@@ -84,6 +85,7 @@ import {
   buildCallPathPrompt,
   buildDescriptionCheckPrompt,
   buildSketchPrompt,
+  buildSketchRevisePrompt,
   buildWalkthroughPrompt,
   CALL_PATH_SYSTEM,
   CALL_PATH_VERSION,
@@ -234,8 +236,8 @@ const tourProgram = Effect.fnUntraced(function* (
   const warn = (warnStage: Stage, message: string, fileId?: string) =>
     send({ type: 'job.warning', stage: warnStage, message, fileId });
   // The tour's tiers only: they are part of the tour's cache key.
-  const { define, followup, notes } = model.config();
-  const models: ModelConfig = { define, followup, notes, judge: judge?.model };
+  const { define, followup, notes, sketch: sketchModel } = model.config();
+  const models: ModelConfig = { define, followup, notes, sketch: sketchModel, judge: judge?.model };
   const trace = createTracer(options.onStep);
   const sourceKey = serializeRef(ref);
 
@@ -608,9 +610,19 @@ const tourProgram = Effect.fnUntraced(function* (
     return { ...definition, decisions, visuals, definePrompt };
   });
 
+  /** A drawn sketch, if it survives normalizing, and what a revise should fix: why it was dropped, or its layout slips. */
+  const checkSketch = (value: v.InferOutput<typeof SketchSchema>) => {
+    const { visual, warnings } = normalizeSketch(value);
+    const problems = visual?.kind === 'svg' ? sketchLayout(visual.svg) : warnings;
+    return { visual, warnings, problems };
+  };
+
   /**
-   * The hand-drawn candidate, from its own call on the define model: as a slot of the define
-   * call it came out as a shallow overview. A failed call is a warning; the data visuals remain.
+   * The hand-drawn candidate, from its own call on the sketch tier (the provider's strongest
+   * model: it drew the review risk where the define model drew the flow). As a slot of the define
+   * call it came out as a shallow overview. When code finds the drawing dropped or with layout
+   * slips, one revise call fixes them; the better of the two is kept. A failed call is a warning;
+   * the data visuals remain.
    */
   const drawSketch = (definition: {
     overallSummary: string;
@@ -619,42 +631,66 @@ const tourProgram = Effect.fnUntraced(function* (
   }) =>
     Effect.suspend(() => {
       const sketchPrompt = buildSketchPrompt(definition.definePrompt, definition.overallSummary, definition.decisions);
-      trace.begin('sketch', 'sketch', {
-        inputs: ['define'],
-        model: models.define,
-        system: SKETCH_SYSTEM,
-        prompt: sketchPrompt,
-        sections: promptSections(sketchPrompt, { 'The tour so far': 'define' }),
-      });
-      return cached(
-        'sketch',
-        { PROMPTS_VERSION, model: models.define, prompt: sketchPrompt },
-        prompt('sketch', {
-          tier: 'define',
+      const draw = (stepId: string, drawPrompt: string, inputs: string[]) => {
+        trace.begin(stepId, 'sketch', {
+          inputs,
+          ...(stepId === 'sketch' ? {} : { subject: 'revise' }),
+          model: sketchModel,
           system: SKETCH_SYSTEM,
-          prompt: sketchPrompt,
-          result: SketchSchema,
-          resultName: 'sketch',
-        }),
-        models.define,
-      ).pipe(
-        Effect.map(({ value, hit }) => {
-          const { visual, warnings } = normalizeSketch(value);
-          for (const message of warnings) {
-            warn('define', message);
-          }
-          trace.end('sketch', {
-            cached: hit,
-            output: value,
-            summary: visual ? value.form : 'dropped',
-            ...(warnings.length ? { warnings } : {}),
-          });
-          return visual;
-        }),
+          prompt: drawPrompt,
+          sections: promptSections(drawPrompt, { 'The tour so far': 'define', 'Your drawing': 'sketch' }),
+        });
+        return cached(
+          'sketch',
+          { PROMPTS_VERSION, model: sketchModel, prompt: drawPrompt },
+          prompt(stepId, {
+            tier: 'sketch',
+            system: SKETCH_SYSTEM,
+            prompt: drawPrompt,
+            result: SketchSchema,
+            resultName: 'sketch',
+          }),
+          sketchModel,
+        ).pipe(
+          Effect.map(({ value, hit }) => {
+            const checked = checkSketch(value);
+            trace.end(stepId, {
+              cached: hit,
+              output: value,
+              summary: checked.visual ? value.form : 'dropped',
+              ...(checked.problems.length ? { warnings: checked.problems } : {}),
+            });
+            return { value, ...checked };
+          }),
+          Effect.tapError((error) => Effect.sync(() => trace.end(stepId, { warnings: [error.message] }, 'failed'))),
+        );
+      };
+      const keep = (drawn: Effect.Success<ReturnType<typeof draw>>) => {
+        for (const message of drawn.warnings) {
+          warn('define', message);
+        }
+        return drawn.visual;
+      };
+      return draw('sketch', sketchPrompt, ['define']).pipe(
+        Effect.flatMap((first) =>
+          !first.problems.length
+            ? Effect.succeed(keep(first))
+            : draw('sketch-revise', buildSketchRevisePrompt(sketchPrompt, first.value, first.problems), [
+                'sketch',
+              ]).pipe(
+                Effect.map((revised) =>
+                  keep(
+                    revised.visual && (!first.visual || revised.problems.length <= first.problems.length)
+                      ? revised
+                      : first,
+                  ),
+                ),
+                Effect.catchTag('ModelError', () => Effect.succeed(keep(first))),
+              ),
+        ),
         Effect.catchTag('ModelError', (error) =>
           Effect.sync(() => {
             warn('define', `Drawing the sketch failed: ${error.message}`);
-            trace.end('sketch', { warnings: [error.message] }, 'failed');
             return undefined;
           }),
         ),

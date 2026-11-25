@@ -2,8 +2,11 @@ import type { DecisionRuleSet, ModelConfig } from '@gloss/protocol';
 import { Context, Data, type Effect } from 'effect';
 import type * as v from 'valibot';
 
-/** `small` is the provider's cheapest model, for one-line jobs outside the tour (stack names). */
-export type ModelTier = 'define' | 'followup' | 'notes' | 'small';
+/**
+ * `sketch` draws the tour's figure; `small` is the provider's cheapest model, for one-line jobs
+ * outside the tour (stack names).
+ */
+export type ModelTier = 'define' | 'followup' | 'notes' | 'sketch' | 'small';
 
 export interface ModelUsage {
   input: number;
@@ -67,6 +70,7 @@ export class ModelClient extends Context.Service<
   {
     /** `provider/model` per tier; part of every cache key. */
     config(): Pick<ModelConfig, 'define' | 'followup' | 'notes'> & {
+      sketch: string;
       small: string;
       /** The models a question may go to, and the one it goes to when it names none. */
       ask: { models: readonly string[]; default: string };

@@ -274,7 +274,8 @@ const TOUCH = 8;
  * Ends of connectors (a `line` with a marker, and every `polyline` or `path` outside `defs`)
  * that touch no box, circle, ellipse or polygon. A connector into empty space is the commonest
  * failure of a model-drawn sketch: the loop or flow it was meant to show never closes, with or
- * without an arrowhead. Lines without a marker are dividers and axes. Paths count only when
+ * without an arrowhead. Lines without a marker are dividers and axes, and a dotted path with no
+ * marker is a note's leader, which ends at its text. Paths count only when
  * made of absolute M, L, H and V. Skipped (0) when anything is transformed, since coordinates
  * are then not comparable.
  */
@@ -325,6 +326,7 @@ export function looseEnds(svg: string): number {
     }),
   ];
   const arrow = (tag: string) => /\smarker-(?:start|end)="/.test(tag);
+  const leader = (tag: string) => !arrow(tag) && /\sstroke-dasharray="2 3"/.test(tag);
   const ends = [
     ...tags('line')
       .filter(arrow)
@@ -332,11 +334,15 @@ export function looseEnds(svg: string): number {
         [num(tag, 'x1'), num(tag, 'y1')],
         [num(tag, 'x2'), num(tag, 'y2')],
       ]),
-    ...tags('polyline', drawn).flatMap((tag) => {
-      const all = pairs(text(tag, 'points') ?? '');
-      return all.length >= 2 ? [all[0]!, all.at(-1)!] : [];
-    }),
-    ...tags('path', drawn).flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
+    ...tags('polyline', drawn)
+      .filter((tag) => !leader(tag))
+      .flatMap((tag) => {
+        const all = pairs(text(tag, 'points') ?? '');
+        return all.length >= 2 ? [all[0]!, all.at(-1)!] : [];
+      }),
+    ...tags('path', drawn)
+      .filter((tag) => !leader(tag))
+      .flatMap((tag) => pathEnds(text(tag, 'd') ?? '')),
   ];
   return ends.filter(([x, y]) => !shapes.some((touches) => touches(x!, y!))).length;
 }
@@ -432,6 +438,259 @@ export function sketchGap(svg: string, caption: string): string | undefined {
     : arrows === 1
       ? 'its arrow has no label'
       : `${arrows - labels} of its ${arrows} arrows have no label`;
+}
+
+/** Rough width of one character as a share of the font size: labels, then monospace code. */
+const CHAR = 0.57;
+const MONO_CHAR = 0.61;
+/** Most layout problems one revise is asked to fix: past this, the list buries the worst ones. */
+const MAX_LAYOUT = 6;
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const inset = (box: Box, by: number): Box => ({
+  left: box.left + by,
+  top: box.top + by,
+  right: box.right - by,
+  bottom: box.bottom - by,
+});
+
+/** Whether segment a-b passes through the inside of `box` (Liang-Barsky clipping). */
+function crosses([ax, ay]: number[], [bx, by]: number[], box: Box): boolean {
+  if (box.right <= box.left || box.bottom <= box.top) {
+    return false;
+  }
+  const [dx, dy] = [bx! - ax!, by! - ay!];
+  let [from, to] = [0, 1];
+  for (const [p, q] of [
+    [-dx, ax! - box.left],
+    [dx, box.right - ax!],
+    [-dy, ay! - box.top],
+    [dy, box.bottom - ay!],
+  ] as const) {
+    if (p === 0) {
+      if (q <= 0) {
+        return false;
+      }
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) {
+      from = Math.max(from, t);
+    } else {
+      to = Math.min(to, t);
+    }
+    if (from >= to) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Straight segments of an absolute M/L/H/V path; none for anything curved or relative. */
+function pathSegments(d: string): number[][][] {
+  const commands = [...d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)];
+  if (!commands.length || commands.some(([, command]) => !'MLHVZ'.includes(command!))) {
+    return [];
+  }
+  const segments: number[][][] = [];
+  let [x, y] = [0, 0];
+  let start = [0, 0];
+  for (const [, command, args] of commands) {
+    const n = args!
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
+    if (command === 'M') {
+      [x, y] = [n[0] ?? x, n[1] ?? y];
+      start = [x, y];
+      for (let i = 2; i + 1 < n.length; i += 2) {
+        segments.push([
+          [x, y],
+          [n[i]!, n[i + 1]!],
+        ]);
+        [x, y] = [n[i]!, n[i + 1]!];
+      }
+      continue;
+    }
+    const before = [x, y];
+    if (command === 'L') {
+      for (let i = 0; i + 1 < n.length; i += 2) {
+        segments.push([
+          [x, y],
+          [n[i]!, n[i + 1]!],
+        ]);
+        [x, y] = [n[i]!, n[i + 1]!];
+      }
+      continue;
+    }
+    if (command === 'H') {
+      x = n.at(-1) ?? x;
+    } else if (command === 'V') {
+      y = n.at(-1) ?? y;
+    } else {
+      [x, y] = start as [number, number];
+    }
+    segments.push([before, [x, y]]);
+  }
+  return segments;
+}
+
+/**
+ * Layout slips a reader sees at once, checked in code so one revise call can fix them (the
+ * diagram eval: the model's own check before submitting misses most of them): text wider than
+ * its box or outside the canvas, text on text, a line through a label, an arrow through a box.
+ * Text widths are estimates from the font size. Only straight segments are checked, and
+ * nothing when anything is transformed, since coordinates are then not comparable.
+ */
+export function sketchLayout(svg: string): string[] {
+  if (/\stransform="/.test(svg)) {
+    return [];
+  }
+  const body = svg.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+  const attr = (tag: string, key: string) => tag.match(new RegExp(`\\s${key}="([^"]*)"`))?.[1];
+  const num = (tag: string, key: string, fallback = 0) => {
+    const value = Number(attr(tag, key) ?? fallback);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const [vx = 0, vy = 0, vw = 0, vh = 0] = (svg.match(/\sviewBox="([^"]*)"/)?.[1] ?? '')
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const canvas = { left: vx - 1, top: vy - 1, right: vx + vw + 1, bottom: vy + vh + 2 };
+  const outside = (box: Box) =>
+    box.left < canvas.left || box.top < canvas.top || box.right > canvas.right || box.bottom > canvas.bottom;
+  const rects = [...body.matchAll(/<rect\s[^>]*>/g)].map(([tag]) => {
+    const [x, y] = [num(tag, 'x'), num(tag, 'y')];
+    return { left: x, top: y, right: x + num(tag, 'width'), bottom: y + num(tag, 'height') };
+  });
+  const holds = (outer: Box, inner: Box) =>
+    inner.left >= outer.left && inner.top >= outer.top && inner.right <= outer.right && inner.bottom <= outer.bottom;
+  // A rect around other rects is a region (a tier, a place, a lane), not a box.
+  const boxes = rects.filter((rect, i) => !rects.some((other, j) => j !== i && holds(rect, other)));
+  // Text styles a g or the svg sets reach the texts inside it, as in the browser.
+  const STYLES = ['font-size', 'font-family', 'text-anchor'];
+  const styles = (tag: string) =>
+    STYLES.flatMap((key) => {
+      const value = attr(` ${tag}`, key);
+      return value === undefined ? [] : [` ${key}="${value}"`];
+    }).join('');
+  const groups = [styles(svg.match(/^<svg([^>]*)>/)?.[1] ?? '')];
+  const placed: [string, string][] = [];
+  for (const [token, group, tag, inner] of body.matchAll(/<g\b([^>]*)>|<\/g>|<text\s([^>]*)>([\s\S]*?)<\/text>/g)) {
+    if (group !== undefined) {
+      groups.push(styles(group) + groups.at(-1)!);
+    } else if (token === '</g>') {
+      if (groups.length > 1) {
+        groups.pop();
+      }
+    } else {
+      placed.push([` ${tag}${groups.at(-1)}`, inner!]);
+    }
+  }
+  const texts = placed.flatMap(([parent, inner]) => {
+    const size = num(parent, 'font-size', 14);
+    const mono = /mono/i.test(attr(parent, 'font-family') ?? '');
+    const anchor = attr(parent, 'text-anchor');
+    // A tspan with its own x, y or dy is a line of its own, measured where it sits.
+    const positioned = /<tspan\s[^>]*\s(?:x|y|dy)="/.test(` ${inner}`);
+    const lines = positioned
+      ? [...inner!.matchAll(/<tspan\b([^>]*)>([^<]*)/g)].map(([, span, words]) => ({ span: ` ${span}`, words: words! }))
+      : [{ span: '', words: inner!.replace(/<[^>]*>/g, '') }];
+    let [x, y] = [num(parent, 'x'), num(parent, 'y')];
+    return lines.flatMap(({ span, words }) => {
+      x = num(span, 'x', x);
+      y = num(span, 'y', y) + num(span, 'dy');
+      const label = words
+        .replace(/&(?:amp|lt|gt|quot|#\d+|#x[\da-f]+);/gi, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!label) {
+        return [];
+      }
+      const lineSize = num(span, 'font-size', size);
+      const width =
+        label.length * lineSize * (mono || /mono/i.test(attr(span, 'font-family') ?? '') ? MONO_CHAR : CHAR);
+      const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
+      return [
+        {
+          x,
+          y,
+          label: label.length > 30 ? `${label.slice(0, 29)}…` : label,
+          box: { left, top: y - lineSize * 0.72, right: left + width, bottom: y + lineSize * 0.22 },
+        },
+      ];
+    });
+  });
+  const segments = [
+    ...[...body.matchAll(/<line\s[^>]*>/g)].map(([tag]) => ({
+      tag,
+      points: [
+        [
+          [num(tag, 'x1'), num(tag, 'y1')],
+          [num(tag, 'x2'), num(tag, 'y2')],
+        ],
+      ],
+    })),
+    ...[...body.matchAll(/<path\s[^>]*>/g)].map(([tag]) => ({ tag, points: pathSegments(attr(tag, 'd') ?? '') })),
+    ...[...body.matchAll(/<polyline\s[^>]*>/g)].map(([tag]) => {
+      const n = (attr(tag, 'points') ?? '')
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+      const corners = Array.from({ length: Math.floor(n.length / 2) }, (_, i) => [n[i * 2]!, n[i * 2 + 1]!]);
+      return { tag, points: corners.slice(1).map((corner, i) => [corners[i]!, corner]) };
+    }),
+  ];
+  const arrows = segments.filter(({ tag }) => /\smarker-(?:start|end)="/.test(tag));
+  // A note's leader ends at its text, so it is left out of the text checks.
+  const lines = segments.filter(({ tag }) => !/\sstroke-dasharray="2 3"/.test(tag));
+  const named = (box: Box) => {
+    const text = texts.find(({ x, y }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom);
+    return text ? `the "${text.label}" box` : 'a box';
+  };
+
+  const problems: string[] = [];
+  for (const rect of rects) {
+    if (outside(rect)) {
+      problems.push(`${named(rect)} runs outside the viewBox`);
+    }
+  }
+  for (const text of texts) {
+    if (outside(text.box)) {
+      problems.push(`"${text.label}" runs outside the viewBox`);
+      continue;
+    }
+    const home = boxes
+      .filter((box) => text.x >= box.left && text.x <= box.right && text.y >= box.top && text.y <= box.bottom)
+      .sort((a, b) => (a.right - a.left) * (a.bottom - a.top) - (b.right - b.left) * (b.bottom - b.top))[0];
+    if (home && (text.box.left < home.left + 2 || text.box.right > home.right - 2)) {
+      problems.push(`"${text.label}" is wider than its box`);
+    }
+  }
+  texts.forEach((text, i) => {
+    for (const other of texts.slice(i + 1)) {
+      const [a, b] = [inset(text.box, 1), inset(other.box, 1)];
+      if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+        problems.push(`"${text.label}" overlaps "${other.label}"`);
+      }
+    }
+    if (lines.some(({ points }) => points.some(([a, b]) => crosses(a!, b!, inset(text.box, 2))))) {
+      problems.push(`a line crosses "${text.label}"`);
+    }
+  });
+  for (const box of boxes) {
+    if (arrows.some(({ points }) => points.some(([a, b]) => crosses(a!, b!, inset(box, 4))))) {
+      problems.push(`an arrow passes through ${named(box)}`);
+    }
+  }
+  return [...new Set(problems)].slice(0, MAX_LAYOUT);
 }
 
 /** The define call's candidates that survive, in the model's order. */

@@ -7,9 +7,18 @@ import { glossPath } from './paths.ts';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface GlossConfig {
-  /** `provider/model` per pipeline tier; `small` is a cheap model for one-line jobs such as stack names. */
-  tiers: { define: string; followup: string; notes: string; small: string };
-  thinking: { define: ThinkingLevel; followup: ThinkingLevel; notes: ThinkingLevel; small: ThinkingLevel };
+  /**
+   * `provider/model` per pipeline tier; `sketch` draws the tour's figure, and `small` is a cheap
+   * model for one-line jobs such as stack names.
+   */
+  tiers: { define: string; followup: string; notes: string; sketch: string; small: string };
+  thinking: {
+    define: ThinkingLevel;
+    followup: ThinkingLevel;
+    notes: ThinkingLevel;
+    sketch: ThinkingLevel;
+    small: ThinkingLevel;
+  };
   /** The models the Ask panel offers, fast to strong, and the one it starts on. */
   ask: { models: string[]; default: string };
   /** Jev classifier (`typesafe/jev-latest`); set to `null` to turn judging off. */
@@ -23,8 +32,10 @@ export interface GlossConfig {
 }
 
 /**
- * Fast tier where latency dominates (small structured outputs), strong tier for the notes, and
- * the small tier stays the provider's cheapest model even when the others are raised.
+ * Fast tier where latency dominates (small structured outputs), strong tier for the notes, the
+ * provider's sketch model (Opus on Anthropic, sol on OpenAI) for the sketch (it runs beside the notes, so it adds no wait, and it
+ * drew the review risk where the others drew the flow), and the small tier stays the provider's
+ * cheapest model even when the others are raised.
  */
 export const PROFILES = {
   anthropic: {
@@ -32,6 +43,7 @@ export const PROFILES = {
       define: 'anthropic/claude-haiku-5-5',
       followup: 'anthropic/claude-haiku-5-5',
       notes: 'anthropic/claude-sonnet-5-5',
+      sketch: 'anthropic/claude-opus-5-5',
       small: 'anthropic/claude-haiku-5-5',
     },
     ask: {
@@ -44,6 +56,7 @@ export const PROFILES = {
       define: 'openai/gpt-6-luna',
       followup: 'openai/gpt-6-luna',
       notes: 'openai/gpt-6-sol',
+      sketch: 'openai/gpt-6-sol',
       small: 'openai/gpt-6-luna',
     },
     ask: {
@@ -59,7 +72,7 @@ export type Profile = keyof typeof PROFILES;
 
 const DEFAULTS: GlossConfig = {
   tiers: { ...PROFILES.anthropic.tiers },
-  thinking: { define: 'low', followup: 'low', notes: 'medium', small: 'off' },
+  thinking: { define: 'low', followup: 'low', notes: 'medium', sketch: 'low', small: 'off' },
   ask: { models: [...PROFILES.anthropic.ask.models], default: PROFILES.anthropic.ask.default },
   judge: 'typesafe/jev-latest',
   providerPackages: [],
@@ -93,12 +106,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GlossConfig {
   const profile = (env.GLOSS_PROFILE as Profile | undefined) ?? file.profile;
   const tiers = { ...DEFAULTS.tiers, ...(profile ? PROFILES[profile]?.tiers : undefined), ...file.tiers };
   if (env.GLOSS_MODEL) {
-    tiers.define = tiers.followup = tiers.notes = tiers.small = env.GLOSS_MODEL;
+    tiers.define = tiers.followup = tiers.notes = tiers.sketch = tiers.small = env.GLOSS_MODEL;
   }
   tiers.define = env.GLOSS_MODEL_DEFINE ?? tiers.define;
   tiers.followup = env.GLOSS_MODEL_FOLLOWUP ?? tiers.followup;
   tiers.notes = env.GLOSS_MODEL_NOTES ?? tiers.notes;
   tiers.small = env.GLOSS_MODEL_SMALL ?? (file.tiers?.small || env.GLOSS_MODEL ? tiers.small : smallFor(tiers.define));
+  tiers.sketch =
+    env.GLOSS_MODEL_SKETCH ?? (file.tiers?.sketch || env.GLOSS_MODEL ? tiers.sketch : sketchFor(tiers.notes));
   return {
     tiers,
     ask: askFor(tiers.notes, file.ask),
@@ -173,6 +188,15 @@ function updateConfigFile(change: (file: Record<string, unknown>) => void): void
 function smallFor(define: string): string {
   const provider = define.slice(0, define.indexOf('/'));
   return Object.values(PROFILES).find((p) => p.tiers.small.startsWith(`${provider}/`))?.tiers.small ?? define;
+}
+
+/**
+ * The sketch tier when nothing sets it: the sketch model of the notes tier's provider, so it
+ * never needs a login the tour tiers do not; the notes model itself for other providers.
+ */
+function sketchFor(notes: string): string {
+  const provider = notes.slice(0, notes.indexOf('/'));
+  return Object.values(PROFILES).find((p) => p.tiers.sketch.startsWith(`${provider}/`))?.tiers.sketch ?? notes;
 }
 
 /**

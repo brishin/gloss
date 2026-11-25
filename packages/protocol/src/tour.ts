@@ -427,6 +427,7 @@ export const ModelConfigSchema = v.object({
   define: v.string(),
   followup: v.string(),
   notes: v.string(),
+  sketch: v.optional(v.string()),
   judge: v.optional(v.string()),
 });
 export type ModelConfig = v.InferOutput<typeof ModelConfigSchema>;
