@@ -7,6 +7,7 @@ import { topicIconAtom } from '../lib/client.ts';
 import { faceOrder, hueOf, type Stand } from '../lib/dashboard.ts';
 import { FALLBACK_TOPIC_GLYPH, TOPIC_ICON_GLYPHS } from '../lib/topic-icons.ts';
 import { REVIEW_STATE_LABEL, reviewerAvatar } from '../lib/tour-view.ts';
+import { ChecksFailingIcon } from './icons.tsx';
 
 /**
  * A PR or stack's topic icon on a tinted square. The fast model picks the icon from the titles;
@@ -92,14 +93,20 @@ export function Talk({ comments, compact }: { comments: NonNullable<PullActivity
   );
 }
 
-/** The rail's end of a row: a word when the viewer acts next, else the reviewers' faces. */
+/**
+ * The rail's end of a row: a word when the viewer acts next, else the reviewers' faces. Failing
+ * checks are only a small mark, named on hover.
+ */
 export function RailStand({ stand, activity }: { stand: Stand; activity: PullActivity | undefined }) {
-  if (stand.move === 'mine' && stand.short) {
+  if (stand.move === 'mine' && stand.urgent) {
     return (
-      <span className="nav-count" data-urgent={stand.urgent || undefined}>
-        {stand.short}
+      <span className="rail-mark" title={stand.reason} role="img" aria-label={stand.reason}>
+        <ChecksFailingIcon size={14} />
       </span>
     );
+  }
+  if (stand.move === 'mine' && stand.short) {
+    return <span className="nav-count">{stand.short}</span>;
   }
   return activity ? <Faces reviewers={activity.reviewers} size={16} /> : null;
 }

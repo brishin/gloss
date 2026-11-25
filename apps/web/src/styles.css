@@ -3133,8 +3133,10 @@
   }
 
   .dashboard-reason[data-urgent],
-  .nav-count[data-urgent] {
+  .rail-mark {
+    display: inline-flex;
     color: var(--flag-severe);
+    opacity: 0.75;
   }
 
   .dashboard-who {

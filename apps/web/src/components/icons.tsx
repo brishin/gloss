@@ -226,3 +226,13 @@ export function FlagCounts({ counts }: { counts: Record<FlagLevel, number> }) {
 export function CheckIcon() {
   return <Icon icon="check" size="sm" color="success" />;
 }
+
+/** Failing checks: GitHub's checklist octicon with a cross where its check was. */
+export function ChecksFailingIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden>
+      <path d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v6a.75.75 0 0 1-1.5 0v-6a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75Z" />
+      <path d="M9.5 10.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+    </svg>
+  );
+}
