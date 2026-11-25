@@ -5,10 +5,12 @@ import { gh } from './github.ts';
 /** The body of `POST /repos/{owner}/{repo}/pulls/{number}/reviews` for a review. */
 export function reviewPayload(review: ReviewRequest) {
   const side = (value: 'additions' | 'deletions') => (value === 'deletions' ? 'LEFT' : 'RIGHT');
+  const body = review.body.trim();
   return {
     ...(review.commitId ? { commit_id: review.commitId } : {}),
     event: review.verdict,
-    body: review.body.trim(),
+    // GitHub times out (504) on `"body": ""` alongside line comments; leaving the key out works.
+    ...(body ? { body } : {}),
     comments: review.comments.map((comment) => ({
       path: comment.path,
       body: comment.body,
