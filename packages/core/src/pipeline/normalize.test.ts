@@ -299,6 +299,19 @@ describe('sketchLayout', () => {
         '<path d="M148 62H200" stroke-dasharray="2 3"/><text x="204" y="66" font-size="12">stored 10 min</text>',
       [],
     ],
+    [
+      'a tspan line pushed outside the canvas',
+      '<text x="300" y="180" font-size="12"><tspan>calls</tspan><tspan x="300" dy="40">then waits</tspan></text>',
+      ['"then waits" runs outside the viewBox'],
+    ],
+    [
+      'tspans placed by their own position',
+      box(200, 'Cache').replace(
+        /<text[^>]*>Cache<\/text>/,
+        '<text font-size="14" text-anchor="middle"><tspan x="260" y="60">Cache</tspan><tspan x="260" y="76" font-size="12">hit</tspan></text>',
+      ),
+      [],
+    ],
     ['anything transformed (not checked)', `<g transform="scale(2)">${box(24, 'Every request to the server')}</g>`, []],
   ] as const)('%s', (_, body, expected) => {
     expect(sketchLayout(svg(body))).toEqual(expected);

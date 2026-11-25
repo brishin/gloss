@@ -575,35 +575,39 @@ export function sketchLayout(svg: string): string[] {
   // A rect around other rects is a region (a tier, a place, a lane), not a box.
   const boxes = rects.filter((rect, i) => !rects.some((other, j) => j !== i && holds(rect, other)));
   const texts = [...body.matchAll(/<text\s([^>]*)>([\s\S]*?)<\/text>/g)].flatMap(([, tag, inner]) => {
-    const size = num(` ${tag}`, 'font-size', 14);
-    const mono = /mono/i.test(attr(` ${tag}`, 'font-family') ?? '');
-    // Lines set by tspans with their own position are measured one by one; the first sets the height.
-    const lines = /<tspan\s[^>]*\s(?:x|y|dy)="/.test(` ${inner}`)
-      ? [...inner!.matchAll(/<tspan\b[^>]*>([^<]*)/g)].map(([, words]) => words!)
-      : [inner!.replace(/<[^>]*>/g, '')];
-    const words = lines.map((line) =>
-      line
+    const parent = ` ${tag}`;
+    const size = num(parent, 'font-size', 14);
+    const mono = /mono/i.test(attr(parent, 'font-family') ?? '');
+    const anchor = attr(parent, 'text-anchor');
+    // A tspan with its own x, y or dy is a line of its own, measured where it sits.
+    const positioned = /<tspan\s[^>]*\s(?:x|y|dy)="/.test(` ${inner}`);
+    const lines = positioned
+      ? [...inner!.matchAll(/<tspan\b([^>]*)>([^<]*)/g)].map(([, span, words]) => ({ span: ` ${span}`, words: words! }))
+      : [{ span: '', words: inner!.replace(/<[^>]*>/g, '') }];
+    let [x, y] = [num(parent, 'x'), num(parent, 'y')];
+    return lines.flatMap(({ span, words }) => {
+      x = num(span, 'x', x);
+      y = num(span, 'y', y) + num(span, 'dy');
+      const label = words
         .replace(/&(?:amp|lt|gt|quot|#\d+|#x[\da-f]+);/gi, '_')
         .replace(/\s+/g, ' ')
-        .trim(),
-    );
-    const longest = Math.max(0, ...words.map((line) => line.length));
-    if (!longest) {
-      return [];
-    }
-    const [x, y] = [num(` ${tag}`, 'x'), num(` ${tag}`, 'y')];
-    const width = longest * size * (mono ? MONO_CHAR : CHAR);
-    const anchor = attr(` ${tag}`, 'text-anchor');
-    const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
-    const label = words.join(' ');
-    return [
-      {
-        x,
-        y,
-        label: label.length > 30 ? `${label.slice(0, 29)}…` : label,
-        box: { left, top: y - size * 0.72, right: left + width, bottom: y + size * 0.22 },
-      },
-    ];
+        .trim();
+      if (!label) {
+        return [];
+      }
+      const lineSize = num(span, 'font-size', size);
+      const width =
+        label.length * lineSize * (mono || /mono/i.test(attr(span, 'font-family') ?? '') ? MONO_CHAR : CHAR);
+      const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
+      return [
+        {
+          x,
+          y,
+          label: label.length > 30 ? `${label.slice(0, 29)}…` : label,
+          box: { left, top: y - lineSize * 0.72, right: left + width, bottom: y + lineSize * 0.22 },
+        },
+      ];
+    });
   });
   const segments = [
     ...[...body.matchAll(/<line\s[^>]*>/g)].map(([tag]) => ({
