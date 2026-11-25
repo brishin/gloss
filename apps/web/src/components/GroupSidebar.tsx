@@ -228,7 +228,7 @@ export function GroupSidebar({
             {critical}
           </span>
         )}
-        {currentActivity && <Talk comments={currentActivity.comments} compact />}
+        {currentActivity?.comments && <Talk comments={currentActivity.comments} compact />}
         {/* Your own avatar would be on most rows. */}
         <Avatar login={(author ?? currentMember?.author) === viewer ? undefined : (author ?? currentMember?.author)} />
         {loading ? (

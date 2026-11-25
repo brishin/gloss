@@ -222,7 +222,7 @@ function PullRow({
       <span className="dashboard-reason" data-move={stand.move} data-urgent={stand.urgent || undefined}>
         {stand.reason}
       </span>
-      {activity ? <Talk comments={activity.comments} /> : <span />}
+      {activity?.comments ? <Talk comments={activity.comments} /> : <span />}
       <span className="dashboard-who">
         {others && !inStack && <AuthorFace login={author!} />}
         {others && !inStack && activity && activity.reviewers.length > 0 && <span className="dashboard-divider" />}

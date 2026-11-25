@@ -263,7 +263,7 @@ const INBOX_LIMIT = 50;
 const AVATAR = 'avatarUrl(size: 40)';
 
 const INBOX_FIELDS = `nodes { ... on PullRequest {
-  number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName
+  id number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName
   repository { owner { login } name }
   additions deletions reviewDecision
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
@@ -275,10 +275,22 @@ const INBOX_FIELDS = `nodes { ... on PullRequest {
     ... on Mannequin { login ${AVATAR} }
     ... on Team { combinedSlug }
   } } }
-  comments(first: 100) { nodes { author { __typename } } }
-  reviews(first: 50) { nodes { author { __typename } body } }
-  reviewThreads(first: 50) { nodes { isResolved comments(first: 20) { nodes { author { __typename } } } } }
+  reviewThreads(first: 50) { nodes { isResolved } }
 } }`;
+
+/**
+ * Who said what on some PRs, by node id. Kept apart from the inbox query: a thread's comments are a
+ * connection per thread, which costs GitHub's rate limit far more than the rest of the inbox, so
+ * they are read only for PRs that changed since the last read.
+ */
+export const talkQuery = (ids: readonly string[]) => `query {
+  nodes(ids: ${JSON.stringify(ids)}) { ... on PullRequest {
+    id
+    comments(first: 100) { nodes { author { __typename } } }
+    reviews(first: 50) { nodes { author { __typename } body } }
+    reviewThreads(first: 50) { nodes { comments(first: 20) { nodes { author { __typename } } } } }
+  } }
+}`;
 
 /**
  * One GraphQL query for the open PRs that ask for the viewer's review, the open PRs by others
@@ -300,6 +312,7 @@ interface InboxAuthor {
 }
 
 export interface InboxNode {
+  id?: string;
   number: number;
   title: string;
   state: 'OPEN' | 'CLOSED' | 'MERGED';
@@ -324,11 +337,26 @@ export interface InboxNode {
     }[];
   } | null;
   reviewRequests?: { nodes: { requestedReviewer: (InboxAuthor & { combinedSlug?: string }) | null }[] } | null;
+  reviewThreads?: { nodes: { isResolved: boolean }[] } | null;
+}
+
+/** A PR's talk as `talkQuery` reads it. */
+export interface TalkNode {
+  id: string;
   comments?: { nodes: { author: InboxAuthor | null }[] } | null;
   reviews?: { nodes: { author: InboxAuthor | null; body: string }[] } | null;
-  reviewThreads?: {
-    nodes: { isResolved: boolean; comments: { nodes: { author: InboxAuthor | null }[] } | null }[];
-  } | null;
+  reviewThreads?: { nodes: { comments: { nodes: { author: InboxAuthor | null }[] } | null }[] } | null;
+}
+
+/** Comments, line comments and review notes, from people and from bots; a review counts only when it says something. */
+export function talkOf(node: TalkNode): { people: number; bots: number } {
+  const talk = [
+    ...(node.comments?.nodes ?? []),
+    ...(node.reviews?.nodes ?? []).filter((review) => review.body.trim() !== ''),
+    ...(node.reviewThreads?.nodes ?? []).flatMap((thread) => thread.comments?.nodes ?? []),
+  ];
+  const bots = talk.filter((each) => isBot(each.author)).length;
+  return { people: talk.length - bots, bots };
 }
 
 export type InboxJson = {
@@ -359,18 +387,13 @@ const CHECKS: Record<string, PullActivity['checks']> = {
   EXPECTED: 'pending',
 };
 
-/**
- * What the dashboard shows of a PR. Bots are left out of the reviewers and counted apart in the
- * talk; a review counts as talk only when it says something.
- */
-export function activityOf(node: InboxNode, viewer?: string): PullActivity {
+/** What the dashboard shows of a PR. Bots are left out of the reviewers; `comments` comes from `talkOf`. */
+export function activityOf(
+  node: InboxNode,
+  viewer?: string,
+  comments?: { people: number; bots: number },
+): PullActivity {
   const head = node.commits?.nodes.at(-1)?.commit;
-  const people = (nodes: readonly { author: InboxAuthor | null }[]) => nodes.filter((n) => !isBot(n.author)).length;
-  const talk = [
-    ...(node.comments?.nodes ?? []),
-    ...(node.reviews?.nodes ?? []).filter((review) => review.body.trim() !== ''),
-    ...(node.reviewThreads?.nodes ?? []).flatMap((thread) => thread.comments?.nodes ?? []),
-  ];
   const reviews = (node.latestReviews?.nodes ?? []).filter((review) => !isBot(review.author));
   const requests = (node.reviewRequests?.nodes ?? []).filter((request) => !isBot(request.requestedReviewer));
   const reviewers = reviewersOf(
@@ -395,7 +418,7 @@ export function activityOf(node: InboxNode, viewer?: string): PullActivity {
     reviewers,
     ...(reviewDecision ? { reviewDecision } : {}),
     openThreads: (node.reviewThreads?.nodes ?? []).filter((thread) => !thread.isResolved).length,
-    comments: { people: people(talk), bots: talk.length - people(talk) },
+    ...(comments ? { comments } : {}),
     ...(viewerReviewedAt && node.author?.login !== viewer ? { viewerReviewedAt } : {}),
   };
 }
@@ -405,7 +428,11 @@ export function activityOf(node: InboxNode, viewer?: string): PullActivity {
  * head branch chain into a stack (bottom first), so a stack of open PRs shows as one, without
  * walking it on GitHub.
  */
-export function inboxTours(nodes: readonly InboxNode[], viewer?: string): RecentTour[] {
+export function inboxTours(
+  nodes: readonly InboxNode[],
+  viewer?: string,
+  talk: ReadonlyMap<string, { people: number; bots: number }> = new Map(),
+): RecentTour[] {
   const pulls = nodes.filter((node) => node.number !== undefined && node.repository);
   const repoOf = (node: InboxNode) => `${node.repository.owner.login}/${node.repository.name}`.toLowerCase();
   const byHead = new Map(pulls.map((node) => [`${repoOf(node)}:${node.headRefName}`, node]));
@@ -422,7 +449,7 @@ export function inboxTours(nodes: readonly InboxNode[], viewer?: string): Recent
     ...(node.author?.login ? { author: node.author.login } : {}),
     baseRef: node.baseRefName,
     headRef: node.headRefName,
-    activity: activityOf(node, viewer),
+    activity: activityOf(node, viewer, node.id ? talk.get(node.id) : undefined),
   });
   return pulls.map((node) => {
     // Walk down to the bottom, then up to the top; `seen` stops a cycle of branches.
@@ -459,16 +486,48 @@ export function inboxTours(nodes: readonly InboxNode[], viewer?: string): Recent
   });
 }
 
-/** The viewer's inbox through one `gh` GraphQL call. */
-export async function githubInbox(
-  signal?: AbortSignal,
-  query: () => Promise<InboxJson> = () => ghJson(['graphql', '-f', `query=${INBOX_QUERY}`], signal),
-): Promise<Inbox> {
-  const { data } = await query();
-  const viewer = data.viewer?.login;
-  return {
-    reviewRequested: inboxTours(data.review.nodes, viewer),
-    reviewed: inboxTours(data.reviewed.nodes, viewer),
-    authored: inboxTours(data.authored.nodes, viewer),
+/** How many PRs one talk query reads. */
+const TALK_BATCH = 25;
+
+/**
+ * Reads the viewer's inbox. Each PR's talk is kept by node id and `updatedAt` (a new comment
+ * moves it), so after the first read only PRs that changed are asked for again. A failed talk
+ * read leaves those PRs without counts rather than failing the inbox.
+ */
+export function createInboxReader(
+  run: {
+    inbox: (signal?: AbortSignal) => Promise<InboxJson>;
+    talk: (ids: readonly string[], signal?: AbortSignal) => Promise<TalkNode[]>;
+  } = {
+    inbox: (signal) => ghJson(['graphql', '-f', `query=${INBOX_QUERY}`], signal),
+    talk: async (ids, signal) =>
+      (
+        await ghJson<{ data: { nodes: (TalkNode | null)[] } }>(['graphql', '-f', `query=${talkQuery(ids)}`], signal)
+      ).data.nodes.filter((node): node is TalkNode => !!node),
+  },
+): (signal?: AbortSignal) => Promise<Inbox> {
+  const kept = new Map<string, { updatedAt: string; talk: { people: number; bots: number } }>();
+  return async (signal) => {
+    const { data } = await run.inbox(signal);
+    const viewer = data.viewer?.login;
+    const nodes = [...data.review.nodes, ...data.reviewed.nodes, ...data.authored.nodes];
+    const stale = [
+      ...new Set(
+        nodes.filter((node) => node.id && kept.get(node.id)?.updatedAt !== node.updatedAt).map((node) => node.id!),
+      ),
+    ];
+    const updatedAt = new Map(nodes.flatMap((node) => (node.id ? [[node.id, node.updatedAt] as const] : [])));
+    for (let start = 0; start < stale.length; start += TALK_BATCH) {
+      const read = await run.talk(stale.slice(start, start + TALK_BATCH), signal).catch(() => []);
+      for (const node of read) {
+        kept.set(node.id, { updatedAt: updatedAt.get(node.id) ?? '', talk: talkOf(node) });
+      }
+    }
+    const talk = new Map([...kept].map(([id, entry]) => [id, entry.talk]));
+    return {
+      reviewRequested: inboxTours(data.review.nodes, viewer, talk),
+      reviewed: inboxTours(data.reviewed.nodes, viewer, talk),
+      authored: inboxTours(data.authored.nodes, viewer, talk),
+    };
   };
 }

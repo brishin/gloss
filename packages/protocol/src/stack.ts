@@ -49,8 +49,8 @@ export const PullActivitySchema = v.object({
   reviewDecision: v.optional(ReviewDecisionSchema),
   /** Line comment threads not resolved yet. */
   openThreads: v.number(),
-  /** Comments, line comments and review notes, from people and from bots. */
-  comments: v.object({ people: v.number(), bots: v.number() }),
+  /** Comments, line comments and review notes, from people and from bots; missing when GitHub would not say. */
+  comments: v.optional(v.object({ people: v.number(), bots: v.number() })),
   /** When the viewer last reviewed it (others' PRs only), to tell a push since. */
   viewerReviewedAt: v.optional(v.string()),
 });

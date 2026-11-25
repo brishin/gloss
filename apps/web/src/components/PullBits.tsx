@@ -68,7 +68,7 @@ export function AuthorFace({ login, size = 20 }: { login: string; size?: number 
 }
 
 /** Comments from people, then from bots; a zero keeps its place but shows nothing. */
-export function Talk({ comments, compact }: { comments: PullActivity['comments']; compact?: boolean }) {
+export function Talk({ comments, compact }: { comments: NonNullable<PullActivity['comments']>; compact?: boolean }) {
   const size = compact ? 11 : 13;
   return (
     <span className="talk" data-compact={compact || undefined}>

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { activityOf, githubPulls, type InboxNode, inboxTours, type PullsJson, pullsQuery } from './github.ts';
+import {
+  activityOf,
+  createInboxReader,
+  githubPulls,
+  type InboxJson,
+  type InboxNode,
+  inboxTours,
+  type PullsJson,
+  pullsQuery,
+  talkOf,
+} from './github.ts';
 
 describe('pullsQuery', () => {
   it('asks for every PR in one query, aliased by position, with names quoted', () => {
@@ -93,6 +103,7 @@ describe('activityOf', () => {
   const bot = { __typename: 'Bot', login: 'devin-ai-integration' };
   const user = (login: string) => ({ __typename: 'User', login, avatarUrl: `https://a/${login}` });
   const pull: InboxNode = {
+    id: 'PR_7',
     number: 7,
     title: 't',
     state: 'OPEN',
@@ -118,23 +129,11 @@ describe('activityOf', () => {
     reviewRequests: {
       nodes: [{ requestedReviewer: user('li') }, { requestedReviewer: { __typename: 'Bot', login: 'copilot' } }],
     },
-    comments: { nodes: [{ author: bot }, { author: user('ana') }] },
-    reviews: {
-      nodes: [
-        { author: bot, body: 'Summary' },
-        { author: user('me'), body: '' },
-      ],
-    },
-    reviewThreads: {
-      nodes: [
-        { isResolved: false, comments: { nodes: [{ author: bot }, { author: user('ana') }] } },
-        { isResolved: true, comments: { nodes: [{ author: user('me') }] } },
-      ],
-    },
+    reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] },
   };
 
-  it('leaves bots out of the reviewers, counts their talk apart, and keeps the viewer review time', () => {
-    expect(activityOf(pull, 'me')).toEqual({
+  it('leaves bots out of the reviewers and keeps the viewer review time', () => {
+    expect(activityOf(pull, 'me', { people: 3, bots: 3 })).toEqual({
       additions: 120,
       deletions: 30,
       checks: 'failing',
@@ -146,7 +145,6 @@ describe('activityOf', () => {
       ],
       reviewDecision: 'approved',
       openThreads: 1,
-      // People: ana's comment, ana's and me's line comments; the empty approval is not talk.
       comments: { people: 3, bots: 3 },
       viewerReviewedAt: '2026-11-24T08:30:00Z',
     });
@@ -165,6 +163,59 @@ describe('activityOf', () => {
       headRefName: pull.headRefName,
       repository: pull.repository,
     };
-    expect(activityOf(bare)).toMatchObject({ additions: 0, deletions: 0, reviewers: [], openThreads: 0 });
+    expect(activityOf(bare)).toEqual({
+      additions: 0,
+      deletions: 0,
+      updatedAt: pull.updatedAt,
+      reviewers: [],
+      openThreads: 0,
+    });
+  });
+
+  it('counts talk from people and bots; an empty review note is not talk', () => {
+    expect(
+      talkOf({
+        id: 'PR_7',
+        comments: { nodes: [{ author: bot }, { author: user('ana') }] },
+        reviews: {
+          nodes: [
+            { author: bot, body: 'Summary' },
+            { author: user('me'), body: ' ' },
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            { comments: { nodes: [{ author: bot }, { author: user('ana') }] } },
+            { comments: { nodes: [{ author: null }] } },
+          ],
+        },
+      }),
+    ).toEqual({ people: 3, bots: 3 });
+  });
+
+  it('reads talk again only for PRs that changed since the last read', async () => {
+    let updatedAt = pull.updatedAt;
+    const asked: string[][] = [];
+    const read = createInboxReader({
+      inbox: async () =>
+        ({
+          data: {
+            viewer: { login: 'me' },
+            review: { nodes: [] },
+            reviewed: { nodes: [{ ...pull, updatedAt }] },
+            authored: { nodes: [{ ...pull, id: 'PR_8', number: 8, author: { login: 'me' } }] },
+          },
+        }) satisfies InboxJson,
+      talk: async (ids) => {
+        asked.push([...ids]);
+        return ids.map((id) => ({ id, comments: { nodes: [{ author: user('ana') }] } }));
+      },
+    });
+    const first = await read();
+    await read();
+    updatedAt = '2026-11-25T00:00:00Z';
+    await read();
+    expect(asked).toEqual([['PR_7', 'PR_8'], ['PR_7']]);
+    expect(first.reviewed[0]!.activity?.comments).toEqual({ people: 1, bots: 0 });
   });
 });
