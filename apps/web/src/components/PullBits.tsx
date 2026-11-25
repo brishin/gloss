@@ -1,7 +1,7 @@
 import { useAtomValue } from '@effect/atom-react';
 import type { PullActivity, Reviewer } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
-import { BotIcon, CheckIcon, MessageSquareIcon, XIcon } from 'lucide-react';
+import { BotIcon, CheckIcon, CircleXIcon, MessageSquareIcon, XIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { topicIconAtom } from '../lib/client.ts';
 import { faceOrder, hueOf, type Stand } from '../lib/dashboard.ts';
@@ -92,14 +92,20 @@ export function Talk({ comments, compact }: { comments: NonNullable<PullActivity
   );
 }
 
-/** The rail's end of a row: a word when the viewer acts next, else the reviewers' faces. */
+/**
+ * The rail's end of a row: a word when the viewer acts next, else the reviewers' faces. Failing
+ * checks are only a small mark, named on hover.
+ */
 export function RailStand({ stand, activity }: { stand: Stand; activity: PullActivity | undefined }) {
-  if (stand.move === 'mine' && stand.short) {
+  if (stand.move === 'mine' && stand.urgent) {
     return (
-      <span className="nav-count" data-urgent={stand.urgent || undefined}>
-        {stand.short}
+      <span className="rail-mark" title={stand.reason} role="img" aria-label={stand.reason}>
+        <CircleXIcon size={12} strokeWidth={2} aria-hidden />
       </span>
     );
+  }
+  if (stand.move === 'mine' && stand.short) {
+    return <span className="nav-count">{stand.short}</span>;
   }
   return activity ? <Faces reviewers={activity.reviewers} size={16} /> : null;
 }
