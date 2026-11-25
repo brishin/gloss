@@ -1,7 +1,7 @@
 import { useAtomValue } from '@effect/atom-react';
 import type { PullActivity, Reviewer } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
-import { BotIcon, CheckIcon, CircleXIcon, MessageSquareIcon, XIcon } from 'lucide-react';
+import { BotIcon, CheckIcon, FlaskConicalOffIcon, MessageSquareIcon, XIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { topicIconAtom } from '../lib/client.ts';
 import { faceOrder, hueOf, type Stand } from '../lib/dashboard.ts';
@@ -100,7 +100,7 @@ export function RailStand({ stand, activity }: { stand: Stand; activity: PullAct
   if (stand.move === 'mine' && stand.urgent) {
     return (
       <span className="rail-mark" title={stand.reason} role="img" aria-label={stand.reason}>
-        <CircleXIcon size={12} strokeWidth={2} aria-hidden />
+        <FlaskConicalOffIcon size={12} strokeWidth={2} aria-hidden />
       </span>
     );
   }
