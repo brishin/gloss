@@ -46,6 +46,22 @@ describe('walkStack', () => {
     expect(await numbers(start, chain)).toEqual([1, 2, 3]);
   });
 
+  test('the PR asked about keeps how it merges; its neighbours do not get it', async () => {
+    const merge = {
+      id: 'PR_2',
+      headOid: 'abc',
+      status: 'clean' as const,
+      checks: { passed: 1, failed: 0, pending: 0, failing: [] },
+      methods: ['squash' as const],
+      queue: false,
+      canAuto: true,
+      canBypass: false,
+    };
+    const pulls = [pr(1, 'main', 'a', 'open'), { ...pr(2, 'a', 'b'), merge }, { ...pr(3, 'b', 'c'), merge }];
+    const members = await walkStack(2, lookup(pulls));
+    expect(members.map((member) => member.merge)).toEqual([undefined, merge, undefined]);
+  });
+
   test('a PR with no neighbours is a stack of one', async () => {
     expect(await numbers(5, [pr(5, 'main', 'solo'), ...chain])).toEqual([5]);
   });

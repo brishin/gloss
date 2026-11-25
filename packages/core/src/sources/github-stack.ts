@@ -87,7 +87,8 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
     headRef,
     ...(blurb ? { blurb } : {}),
   });
-  const { since, mergedBy, queuePosition, reviewers, reviewDecision, suggestedReviewers, canRequestReviews } = current;
+  const { since, mergedBy, queuePosition, reviewers, reviewDecision, suggestedReviewers, canRequestReviews, merge } =
+    current;
   return [
     ...below.map(member),
     {
@@ -99,6 +100,7 @@ export async function walkStack(number: number, lookup: StackLookup): Promise<St
       ...(reviewDecision ? { reviewDecision } : {}),
       ...(suggestedReviewers?.length ? { suggestedReviewers } : {}),
       ...(canRequestReviews ? { canRequestReviews } : {}),
+      ...(merge ? { merge } : {}),
     },
     ...above.map(member),
   ];
