@@ -312,6 +312,11 @@ describe('sketchLayout', () => {
       ),
       [],
     ],
+    [
+      'text styles set on a group',
+      '<g font-size="14" text-anchor="middle"><rect x="200" y="40" width="120" height="44"/><text x="260" y="67">Cache hit</text></g>',
+      [],
+    ],
     ['anything transformed (not checked)', `<g transform="scale(2)">${box(24, 'Every request to the server')}</g>`, []],
   ] as const)('%s', (_, body, expected) => {
     expect(sketchLayout(svg(body))).toEqual(expected);

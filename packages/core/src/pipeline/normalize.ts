@@ -574,8 +574,27 @@ export function sketchLayout(svg: string): string[] {
     inner.left >= outer.left && inner.top >= outer.top && inner.right <= outer.right && inner.bottom <= outer.bottom;
   // A rect around other rects is a region (a tier, a place, a lane), not a box.
   const boxes = rects.filter((rect, i) => !rects.some((other, j) => j !== i && holds(rect, other)));
-  const texts = [...body.matchAll(/<text\s([^>]*)>([\s\S]*?)<\/text>/g)].flatMap(([, tag, inner]) => {
-    const parent = ` ${tag}`;
+  // Text styles a g or the svg sets reach the texts inside it, as in the browser.
+  const STYLES = ['font-size', 'font-family', 'text-anchor'];
+  const styles = (tag: string) =>
+    STYLES.flatMap((key) => {
+      const value = attr(` ${tag}`, key);
+      return value === undefined ? [] : [` ${key}="${value}"`];
+    }).join('');
+  const groups = [styles(svg.match(/^<svg([^>]*)>/)?.[1] ?? '')];
+  const placed: [string, string][] = [];
+  for (const [token, group, tag, inner] of body.matchAll(/<g\b([^>]*)>|<\/g>|<text\s([^>]*)>([\s\S]*?)<\/text>/g)) {
+    if (group !== undefined) {
+      groups.push(styles(group) + groups.at(-1)!);
+    } else if (token === '</g>') {
+      if (groups.length > 1) {
+        groups.pop();
+      }
+    } else {
+      placed.push([` ${tag}${groups.at(-1)}`, inner!]);
+    }
+  }
+  const texts = placed.flatMap(([parent, inner]) => {
     const size = num(parent, 'font-size', 14);
     const mono = /mono/i.test(attr(parent, 'font-family') ?? '');
     const anchor = attr(parent, 'text-anchor');
