@@ -1,0 +1,19 @@
+/* v2 sketch roles -> theme tokens (proposal; v1 rules live in apps/web/src/styles.css). */
+.sketch2 svg { display: block; width: 100%; height: auto; overflow: visible; }
+.sketch2 :is(text, tspan) { font-family: var(--font-family-body); }
+.sketch2 [font-family*='mono' i] { font-family: var(--font-family-code); }
+.sketch2 [fill='#ffffff' i] { fill: var(--color-background-surface); }
+.sketch2 rect[fill='#f6f8fa' i] { fill: color-mix(in srgb, var(--color-text-primary) 4%, transparent); }
+.sketch2 [stroke='#d1d9e0' i] { stroke: var(--color-border-emphasized); }
+.sketch2 [stroke='#6e7781' i] { stroke: color-mix(in srgb, var(--color-text-secondary) 80%, transparent); }
+.sketch2 [fill='#6e7781' i] { fill: color-mix(in srgb, var(--color-text-secondary) 80%, transparent); }
+.sketch2 [stroke='#8c959f' i] { stroke: var(--color-border-emphasized); }
+.sketch2 text[fill='#8c959f' i] { fill: color-mix(in srgb, var(--color-text-secondary) 55%, transparent); }
+.sketch2 [fill='#1f2328' i] { fill: var(--color-text-primary); }
+.sketch2 [fill='#59636e' i] { fill: var(--color-text-secondary); }
+.sketch2 [stroke='#5b4cc4' i] { stroke: var(--gloss-ink); }
+.sketch2 [fill='#5b4cc4' i] { fill: var(--gloss-ink); }
+.sketch2 [fill='#eeebfb' i] { fill: color-mix(in srgb, var(--gloss-ink) 12%, var(--color-background-surface)); }
+.sketch2 [stroke='#cf222e' i] { stroke: var(--flag-severe); }
+.sketch2 [fill='#cf222e' i] { fill: var(--flag-severe); }
+.sketch2 [fill='#fdeceb' i] { fill: color-mix(in srgb, var(--flag-severe) 10%, var(--color-background-surface)); }
