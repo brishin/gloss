@@ -45,10 +45,17 @@ function SketchVisual({ svg, caption }: { svg: string; caption?: string | undefi
       ? clean
           .replace(/ id="([^"]*)"/g, ` id="${prefix}-$1"`)
           .replace(/url\(\s*#([\w-]+)\s*\)/g, `url(#${prefix}-$1)`)
-          .replace(/^<svg/, `<svg role="img" aria-label="${escapeAttribute(caption ?? '')}"`)
+          .replace(/^<svg/, `<svg role="img" aria-label="${escapeAttribute(caption ?? '')}"${sketchWidth(clean)}`)
       : undefined;
   }, [svg, caption, prefix]);
   return html ? <div className="visual-sketch" dangerouslySetInnerHTML={{ __html: html }} /> : null;
+}
+
+/** The viewBox width as the svg's width, so it shows at the size it was drawn for (unless it has one). */
+function sketchWidth(svg: string) {
+  const open = svg.match(/^<svg[^>]*>/)?.[0] ?? '';
+  const width = Number(open.match(/\sviewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)/)?.[1]);
+  return /\swidth="/.test(open) || !width ? '' : ` width="${width}"`;
 }
 
 function escapeAttribute(text: string) {

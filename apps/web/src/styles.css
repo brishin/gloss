@@ -2307,13 +2307,12 @@
    * A model-drawn sketch in the Mermaid diagrams' style. The sketch prompt draws with a
    * fixed palette (prompts.ts SKETCH_GUIDE); each of its colors is a role, mapped here to
    * the token MermaidVisual gives that role, so sketches follow the theme in both modes.
-   * CSS wins over the presentation attributes the model wrote. viewBox-only SVGs have no
-   * intrinsic size: draw them at the width Jev judged (760px).
+   * CSS wins over the presentation attributes the model wrote. SketchVisual gives each sketch
+   * its viewBox width, the size its labels were drawn for; a narrower column shrinks it.
    */
   .visual-sketch svg {
     display: block;
-    width: 100%;
-    max-width: 760px;
+    max-width: 100%;
     height: auto;
     margin-inline: auto;
     overflow: visible;
@@ -2362,6 +2361,29 @@
   /* Arrowheads in the accent, as in the Mermaid diagrams. */
   .visual-sketch marker [fill='#8c959f' i] {
     fill: var(--gloss-ink);
+  }
+
+  /* Arrows, a step lighter than the text (v2 palette). */
+  .visual-sketch [stroke='#6e7781' i] {
+    stroke: color-mix(in srgb, var(--color-text-secondary) 80%, transparent);
+  }
+
+  .visual-sketch [fill='#6e7781' i] {
+    fill: color-mix(in srgb, var(--color-text-secondary) 80%, transparent);
+  }
+
+  /* Ghosted context, such as a BEFORE band's unchanged boxes. */
+  .visual-sketch text[fill='#8c959f' i] {
+    fill: color-mix(in srgb, var(--color-text-secondary) 55%, transparent);
+  }
+
+  /* The focal box: a tint of the accent. What the change removes: a tint of the severe flag. */
+  .visual-sketch [fill='#eeebfb' i] {
+    fill: color-mix(in srgb, var(--gloss-ink) 12%, var(--color-background-surface));
+  }
+
+  .visual-sketch [fill='#fdeceb' i] {
+    fill: color-mix(in srgb, var(--flag-severe) 10%, var(--color-background-surface));
   }
 
   .visual-sketch [fill='#1f2328' i] {

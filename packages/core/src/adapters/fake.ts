@@ -47,6 +47,7 @@ export function createFakeModelClient(
       define: 'fake/define',
       followup: 'fake/followup',
       notes: 'fake/notes',
+      sketch: 'fake/sketch',
       small: 'fake/small',
       ask: { models: ['fake/small', 'fake/mid', 'fake/large'], default: 'fake/mid' },
     }),

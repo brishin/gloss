@@ -173,7 +173,7 @@ export function visualPng(visual: Visual): Uint8Array | undefined {
             : mermaidSvg(visual.source);
     const natural = new Resvg(source);
     // The web app never draws a diagram wider than its natural size.
-    const width = visual.kind === 'mermaid' ? Math.min(WIDTH, natural.width) : WIDTH;
+    const width = visual.kind === 'mermaid' || visual.kind === 'svg' ? Math.min(WIDTH, natural.width) : WIDTH;
     const height = (natural.height * width) / natural.width;
     // Jev refuses a side outside about 280-1568 px: shrink tall pictures, pad small ones.
     const scale = Math.min(1, MAX_SIDE / height);

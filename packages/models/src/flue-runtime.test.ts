@@ -7,8 +7,14 @@ import { createFlueModelClient } from './flue-runtime.ts';
 const faux = fauxProvider({ provider: 'faux', models: [{ id: 'model' }] });
 const client = createFlueModelClient({
   config: {
-    tiers: { define: 'faux/model', followup: 'faux/model', notes: 'faux/model', small: 'faux/model' },
-    thinking: { define: 'low', followup: 'low', notes: 'low', small: 'low' },
+    tiers: {
+      define: 'faux/model',
+      followup: 'faux/model',
+      notes: 'faux/model',
+      sketch: 'faux/model',
+      small: 'faux/model',
+    },
+    thinking: { define: 'low', followup: 'low', notes: 'low', sketch: 'low', small: 'low' },
     ask: { models: ['faux/model'], default: 'faux/model' },
   },
   providers: [faux.provider],

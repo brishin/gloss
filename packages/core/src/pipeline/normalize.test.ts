@@ -5,6 +5,7 @@ import {
   looseEnds,
   normalizeSketch,
   sketchGap,
+  sketchLayout,
   normalizeDecisionGroups,
   normalizeNotes,
   normalizeVisual,
@@ -253,8 +254,58 @@ describe('looseEnds', () => {
       warnings: ['Dropped the svg visual: 1 connector end touches no box.'],
     });
     const examples = SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/g)!;
-    expect(examples).toHaveLength(3);
+    expect(examples).toHaveLength(2);
     for (const svg of examples) expect(normalizeSketch({ caption: 'e', svg })).toMatchObject({ warnings: [] });
+  });
+});
+
+describe('sketchLayout', () => {
+  const svg = (body: string) =>
+    `<svg viewBox="0 0 640 200"><defs><marker id="a"><path d="M0 0L1 1"/></marker></defs>${body}</svg>`;
+  const box = (x: number, label: string, width = 120) =>
+    `<rect x="${x}" y="40" width="${width}" height="44"/><text x="${x + width / 2}" y="67" font-size="14" text-anchor="middle">${label}</text>`;
+  const arrow = (from: number, to: number, y = 62) => `<path d="M${from} ${y}H${to}" marker-end="url(#a)"/>`;
+  // Slips seen in the diagram eval's drafts.
+  it.each([
+    ['a clean row', box(24, 'Request') + arrow(144, 204) + box(204, 'Handler'), []],
+    [
+      'a label wider than its box',
+      box(200, 'Every request to the server', 120),
+      ['"Every request to the server" is wider than its box'],
+    ],
+    [
+      'a label outside the canvas',
+      '<text x="600" y="30" font-size="12">only on a miss, then stored</text>',
+      ['"only on a miss, then stored" runs outside the viewBox'],
+    ],
+    [
+      'text on text',
+      '<text x="300" y="150" font-size="12">writes</text><text x="310" y="152" font-size="12">reads</text>',
+      ['"writes" overlaps "reads"'],
+    ],
+    [
+      'an arrow label on its line',
+      arrow(144, 300, 150) + '<text x="200" y="154" font-size="12">calls</text>',
+      ['a line crosses "calls"'],
+    ],
+    [
+      'an arrow through a box',
+      box(24, 'A') + box(204, 'B') + box(384, 'C') + arrow(144, 384),
+      ['a line crosses "B"', 'an arrow passes through the "B" box'],
+    ],
+    [
+      "a note's dotted leader ends at its text",
+      box(24, 'Cache') +
+        '<path d="M148 62H200" stroke-dasharray="2 3"/><text x="204" y="66" font-size="12">stored 10 min</text>',
+      [],
+    ],
+    ['anything transformed (not checked)', `<g transform="scale(2)">${box(24, 'Every request to the server')}</g>`, []],
+  ] as const)('%s', (_, body, expected) => {
+    expect(sketchLayout(svg(body))).toEqual(expected);
+  });
+
+  it('finds nothing in the prompt examples', () => {
+    for (const example of SKETCH_SYSTEM.match(/<svg[\s\S]*?<\/svg>/g)!) expect(sketchLayout(example)).toEqual([]);
   });
 });
 

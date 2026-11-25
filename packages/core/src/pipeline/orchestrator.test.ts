@@ -166,14 +166,13 @@ const walkAnswer = (points: unknown[]) => ({ intro: 'Builds on the group before.
 function fakeModel() {
   return createFakeModelClient({
     answers: {
+      sketch: sketchAnswer,
       define: withCheck((request) =>
-        request.resultName === 'sketch'
-          ? sketchAnswer
-          : request.resultName === 'walkthrough'
-            ? { decisions: [] }
-            : request.resultName === 'callpath'
-              ? { frames: [], steps: [] }
-              : groupsAnswer,
+        request.resultName === 'walkthrough'
+          ? { decisions: [] }
+          : request.resultName === 'callpath'
+            ? { frames: [], steps: [] }
+            : groupsAnswer,
       ),
       followup: (request) => ({
         placements: [...request.prompt.matchAll(/^### (f[0-9a-f]+) /gm)].map((match) => ({
@@ -276,9 +275,9 @@ describe('runTour', () => {
     expect(finished.notes.auth?.decisions?.map((decision) => decision.line)).toEqual([2]);
     // Notes see the change-wide decisions so they don't repeat them on a line.
     expect(model.calls.find((call) => call.tier === 'notes')?.prompt).toContain(groupsAnswer.decisions[0]!.text);
-    // The sketch is its own call on the define model, after define, told what the tour says.
+    // The sketch is its own call on the sketch tier, after define, told what the tour says.
     const sketchCall = model.calls.find((call) => call.resultName === 'sketch');
-    expect(sketchCall?.tier).toBe('define');
+    expect(sketchCall?.tier).toBe('sketch');
     expect(sketchCall?.prompt).toContain(groupsAnswer.overallSummary);
 
     // Second run: a finished tour for the same head replays as two events, with no model calls.
@@ -446,7 +445,7 @@ describe('runTour', () => {
               ],
             };
           }
-          return request.resultName === 'sketch' ? sketchAnswer : groupsAnswer;
+          return groupsAnswer;
         }),
       },
     });
@@ -723,10 +722,8 @@ describe('runTour', () => {
   it('without a judge, the LLM lists files and nothing is dropped', async () => {
     const model = createFakeModelClient({
       answers: {
+        sketch: sketchAnswer,
         define: withCheck((request) => {
-          if (request.resultName === 'sketch') {
-            return sketchAnswer;
-          }
           const ids = [...request.prompt.matchAll(/^(f[0-9a-f]+) /gm)].map((match) => match[1]!);
           return { ...groupsAnswer, groups: [{ ...groupsAnswer.groups[0], fileIds: [ids[0], 'f-hallucinated'] }] };
         }),
@@ -913,5 +910,37 @@ describe('runTour', () => {
     );
     expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain('Defining groups failed');
     expect(trace.get('define')).toMatchObject({ state: 'failed', warnings: [expect.stringContaining('tier define')] });
+  });
+  it('revises a sketch whose labels do not fit, and keeps the draft when the revise fails', async () => {
+    const base = fakeModel();
+    const wide = sketchAnswer.svg.replace('Admins only', 'Admins only, then everyone else who asked');
+    const run = async (revise: (request: ModelRequest<v.GenericSchema>) => Effect.Effect<unknown, ModelError>) => {
+      const sketches: string[] = [];
+      const model: ModelClient['Service'] = {
+        ...base,
+        prompt: (request) => {
+          if (request.tier !== 'sketch') {
+            return base.prompt(request);
+          }
+          sketches.push(request.prompt);
+          return sketches.length === 1
+            ? Effect.succeed({ data: { ...sketchAnswer, svg: wide } as never, model: 'fake/sketch' })
+            : (revise(request) as never);
+        },
+      };
+      return { sketches, ...(await tour({ model })) };
+    };
+
+    const fixed = await run(() => Effect.succeed({ data: sketchAnswer, model: 'fake/sketch' }));
+    expect(fixed.sketches).toHaveLength(2);
+    expect(fixed.sketches[1]).toContain('## Fix these problems');
+    expect(fixed.sketches[1]).toContain('is wider than its box');
+    expect(fixed.sketches[1]).toContain(wide);
+    expect(fixed.trace.get('sketch-revise')).toMatchObject({ kind: 'sketch', inputs: ['sketch'], state: 'done' });
+    expect(fixed.tour.visuals).toEqual([sketch]);
+
+    const failed = await run(() => Effect.fail(new ModelError({ message: 'overloaded' })));
+    expect(failed.trace.get('sketch-revise')?.state).toBe('failed');
+    expect(failed.tour.visuals?.[0]).toMatchObject({ kind: 'svg', svg: expect.stringContaining('everyone else') });
   });
 });
