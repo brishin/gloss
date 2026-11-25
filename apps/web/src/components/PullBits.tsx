@@ -1,12 +1,13 @@
 import { useAtomValue } from '@effect/atom-react';
 import type { PullActivity, Reviewer } from '@gloss/protocol';
 import { AsyncResult } from 'effect/reactivity';
-import { BotIcon, CheckIcon, FlaskConicalOffIcon, MessageSquareIcon, XIcon } from 'lucide-react';
+import { BotIcon, CheckIcon, MessageSquareIcon, XIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { topicIconAtom } from '../lib/client.ts';
 import { faceOrder, hueOf, type Stand } from '../lib/dashboard.ts';
 import { FALLBACK_TOPIC_GLYPH, TOPIC_ICON_GLYPHS } from '../lib/topic-icons.ts';
 import { REVIEW_STATE_LABEL, reviewerAvatar } from '../lib/tour-view.ts';
+import { ChecksFailingIcon } from './icons.tsx';
 
 /**
  * A PR or stack's topic icon on a tinted square. The fast model picks the icon from the titles;
@@ -100,7 +101,7 @@ export function RailStand({ stand, activity }: { stand: Stand; activity: PullAct
   if (stand.move === 'mine' && stand.urgent) {
     return (
       <span className="rail-mark" title={stand.reason} role="img" aria-label={stand.reason}>
-        <FlaskConicalOffIcon size={12} strokeWidth={2} aria-hidden />
+        <ChecksFailingIcon size={14} />
       </span>
     );
   }
