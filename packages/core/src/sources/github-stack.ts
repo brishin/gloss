@@ -256,8 +256,8 @@ const MAY_MERGE = new Set(['ADMIN', 'MAINTAIN', 'WRITE']);
 
 /**
  * How the viewer may merge the PR, or nothing when they can't: no write access, or a PR that
- * is closed, merged or a draft. Methods come in the repo's allowed set, the viewer's usual
- * one first.
+ * is closed, merged or a draft. The method is GitHub's default for the viewer when the repo
+ * allows it, else the first the repo allows.
  */
 export function mergeOf(
   pull: MergeJson,
@@ -286,7 +286,7 @@ export function mergeOf(
     ...(repo.rebaseMergeAllowed ? ['rebase' as const] : []),
   ];
   const usual = repo.viewerDefaultMergeMethod && METHOD[repo.viewerDefaultMergeMethod];
-  const methods = usual && allowed.includes(usual) ? [usual, ...allowed.filter((one) => one !== usual)] : allowed;
+  const method = usual && allowed.includes(usual) ? usual : (allowed[0] ?? 'merge');
   const queued = pull.mergeQueueEntry;
   const size = pull.mergeQueue?.entries?.totalCount;
   const eta = queued ? queued.estimatedTimeToMerge : pull.mergeQueue?.nextEntryEstimatedTimeToMerge;
@@ -295,7 +295,7 @@ export function mergeOf(
     headOid: pull.headRefOid,
     status: MERGE_STATUS[pull.mergeStateStatus ?? 'UNKNOWN'],
     checks,
-    methods,
+    method,
     queue: Boolean(pull.isMergeQueueEnabled),
     ...(pull.isMergeQueueEnabled && size !== undefined ? { queueSize: size } : {}),
     ...(pull.isMergeQueueEnabled && typeof eta === 'number' ? { queueEta: eta } : {}),

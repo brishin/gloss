@@ -588,64 +588,6 @@ describe('review', () => {
     expect(saved).toContainEqual({ type: 'SaveReview', diffId: 'd1', saved: { body: '', comments: [] } });
   });
 
-  test('an approval with Then merge merges once GitHub has it', () => {
-    const mergeable = {
-      ...reviewable(),
-      stack: {
-        owner: 'o',
-        repo: 'r',
-        base: 'main',
-        members: [
-          {
-            number: 1,
-            title: 'PR 1',
-            state: 'open' as const,
-            baseRef: 'main',
-            headRef: 'x',
-            merge: {
-              id: 'PR_1',
-              headOid: 'head1',
-              status: 'blocked' as const,
-              checks: { passed: 1, failed: 0, pending: 0, failing: [] },
-              methods: ['squash' as const],
-              queue: false,
-              canAuto: true,
-              canBypass: false,
-            },
-          },
-        ],
-      },
-    };
-    const [sending] = run(
-      mergeable,
-      { type: 'ReviewOpened', verdict: 'APPROVE' },
-      { type: 'ReviewThenMergeChanged', thenMerge: true },
-      { type: 'ReviewSubmitted' },
-    );
-    const [after, cmds] = run(sending, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
-    expect(cmds).toContainEqual({
-      type: 'MergePull',
-      ref: mergeable.ref,
-      action: 'ready',
-      method: 'squash',
-      headOid: 'head1',
-    });
-    expect(after.review.thenMerge).toBe(false);
-    // The box counts as it was on submit, not as it is when GitHub answers.
-    const [unticked] = run(sending, { type: 'ReviewThenMergeChanged', thenMerge: false });
-    const [, untickedCmds] = run(unticked, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
-    expect(untickedCmds.some((cmd) => cmd.type === 'MergePull')).toBe(true);
-    // Without the box, an approval only approves, even if it is ticked on the way.
-    const [plain] = run(
-      mergeable,
-      { type: 'ReviewOpened', verdict: 'APPROVE' },
-      { type: 'ReviewSubmitted' },
-      { type: 'ReviewThenMergeChanged', thenMerge: true },
-    );
-    const [, plainCmds] = run(plain, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
-    expect(plainCmds.some((cmd) => cmd.type === 'MergePull')).toBe(false);
-  });
-
   test.each(['j', 'z'])('%s after r drops the chord and leaves the review open on Approve', (key) => {
     const [next, cmds] = press(reviewable(), 'r', key);
     expect(next.chord).toBeUndefined();

@@ -52,7 +52,7 @@ describe('walkStack', () => {
       headOid: 'abc',
       status: 'clean' as const,
       checks: { passed: 1, failed: 0, pending: 0, failing: [] },
-      methods: ['squash' as const],
+      method: 'squash' as const,
       queue: false,
       canAuto: true,
       canBypass: false,
@@ -275,7 +275,7 @@ describe('mergeOf', () => {
     expect(mergeOf(pull(), state, access)).toBeUndefined();
   });
 
-  test('counts checks, failing names first, and puts the usual method first', () => {
+  test('counts checks, failing names first, and takes the default method', () => {
     const merge = mergeOf(
       pull({
         statusCheckRollup: {
@@ -295,8 +295,12 @@ describe('mergeOf', () => {
       repo,
     );
     expect(merge?.checks).toEqual({ passed: 2, failed: 2, pending: 1, failing: ['e2e', 'ci/legacy'] });
-    expect(merge?.methods).toEqual(['merge', 'squash']);
+    expect(merge?.method).toBe('merge');
     expect(merge?.status).toBe('blocked');
+  });
+
+  test('falls back to a method the repo allows when the default is not', () => {
+    expect(mergeOf(pull(), 'open', { ...repo, viewerDefaultMergeMethod: 'REBASE' })?.method).toBe('squash');
   });
 
   test('reads the queue: its size and the estimate for this PR once queued', () => {

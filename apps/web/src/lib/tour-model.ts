@@ -219,8 +219,7 @@ export type Msg =
   | AskMsg
   | ThreadsMsg
   | ReviewersMsg
-  | MergeMsg
-  | { type: 'ReviewThenMergeChanged'; thenMerge: boolean };
+  | MergeMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
@@ -561,7 +560,6 @@ function step(model: Model, msg: Msg): Next {
     }
     case 'MergeOpened':
     case 'MergeClosed':
-    case 'MergeMethodPicked':
     case 'MergeClicked':
     case 'MergeDone':
     case 'MergeFailed': {
@@ -759,8 +757,6 @@ function stepReview(model: Model, msg: Msg): Next {
       return review.open ? [set({ open: false }), []] : [model, []];
     case 'ReviewVerdictChanged':
       return [set({ verdict: msg.verdict, problem: undefined, error: undefined }), []];
-    case 'ReviewThenMergeChanged':
-      return [set({ thenMerge: msg.thenMerge }), []];
     case 'ReviewBodyChanged':
       return save(set({ body: msg.body, problem: undefined }));
     case 'ReviewSubmitted': {
@@ -783,12 +779,7 @@ function stepReview(model: Model, msg: Msg): Next {
       if (problem) {
         return [set({ open: true, verdict, problem, sent: undefined }), []];
       }
-      // "Then merge" as it was on submit: the box stays live while the review is on its way.
-      const sending = {
-        body: review.body,
-        ids: review.comments.map((comment) => comment.id),
-        ...(verdict === 'APPROVE' && review.thenMerge ? { thenMerge: true } : {}),
-      };
+      const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
       return [
         set({ verdict, sending, problem: undefined, error: undefined, sent: undefined }),
         [{ type: 'SubmitReview', diffId, request }],
@@ -800,7 +791,7 @@ function stepReview(model: Model, msg: Msg): Next {
       }
       // Only what went out leaves the draft: words written while it was on its way stay.
       const sent = review.sending;
-      const [done, cmds] = save(
+      return save(
         set({
           open: false,
           sending: undefined,
@@ -811,18 +802,6 @@ function stepReview(model: Model, msg: Msg): Next {
         // The review's line comments are threads on GitHub now.
         model.ref.kind === 'github-pr' ? [{ type: 'FetchThreads', ref: model.ref }] : [],
       );
-      // An approval with "Then merge" merges now, or once checks pass (auto-merge or the queue).
-      if (msg.verdict !== 'APPROVE' || !sent.thenMerge) {
-        return [done, cmds];
-      }
-      const [merging, mergeCmds] = step(
-        { ...done, review: { ...done.review, thenMerge: false } },
-        {
-          type: 'MergeClicked',
-          action: 'ready',
-        },
-      );
-      return [merging, [...cmds, ...mergeCmds]];
     }
     case 'ReviewFailed':
       if (msg.diffId !== model.tour.diffId || !review.sending) {

@@ -29,8 +29,7 @@ export interface MergeCall {
  */
 export function mergeCall(request: MergeRequest, merge: NonNullable<StackMember['merge']>): MergeCall {
   const id = merge.id;
-  const method =
-    (request.method && merge.methods.includes(request.method) ? request.method : merge.methods[0]) ?? 'merge';
+  const method = merge.method;
   const head: Record<string, string> = request.headOid ? { head: request.headOid } : {};
   const withMethod: Record<string, string> = { id, method: method.toUpperCase(), ...head };
   switch (request.action) {

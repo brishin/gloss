@@ -1,6 +1,5 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
-import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { Popover } from '@astryxdesign/core/Popover';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { TextArea } from '@astryxdesign/core/TextArea';
@@ -19,20 +18,16 @@ const VERDICTS: readonly ReviewVerdict[] = ['COMMENT', 'APPROVE', 'REQUEST_CHANG
 export function ReviewPanel({
   review,
   chord,
-  canMerge = false,
   dispatch,
   children,
 }: {
   review: ReviewDraft;
   /** A key chord is pending: after `r`, the next key picks the verdict, so it must not land in the summary. */
   chord: boolean;
-  /** The viewer may merge the PR: an approval can merge it too. */
-  canMerge?: boolean;
   dispatch: (msg: Msg) => void;
   children: ReactNode;
 }) {
   const submit = () => dispatch({ type: 'ReviewSubmitted' });
-  const merging = canMerge && review.verdict === 'APPROVE' && Boolean(review.thenMerge);
   // The summary takes the keys, whichever way the panel opened (button, `r`, a refused send),
   // once the chord after `r` is over.
   const summary = useRef<HTMLTextAreaElement>(null);
@@ -63,26 +58,16 @@ export function ReviewPanel({
         rows={5}
         status={review.problem ? { type: 'error', message: review.problem } : undefined}
       />
-      {canMerge && review.verdict === 'APPROVE' && (
-        <CheckboxInput
-          size="sm"
-          label="Then merge"
-          value={Boolean(review.thenMerge)}
-          onChange={(thenMerge) => dispatch({ type: 'ReviewThenMergeChanged', thenMerge })}
-        />
-      )}
       {review.error && <Banner status="error" title="Not sent" description={review.error} />}
       <div className="comment-actions">
         <Button size="sm" variant="ghost" label="Cancel" onClick={() => dispatch({ type: 'ReviewClosed' })} />
-        <span className={merging ? 'merge-go' : undefined}>
-          <Button
-            size="sm"
-            variant="primary"
-            label={merging ? 'Approve and merge' : VERDICT_LABEL[review.verdict]}
-            isLoading={Boolean(review.sending)}
-            onClick={submit}
-          />
-        </span>
+        <Button
+          size="sm"
+          variant="primary"
+          label={VERDICT_LABEL[review.verdict]}
+          isLoading={Boolean(review.sending)}
+          onClick={submit}
+        />
       </div>
     </div>
   );

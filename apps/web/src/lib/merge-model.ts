@@ -1,4 +1,4 @@
-import type { MergeMethod, MergeRequest, PullMerge, StackMember } from '@gloss/protocol';
+import type { MergeMethod, MergeRequest, StackMember } from '@gloss/protocol';
 import type { PullRef } from './reviewers-model.ts';
 
 export type MergeAction = MergeRequest['action'];
@@ -6,8 +6,6 @@ export type MergeAction = MergeRequest['action'];
 /** The Merge panel in the top bar (PRs the viewer may merge). */
 export interface MergeModel {
   open: boolean;
-  /** The method picked in the panel; the viewer's usual one until then. */
-  method?: MergeMethod;
   /** An action is on its way to GitHub. */
   sending?: MergeAction;
   /** GitHub refused the last action; cleared by the next one. */
@@ -19,7 +17,6 @@ export const emptyMerge: MergeModel = { open: false };
 export type MergeMsg =
   | { type: 'MergeOpened' }
   | { type: 'MergeClosed' }
-  | { type: 'MergeMethodPicked'; method: MergeMethod }
   | { type: 'MergeClicked'; action: MergeAction }
   | { type: 'MergeDone'; pull: StackMember }
   | { type: 'MergeFailed'; error: string };
@@ -28,7 +25,6 @@ export type MergeCmd = {
   type: 'MergePull';
   ref: PullRef;
   action: MergeAction;
-  method?: MergeMethod;
   headOid?: string;
 };
 
@@ -50,13 +46,10 @@ export function updateMerge(
       return { state: { ...state, open: true, error: undefined }, cmds: [], refetch: !state.open };
     case 'MergeClosed':
       return { state: { ...state, open: false, error: undefined }, cmds: [] };
-    case 'MergeMethodPicked':
-      return { state: { ...state, method: msg.method }, cmds: [] };
     case 'MergeClicked': {
       if (!ref || !pull?.merge || state.sending) {
         return { state, cmds: [] };
       }
-      const method = pickedMethod(pull.merge, state);
       return {
         state: { ...state, sending: msg.action, error: undefined },
         cmds: [
@@ -64,7 +57,6 @@ export function updateMerge(
             type: 'MergePull',
             ref,
             action: msg.action,
-            ...(method ? { method } : {}),
             ...((headOid ?? pull.merge.headOid) ? { headOid: headOid ?? pull.merge.headOid } : {}),
           },
         ],
@@ -86,11 +78,6 @@ export function updateMerge(
   }
 }
 
-/** The method a merge sends: the one picked, if the repo still allows it, else the viewer's usual one. */
-export function pickedMethod(merge: PullMerge, state: MergeModel): MergeMethod | undefined {
-  return state.method && merge.methods.includes(state.method) ? state.method : merge.methods[0];
-}
-
 /** One line of what merging waits on: ok, waiting, blocking, or plain information. */
 export interface MergeRow {
   tone: 'ok' | 'wait' | 'bad' | 'info';
@@ -110,8 +97,6 @@ export interface MergeButton {
 
 export interface MergeView {
   rows: MergeRow[];
-  /** Whether to offer the methods (a direct merge that can still happen). */
-  methods: boolean;
   buttons: MergeButton[];
   note?: string;
 }
@@ -121,8 +106,6 @@ const METHOD_LABEL: Record<MergeMethod, string> = {
   merge: 'Merge',
   rebase: 'Rebase and merge',
 };
-
-export const METHOD_NAME: Record<MergeMethod, string> = { squash: 'Squash', merge: 'Merge', rebase: 'Rebase' };
 
 const ORDINAL = (n: number) =>
   `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')}`;
@@ -141,7 +124,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
  * thing to do. On a queued base that is joining the queue (or leaving it); elsewhere merging
  * now when nothing is left, or once it is, with an admin's merge past the rules beside it.
  */
-export function mergeView(pull: StackMember, state: MergeModel): MergeView {
+export function mergeView(pull: StackMember): MergeView {
   const merge = pull.merge!;
   const base = pull.baseRef;
   const rows: MergeRow[] = [];
@@ -202,34 +185,30 @@ export function mergeView(pull: StackMember, state: MergeModel): MergeView {
   }
 
   if (queued) {
-    return { rows, methods: false, buttons: [{ action: 'dequeue', label: 'Remove from queue', kind: 'quiet' }] };
+    return { rows, buttons: [{ action: 'dequeue', label: 'Remove from queue', kind: 'quiet' }] };
   }
   if (merge.auto) {
     return {
       rows,
-      methods: false,
       note: merge.queue ? 'Joins the queue once it is ready' : 'Merges by itself once it is ready',
       buttons: [{ action: 'cancel', label: 'Cancel auto-merge', kind: 'quiet' }],
     };
   }
   const ready = merge.status === 'clean' || merge.status === 'unstable';
-  const method = pickedMethod(merge, state) ?? 'merge';
   if (ready) {
     return merge.queue
       ? {
           rows,
-          methods: false,
           note: `The queue merges into ${base}`,
           buttons: [{ action: 'ready', label: 'Add to queue', kind: 'merge' }],
         }
       : {
           rows,
-          methods: merge.methods.length > 1,
-          buttons: [{ action: 'ready', label: METHOD_LABEL[method], kind: 'merge' }],
+          buttons: [{ action: 'ready', label: METHOD_LABEL[merge.method], kind: 'merge' }],
         };
   }
   if (merge.status === 'conflicts') {
-    return { rows, methods: false, note: 'Resolve the conflicts on GitHub first', buttons: [] };
+    return { rows, note: 'Resolve the conflicts on GitHub first', buttons: [] };
   }
   const buttons: MergeButton[] = [];
   if (merge.canBypass && !merge.queue) {
@@ -240,7 +219,6 @@ export function mergeView(pull: StackMember, state: MergeModel): MergeView {
   }
   return {
     rows,
-    methods: !merge.queue && merge.methods.length > 1 && buttons.length > 0,
     note: buttons.length ? undefined : 'Auto-merge is off for this repository',
     buttons,
   };

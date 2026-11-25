@@ -7,7 +7,7 @@ const merge = (patch: Partial<PullMerge> = {}): PullMerge => ({
   headOid: 'abc',
   status: 'clean',
   checks: { passed: 3, failed: 0, pending: 0, failing: [] },
-  methods: ['squash', 'merge'],
+  method: 'squash',
   queue: false,
   canAuto: true,
   canBypass: false,
@@ -40,13 +40,8 @@ describe('mergeCall', () => {
     expect(mutation(mergeCall(ask(action), merge({ status, queue })))).toBe(expected);
   });
 
-  test('sends the picked method when the repo allows it, else the usual one', () => {
-    expect(mergeCall(ask('ready', { method: 'merge' }), merge()).vars).toEqual({
-      id: 'PR_1',
-      method: 'MERGE',
-      head: 'abc',
-    });
-    expect(mergeCall(ask('ready', { method: 'rebase' }), merge()).vars.method).toBe('SQUASH');
+  test('sends the default method, and the head the reader saw', () => {
+    expect(mergeCall(ask('ready'), merge()).vars).toEqual({ id: 'PR_1', method: 'SQUASH', head: 'abc' });
   });
 
   test('a queue gets no method, and the seen head guards every merge', () => {

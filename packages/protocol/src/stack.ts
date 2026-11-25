@@ -82,8 +82,11 @@ export const PullMergeSchema = v.object({
     pending: v.number(),
     failing: v.array(v.string()),
   }),
-  /** The methods the repo allows, the viewer's usual one first. */
-  methods: v.array(MergeMethodSchema),
+  /**
+   * How a merge goes in: GitHub's default for the viewer on this repo (the method its merge
+   * button offers first), always one the repo allows.
+   */
+  method: MergeMethodSchema,
   /** The base branch merges through a queue: no method to pick, the queue's rules apply. */
   queue: v.boolean(),
   /** PRs in the base's queue now (this one included when queued). */
@@ -307,7 +310,6 @@ export const MergeRequestSchema = v.object({
   repo: v.string(),
   number: v.number(),
   action: v.picklist(['now', 'ready', 'cancel', 'dequeue']),
-  method: v.optional(MergeMethodSchema),
   headOid: v.optional(v.string()),
 });
 export type MergeRequest = v.InferOutput<typeof MergeRequestSchema>;

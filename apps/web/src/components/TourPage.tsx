@@ -216,12 +216,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
             <MergePanel pull={{ ...pull, merge: pull.merge }} merge={model.merge} dispatch={dispatch} />
           )}
           {reviewable && (
-            <ReviewPanel
-              review={review}
-              chord={model.chord === 'r'}
-              canMerge={Boolean(pull?.merge && pull.state === 'open')}
-              dispatch={dispatch}
-            >
+            <ReviewPanel review={review} chord={model.chord === 'r'} dispatch={dispatch}>
               <Button
                 size="sm"
                 variant="primary"

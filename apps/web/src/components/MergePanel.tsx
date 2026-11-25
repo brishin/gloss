@@ -2,10 +2,9 @@ import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Popover } from '@astryxdesign/core/Popover';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
-import type { MergeMethod, StackMember } from '@gloss/protocol';
+import type { StackMember } from '@gloss/protocol';
 import { CheckIcon, ClockIcon, GitMergeIcon, XIcon } from 'lucide-react';
-import { METHOD_NAME, type MergeModel, type MergeRow, mergeView, pickedMethod } from '../lib/merge-model.ts';
+import { type MergeModel, type MergeRow, mergeView } from '../lib/merge-model.ts';
 import type { Msg } from '../lib/tour-model.ts';
 
 const ROW_ICON = { ok: CheckIcon, bad: XIcon, info: ClockIcon } as const;
@@ -37,27 +36,12 @@ export function MergePanel({
   merge: MergeModel;
   dispatch: (msg: Msg) => void;
 }) {
-  const view = mergeView(pull, merge);
-  const method = pickedMethod(pull.merge, merge);
+  const view = mergeView(pull);
   const panel = (
     <div className="merge-panel">
       {view.rows.map((row) => (
         <Row key={row.text} row={row} />
       ))}
-      {view.methods && method && (
-        <div className="merge-methods">
-          <SegmentedControl
-            label="Merge method"
-            size="sm"
-            value={method}
-            onChange={(value) => dispatch({ type: 'MergeMethodPicked', method: value as MergeMethod })}
-          >
-            {pull.merge.methods.map((one) => (
-              <SegmentedControlItem key={one} value={one} label={METHOD_NAME[one]} />
-            ))}
-          </SegmentedControl>
-        </div>
-      )}
       {merge.error && <Banner status="error" title="Not merged" description={merge.error} />}
       {(view.buttons.length > 0 || view.note) && (
         <div className="merge-actions">

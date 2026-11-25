@@ -7,7 +7,7 @@ const merge = (patch: Partial<PullMerge> = {}): PullMerge => ({
   headOid: 'abc',
   status: 'clean',
   checks: { passed: 14, failed: 0, pending: 0, failing: [] },
-  methods: ['squash', 'merge', 'rebase'],
+  method: 'squash',
   queue: false,
   canAuto: true,
   canBypass: false,
@@ -30,39 +30,24 @@ const buttons = (view: ReturnType<typeof mergeView>) =>
 
 describe('mergeView', () => {
   test.each([
-    // [what, merge, more, buttons, methods]
-    ['a clean PR merges now with the usual method', {}, {}, ['ready:Squash and merge'], true],
-    ['failing optional checks still merge', { status: 'unstable' }, {}, ['ready:Squash and merge'], true],
-    ['a blocked PR merges once ready', { status: 'blocked' }, {}, ['ready:Merge when ready'], true],
+    // [what, merge, more, buttons]
+    ['a clean PR merges now with the usual method', {}, {}, ['ready:Squash and merge']],
+    ['failing optional checks still merge', { status: 'unstable' }, {}, ['ready:Squash and merge']],
+    ['a blocked PR merges once ready', { status: 'blocked' }, {}, ['ready:Merge when ready']],
     [
       'an admin may also merge past the rules',
       { status: 'blocked', canBypass: true },
       {},
       ['now:Bypass and merge', 'ready:Merge when ready'],
-      true,
     ],
-    ['conflicts leave nothing to press', { status: 'conflicts' }, {}, [], false],
-    ['a queued base joins the queue', { queue: true, queueSize: 3 }, {}, ['ready:Add to queue'], false],
-    [
-      'a blocked PR joins the queue once ready',
-      { queue: true, status: 'blocked' },
-      {},
-      ['ready:Add when ready'],
-      false,
-    ],
-    [
-      'a queued PR can leave',
-      { queue: true },
-      { state: 'queued', queuePosition: 2 },
-      ['dequeue:Remove from queue'],
-      false,
-    ],
-    ['auto-merge on can be cancelled', { status: 'blocked', auto: true }, {}, ['cancel:Cancel auto-merge'], false],
-    ['one allowed method has nothing to pick', { methods: ['squash'] }, {}, ['ready:Squash and merge'], false],
-  ] as const)('%s', (_, patch, more, expected, methods) => {
-    const view = mergeView(pull(patch as Partial<PullMerge>, more as Partial<StackMember>), emptyMerge);
-    expect(buttons(view)).toEqual(expected);
-    expect(view.methods).toBe(methods);
+    ['conflicts leave nothing to press', { status: 'conflicts' }, {}, []],
+    ['a queued base joins the queue', { queue: true, queueSize: 3 }, {}, ['ready:Add to queue']],
+    ['a blocked PR joins the queue once ready', { queue: true, status: 'blocked' }, {}, ['ready:Add when ready']],
+    ['a queued PR can leave', { queue: true }, { state: 'queued', queuePosition: 2 }, ['dequeue:Remove from queue']],
+    ['auto-merge on can be cancelled', { status: 'blocked', auto: true }, {}, ['cancel:Cancel auto-merge']],
+    ['the default method names the button', { method: 'rebase' }, {}, ['ready:Rebase and merge']],
+  ] as const)('%s', (_, patch, more, expected) => {
+    expect(buttons(mergeView(pull(patch as Partial<PullMerge>, more as Partial<StackMember>)))).toEqual(expected);
   });
 
   test('says what is left: failing checks by name, the review, the base', () => {
@@ -71,7 +56,6 @@ describe('mergeView', () => {
         { status: 'blocked', checks: { passed: 12, failed: 2, pending: 0, failing: ['e2e', 'lint', 'types'] } },
         { reviewDecision: undefined, reviewers: [] },
       ),
-      emptyMerge,
     );
     expect(view.rows).toEqual([
       { tone: 'bad', text: '2 of 14 checks failed', detail: 'e2e, lint' },
@@ -80,26 +64,20 @@ describe('mergeView', () => {
   });
 
   test('a review is the wait when checks are green', () => {
-    const view = mergeView(pull({ status: 'blocked' }, { reviewDecision: undefined, reviewers: [] }), emptyMerge);
+    const view = mergeView(pull({ status: 'blocked' }, { reviewDecision: undefined, reviewers: [] }));
     expect(view.rows.map((row) => row.text)).toContain('Waiting on a required review');
   });
 
   test('the queue line: size and estimate before, place once queued', () => {
-    expect(mergeView(pull({ queue: true, queueSize: 3, queueEta: 840 }), emptyMerge).rows.at(-1)).toEqual({
+    expect(mergeView(pull({ queue: true, queueSize: 3, queueEta: 840 })).rows.at(-1)).toEqual({
       tone: 'info',
       text: '3 PRs in the main queue',
       end: 'about 14 min',
     });
     expect(
-      mergeView(
-        pull({ queue: true, queueSize: 4, queueEta: 540 }, { state: 'queued', queuePosition: 2 }),
-        emptyMerge,
-      ).rows.at(-1)?.text,
+      mergeView(pull({ queue: true, queueSize: 4, queueEta: 540 }, { state: 'queued', queuePosition: 2 })).rows.at(-1)
+        ?.text,
     ).toBe('2nd of 4 in the main queue');
-  });
-
-  test('the picked method names the button', () => {
-    expect(buttons(mergeView(pull(), { ...emptyMerge, method: 'rebase' }))).toEqual(['ready:Rebase and merge']);
   });
 });
 
@@ -109,15 +87,9 @@ describe('updateMerge', () => {
     expect(updateMerge({ ...emptyMerge, open: true }, { type: 'MergeOpened' }, ref, pull(), 'abc').refetch).toBe(false);
   });
 
-  test('a merge sends the picked method and the head the tour read', () => {
-    const next = updateMerge(
-      { ...emptyMerge, method: 'merge' },
-      { type: 'MergeClicked', action: 'ready' },
-      ref,
-      pull(),
-      'seen',
-    );
-    expect(next.cmds).toEqual([{ type: 'MergePull', ref, action: 'ready', method: 'merge', headOid: 'seen' }]);
+  test('a merge sends the head the tour read', () => {
+    const next = updateMerge(emptyMerge, { type: 'MergeClicked', action: 'ready' }, ref, pull(), 'seen');
+    expect(next.cmds).toEqual([{ type: 'MergePull', ref, action: 'ready', headOid: 'seen' }]);
     expect(next.state.sending).toBe('ready');
     // A second press while one is on its way sends nothing.
     expect(updateMerge(next.state, { type: 'MergeClicked', action: 'ready' }, ref, pull(), 'seen').cmds).toEqual([]);

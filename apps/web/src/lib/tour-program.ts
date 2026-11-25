@@ -301,7 +301,6 @@ function run(cmd: Cmd, router: AnyRouter): Stream.Stream<Msg, never, Gloss> {
             repo: cmd.ref.repo,
             number: cmd.ref.number,
             action: cmd.action,
-            ...(cmd.method ? { method: cmd.method } : {}),
             ...(cmd.headOid ? { headOid: cmd.headOid } : {}),
           }),
         ).pipe(

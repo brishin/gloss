@@ -548,7 +548,7 @@ describe('merge API', () => {
     });
     const post = (body: unknown, type = 'application/json') =>
       app.request('/api/merge', { method: 'POST', headers: { 'Content-Type': type }, body: JSON.stringify(body) });
-    const request = { owner: 'o', repo: 'r', number: 1, action: 'ready', method: 'squash', headOid: 'abc' };
+    const request = { owner: 'o', repo: 'r', number: 1, action: 'ready', headOid: 'abc' };
     expect((await post(request, 'text/plain')).status).toBe(403);
     expect((await post({ ...request, action: 'force' })).status).toBe(400);
     expect(await (await post(request)).json()).toEqual(after);
