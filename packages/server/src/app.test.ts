@@ -76,6 +76,7 @@ const unscripted = (): Repos['Service'] => ({
   threads: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   replyToThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   requestReviewers: () => Effect.fail(new RepoError({ message: 'unscripted' })),
+  merge: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   searchReviewers: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   resolveThread: () => Effect.fail(new RepoError({ message: 'unscripted' })),
   contents: () => Effect.fail(new RepoError({ message: 'unscripted' })),
@@ -535,6 +536,23 @@ describe('reviewers API', () => {
     expect(sent).toEqual([request]);
     expect(await (await app.request('/api/reviewers?owner=o&repo=r&q=octo')).json()).toEqual([{ login: 'octocat' }]);
     expect(await (await app.request('/api/reviewers?owner=o&repo=r&q=')).json()).toEqual([]);
+  });
+});
+
+describe('merge API', () => {
+  it('merges only as JSON from the app, and answers with the PR after', async () => {
+    const sent: unknown[] = [];
+    const after = { number: 1, title: 'T', state: 'merged' as const, baseRef: 'main', headRef: 'x' };
+    const { app } = setup(scripted().run, {
+      repos: { merge: (request) => (sent.push(request), Effect.succeed(after)) },
+    });
+    const post = (body: unknown, type = 'application/json') =>
+      app.request('/api/merge', { method: 'POST', headers: { 'Content-Type': type }, body: JSON.stringify(body) });
+    const request = { owner: 'o', repo: 'r', number: 1, action: 'ready', headOid: 'abc' };
+    expect((await post(request, 'text/plain')).status).toBe(403);
+    expect((await post({ ...request, action: 'force' })).status).toBe(400);
+    expect(await (await post(request)).json()).toEqual(after);
+    expect(sent).toEqual([request]);
   });
 });
 

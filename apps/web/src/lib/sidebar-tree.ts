@@ -9,12 +9,15 @@ import type {
   Stack,
 } from '@gloss/protocol';
 import { serializeRef } from '@gloss/protocol';
+import { bestStand, inboxFacts, type Move, type Stand, standOf } from './dashboard.ts';
 
 /** Sidebar tree node ids: the PR's stack, the toured PR and its groups. */
 export const STACK_NODE = 'stack';
 export const PR_NODE = 'pr';
 export const groupNode = (key: string) => `group:${key}`;
 export const recentStackNode = (key: string) => `recent-stack:${key}`;
+/** Shows the viewer's drafts in the rail; folded until opened. */
+export const DRAFTS_NODE = 'closed:drafts';
 /** Shows a stack's merged and closed PRs; folded (hidden) until opened. */
 export const closedNode = (stackNode: string) => `closed:${stackNode}`;
 
@@ -178,16 +181,45 @@ export const isClosed = (state: PullState | undefined) => state === 'merged' || 
 
 /** The rows below the toured PR's stack, by section. Each PR shows once, in the first section that has it. */
 export interface RailSections {
-  reviewRequested: RecentEntry[];
-  mine: RecentEntry[];
-  /** Other recent tours that are still open (and local diffs), when GitHub could list the two above. */
+  /** Inbox rows where the viewer acts next: reviews asked of them, and their PRs that are failing, discussed or approved. */
+  yourMove: RecentEntry[];
+  /** Inbox rows waiting on someone else. */
+  waiting: RecentEntry[];
+  /** The viewer's draft PRs (a stack only when all its open PRs are drafts). */
+  drafts: RecentEntry[];
+  /** Other recent tours that are still open (and local diffs); all of them when GitHub could not list the inbox. */
   recent: RecentEntry[];
 }
 
+/** Where a row stands: a stack by its most pressing open PR. */
+export function entryStand(entry: RecentEntry, recent: RecentTours, facts = inboxFacts(recent)): Stand {
+  const stand = (key: string, author: string | undefined, state: PullState | undefined) =>
+    standOf({ author, state, activity: facts.activity.get(key), requested: facts.requested.has(key) }, recent.viewer);
+  if (entry.kind === 'tour') {
+    return stand(serializeRef(entry.tour.ref), entry.tour.author, entry.tour.state);
+  }
+  const open = entry.stack.members.filter((member) => !isClosed(member.state));
+  const refs = stackRefs(entry.stack).map(serializeRef);
+  const stands = entry.stack.members.flatMap((member, index) =>
+    isClosed(member.state) ? [] : [stand(refs[index]!, member.author, member.state)],
+  );
+  if (open.length > 0 && stands.every((each) => each.move === 'draft')) {
+    return stands[0]!;
+  }
+  return bestStand(stands.filter((each) => each.move !== 'draft')) ?? bestStand(stands)!;
+}
+
+const latestOf = (entry: RecentEntry, facts: ReturnType<typeof inboxFacts>) => {
+  const keys = entryKeys(entry);
+  const times = keys.map((key) => facts.activity.get(key)?.updatedAt ?? '');
+  return times.reduce((a, b) => (a > b ? a : b), entry.kind === 'tour' ? entry.tour.updatedAt : '');
+};
+
 /**
- * Splits the rail into PRs waiting on the viewer's review, the viewer's open PRs, then other
- * open recent tours. Closed and merged tours drop out; a stack drops out once none of its PRs
- * is open. Without GitHub's lists, recent tours split into the viewer's and the rest.
+ * Splits the inbox into rows on the viewer's move and rows waiting on others, each by urgency
+ * then newest; the viewer's drafts fold apart; other open recent tours come last. Closed and
+ * merged tours drop out; a stack drops out once none of its PRs is open. Without GitHub's lists
+ * every open recent tour is in `recent`, the viewer's first.
  */
 export function railSections(recent: RecentTours, skip: ReadonlySet<string>): RailSections {
   const shown = new Set(skip);
@@ -206,19 +238,37 @@ export function railSections(recent: RecentTours, skip: ReadonlySet<string>): Ra
   };
   if (!recent.reviewRequested || !recent.authored) {
     const { mine, others } = splitByViewer(take(recent.tours), recent.viewer);
-    return { reviewRequested: [], mine, recent: others };
+    return { yourMove: [], waiting: [], drafts: [], recent: [...mine, ...others] };
   }
-  return { reviewRequested: take(recent.reviewRequested), mine: take(recent.authored), recent: take(recent.tours) };
+  const facts = inboxFacts(recent);
+  const inbox = take([...recent.reviewRequested, ...(recent.reviewed ?? []), ...recent.authored]).map((entry) => ({
+    entry,
+    stand: entryStand(entry, recent, facts),
+    latest: latestOf(entry, facts),
+  }));
+  inbox.sort((a, b) => a.stand.rank - b.stand.rank || (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
+  const where = (move: Move) => inbox.filter((row) => row.stand.move === move).map((row) => row.entry);
+  return {
+    yourMove: where('mine'),
+    waiting: [...where('theirs'), ...where('unknown')],
+    drafts: where('draft'),
+    recent: take(recent.tours),
+  };
 }
+
+const allEntries = (sections: RailSections) => [
+  ...sections.yourMove,
+  ...sections.waiting,
+  ...sections.drafts,
+  ...sections.recent,
+];
 
 const entryKeys = (entry: RecentEntry) =>
   (entry.kind === 'tour' ? [entry.tour.ref] : stackRefs(entry.stack)).map(serializeRef);
 
 /** The row that holds the PR (by `serializeRef`): its own row, or the stack it is in. */
 export function findEntry(sections: RailSections, key: string): RecentEntry | undefined {
-  return [...sections.reviewRequested, ...sections.mine, ...sections.recent].find((entry) =>
-    entryKeys(entry).includes(key),
-  );
+  return allEntries(sections).find((entry) => entryKeys(entry).includes(key));
 }
 
 /**
@@ -238,7 +288,7 @@ export function railAround(
   // The live stack takes the place of the first stack row that holds the PR or only PRs of it,
   // so stepping through the stack (onto PRs the rail has not shown yet too) never moves it.
   const liveKeys = new Set(stackRefs(live).map(serializeRef));
-  const entries = [...all.reviewRequested, ...all.mine, ...all.recent];
+  const entries = allEntries(all);
   const within = (entry: RecentEntry) => entryKeys(entry).every((ref) => liveKeys.has(ref));
   const found =
     entries.find((entry) => entry.kind === 'stack' && (entryKeys(entry).includes(key) || within(entry))) ??

@@ -18,6 +18,7 @@ export function TreeRow({
   tabbable,
   onToggle,
   onClick,
+  href,
   children,
 }: {
   id: string;
@@ -34,10 +35,17 @@ export function TreeRow({
   /** `deep` is true for a shift-click: fold or unfold everything below too. */
   onToggle?: (deep: boolean) => void;
   onClick: (event: MouseEvent<HTMLElement>) => void;
+  /**
+   * The page the row opens, when it opens one: the row becomes a link, so middle-click and
+   * cmd/ctrl-click open it in a new tab while a plain click stays in the app.
+   */
+  href?: string;
   children: ReactNode;
 }) {
+  const Row = href ? 'a' : 'div';
   return (
-    <div
+    <Row
+      href={href}
       role="treeitem"
       className={`nav-item tree-row${sticky ? ' tree-row-sticky' : ''}`}
       data-node={id}
@@ -48,7 +56,13 @@ export function TreeRow({
       aria-selected={current}
       tabIndex={current || tabbable ? 0 : -1}
       title={label}
-      onClick={onClick}
+      onClick={(event: MouseEvent<HTMLElement>) => {
+        if (href && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) {
+          return;
+        }
+        event.preventDefault();
+        onClick(event);
+      }}
     >
       {onToggle ? (
         <button
@@ -57,6 +71,7 @@ export function TreeRow({
           tabIndex={-1}
           aria-label={`${expanded ? 'Fold' : 'Unfold'} ${label}`}
           onClick={(event: MouseEvent) => {
+            event.preventDefault();
             event.stopPropagation();
             onToggle(event.shiftKey);
           }}
@@ -67,7 +82,7 @@ export function TreeRow({
         <span className="tree-chevron" />
       )}
       {children}
-    </div>
+    </Row>
   );
 }
 

@@ -42,7 +42,8 @@
   in the background (`AutoTours` in `packages/server/src/auto-tours.ts`): the inbox every 5 min
   into a queue (newest first, so a new request beats the backlog); a worker tours one PR at a time
   and only while no other tour runs; again when the PR's `updatedAt` moves. `saveAutoTours` rewrites only that key. The `small` tier
-  (Haiku, or luna on OpenAI; thinking off) names stacks and stays cheap when `define` is raised.
+  (Haiku, or luna on OpenAI; thinking off) names stacks, picks the dashboard's topic icons (`topic-icon.ts`, one
+  of `TOPIC_ICONS` per PR or stack from its titles) and stays cheap when `define` is raised.
   Unset, it takes the cheap model of `define`'s provider, so it never adds a login. `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the
   start of each tour (`DecisionRules` service), so a save on the settings page needs no restart;

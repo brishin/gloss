@@ -32,6 +32,76 @@ export type SuggestedReviewer = v.InferOutput<typeof SuggestedReviewerSchema>;
 export const ReviewDecisionSchema = v.picklist(['approved', 'changes']);
 export type ReviewDecision = v.InferOutput<typeof ReviewDecisionSchema>;
 
+/**
+ * What the dashboard shows of an open PR, as the inbox read it: size, checks, the people
+ * reviewing it, unresolved threads and talk. Bots are left out of `reviewers` and counted apart
+ * in `comments`.
+ */
+export const PullActivitySchema = v.object({
+  additions: v.number(),
+  deletions: v.number(),
+  /** The head commit's checks, rolled up; missing when it has none. */
+  checks: v.optional(v.picklist(['passing', 'failing', 'pending'])),
+  updatedAt: v.string(),
+  reviewers: v.array(ReviewerSchema),
+  reviewDecision: v.optional(ReviewDecisionSchema),
+  /** Line comment threads not resolved yet. */
+  openThreads: v.number(),
+  /** Comments, line comments and review notes, from people and from bots; missing when GitHub would not say. */
+  comments: v.optional(v.object({ people: v.number(), bots: v.number() })),
+  /** When the viewer last reviewed it (others' PRs only). */
+  viewerReviewedAt: v.optional(v.string()),
+  /** The head commit is not the one the viewer last reviewed (others' PRs only). */
+  pushedSinceReview: v.optional(v.boolean()),
+});
+export type PullActivity = v.InferOutput<typeof PullActivitySchema>;
+
+/** How a PR is merged: GitHub's three methods. */
+export const MergeMethodSchema = v.picklist(['squash', 'merge', 'rebase']);
+export type MergeMethod = v.InferOutput<typeof MergeMethodSchema>;
+
+/**
+ * What merging an open PR takes, as GitHub sees it for the viewer: what is left (checks,
+ * conflicts, a stale branch), how it may merge, and its merge queue when the base has one.
+ */
+export const PullMergeSchema = v.object({
+  /** The PR's GraphQL id, for the merge mutations. */
+  id: v.string(),
+  /** The head commit the viewer saw: a merge of a newer push is refused. */
+  headOid: v.string(),
+  /**
+   * GitHub's `mergeStateStatus`: `clean` merges now, `unstable` merges with non-required checks
+   * failing, `blocked` waits on required checks or reviews, `behind` needs the base merged in,
+   * `conflicts` needs fixing by hand.
+   */
+  status: v.picklist(['clean', 'unstable', 'blocked', 'behind', 'conflicts', 'unknown']),
+  /** The head commit's checks; failing names first. */
+  checks: v.object({
+    passed: v.number(),
+    failed: v.number(),
+    pending: v.number(),
+    failing: v.array(v.string()),
+  }),
+  /**
+   * How a merge goes in: GitHub's default for the viewer on this repo (the method its merge
+   * button offers first), always one the repo allows.
+   */
+  method: MergeMethodSchema,
+  /** The base branch merges through a queue: no method to pick, the queue's rules apply. */
+  queue: v.boolean(),
+  /** PRs in the base's queue now (this one included when queued). */
+  queueSize: v.optional(v.number()),
+  /** GitHub's estimate in seconds: until this PR merges when queued, else for a PR added now. */
+  queueEta: v.optional(v.number()),
+  /** Auto-merge is on: the PR merges (or joins the queue) by itself once it is ready. */
+  auto: v.optional(v.boolean()),
+  /** The viewer may turn auto-merge on. */
+  canAuto: v.boolean(),
+  /** The viewer may merge past unmet rules (an admin). */
+  canBypass: v.boolean(),
+});
+export type PullMerge = v.InferOutput<typeof PullMergeSchema>;
+
 export const StackMemberSchema = v.object({
   number: v.number(),
   title: v.string(),
@@ -58,8 +128,12 @@ export const StackMemberSchema = v.object({
   suggestedReviewers: v.optional(v.array(SuggestedReviewerSchema)),
   /** Whether the viewer may ask for reviews on the PR (triage access or more). Only the PR asked about has it. */
   canRequestReviews: v.optional(v.boolean()),
+  /** How the viewer may merge the PR; missing when they can't (no write access, closed, draft). Only the PR asked about has it. */
+  merge: v.optional(PullMergeSchema),
   /** The opening words of the PR's description, without its template lines; context for naming the stack. */
   blurb: v.optional(v.string()),
+  /** Only PRs read from the inbox have it. */
+  activity: v.optional(PullActivitySchema),
 });
 export type StackMember = v.InferOutput<typeof StackMemberSchema>;
 
@@ -75,6 +149,132 @@ export const StackSchema = v.object({
   members: v.array(StackMemberSchema),
 });
 export type Stack = v.InferOutput<typeof StackSchema>;
+
+/**
+ * Icons a PR or stack may wear on the dashboard: lucide names, picked by the backend's fast
+ * model to fit its topic. The app draws each of them.
+ */
+export const TOPIC_ICONS = [
+  'activity',
+  'app-window',
+  'archive',
+  'audio-lines',
+  'bell',
+  'blocks',
+  'bot',
+  'box',
+  'brain',
+  'brush',
+  'bug',
+  'calendar',
+  'camera',
+  'chart-column',
+  'clock',
+  'cloud',
+  'code',
+  'cog',
+  'command',
+  'cpu',
+  'credit-card',
+  'database',
+  'database-zap',
+  'download',
+  'file-text',
+  'files',
+  'film',
+  'filter',
+  'flag',
+  'flask-conical',
+  'folder',
+  'gauge',
+  'git-branch',
+  'git-merge',
+  'globe',
+  'hammer',
+  'hard-drive',
+  'hash',
+  'history',
+  'image',
+  'inbox',
+  'key',
+  'keyboard',
+  'languages',
+  'laptop',
+  'layers',
+  'layout-dashboard',
+  'layout-grid',
+  'library',
+  'link',
+  'list',
+  'lock',
+  'log-in',
+  'mail',
+  'map',
+  'megaphone',
+  'message-square',
+  'mic',
+  'monitor',
+  'moon',
+  'mouse-pointer',
+  'network',
+  'package',
+  'palette',
+  'panel-left',
+  'paperclip',
+  'pencil',
+  'plug',
+  'puzzle',
+  'quote',
+  'radio',
+  'receipt',
+  'repeat',
+  'rocket',
+  'route',
+  'ruler',
+  'save',
+  'scan-search',
+  'search',
+  'send',
+  'server',
+  'settings',
+  'share-2',
+  'shield',
+  'shopping-cart',
+  'smartphone',
+  'smile-plus',
+  'sparkles',
+  'square-terminal',
+  'star',
+  'tablet',
+  'tag',
+  'test-tube',
+  'timer',
+  'timer-reset',
+  'toggle-left',
+  'trash-2',
+  'trending-up',
+  'type',
+  'upload',
+  'user',
+  'users',
+  'video',
+  'wallet',
+  'wand-sparkles',
+  'webhook',
+  'wifi',
+  'workflow',
+  'wrench',
+  'zap',
+] as const;
+export const TopicIconSchema = v.picklist(TOPIC_ICONS);
+export type TopicIcon = v.InferOutput<typeof TopicIconSchema>;
+
+/** What a topic icon is picked from: a PR's title, or a stack's titles bottom to top. */
+export const TopicIconRequestSchema = v.object({
+  titles: v.pipe(v.array(v.pipe(v.string(), v.maxLength(300))), v.minLength(1), v.maxLength(30)),
+});
+export type TopicIconRequest = v.InferOutput<typeof TopicIconRequestSchema>;
+export const TopicIconResultSchema = v.object({ icon: TopicIconSchema });
 
 /** A stack's short name, as the backend's fast model gives it for the side rail. */
 export const StackNameSchema = v.object({ name: v.string() });
@@ -99,6 +299,20 @@ export const ReviewersResultSchema = v.object({
   suggestedReviewers: v.array(SuggestedReviewerSchema),
 });
 export type ReviewersResult = v.InferOutput<typeof ReviewersResultSchema>;
+
+/**
+ * Merges a PR as the backend's `gh` login. `now` merges at once (an admin past unmet rules),
+ * `ready` merges or joins the queue now if it can, else turns auto-merge on, `cancel` turns
+ * auto-merge off, `dequeue` leaves the merge queue. `headOid` is the commit the reader saw.
+ */
+export const MergeRequestSchema = v.object({
+  owner: v.string(),
+  repo: v.string(),
+  number: v.number(),
+  action: v.picklist(['now', 'ready', 'cancel', 'dequeue']),
+  headOid: v.optional(v.string()),
+});
+export type MergeRequest = v.InferOutput<typeof MergeRequestSchema>;
 
 /** Someone who can be asked to review: a collaborator matching a search. */
 export const ReviewerCandidateSchema = v.object({

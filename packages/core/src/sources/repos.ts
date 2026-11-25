@@ -7,6 +7,7 @@ import type {
   FileChange,
   FileContents,
   LfsObject,
+  MergeRequest,
   ResolvedAsset,
   ReviewerCandidate,
   ReviewersRequest,
@@ -16,17 +17,26 @@ import type {
   ReviewThread,
   SourceRef,
   Stack,
+  StackMember,
   ThreadComment,
   ThreadReplyRequest,
   ThreadResolveRequest,
 } from '@gloss/protocol';
 import { Context, Data, Deferred, Effect, Exit, Layer, Semaphore } from 'effect';
 import { readFileContents, StaleFileError } from './contents.ts';
+import { mergeGithubPull } from './github-merge.ts';
 import { submitGithubReview } from './github-review.ts';
 import { requestGithubReviewers, searchGithubReviewers } from './github-reviewers.ts';
 import { resolveGithubStack } from './github-stack.ts';
 import { fetchReviewThreads, replyToGithubThread, resolveGithubThread } from './github-threads.ts';
-import { githubInbox, githubPulls, githubViewer, type Inbox, type PullSummary, resolveGithubAsset } from './github.ts';
+import {
+  createInboxReader,
+  githubPulls,
+  githubViewer,
+  type Inbox,
+  type PullSummary,
+  resolveGithubAsset,
+} from './github.ts';
 import { readLfsObject } from './lfs.ts';
 
 /** A `gh` or git call failed; `message` is what the API answers with. */
@@ -56,6 +66,8 @@ export class Repos extends Context.Service<
     review(review: ReviewRequest): Effect.Effect<ReviewResult, RepoError>;
     /** Asks for reviews or withdraws asks as the `gh` login; GitHub's refusal is the error. */
     requestReviewers(request: ReviewersRequest): Effect.Effect<ReviewersResult, RepoError>;
+    /** Merges, queues or turns auto-merge on or off as the `gh` login; the PR after, or GitHub's refusal. */
+    merge(request: MergeRequest): Effect.Effect<StackMember, RepoError>;
     /** Collaborators of the repo matching `query`. */
     searchReviewers(owner: string, repo: string, query: string): Effect.Effect<ReviewerCandidate[], RepoError>;
     /** The PR's line comment threads already on GitHub. */
@@ -76,6 +88,12 @@ export class Repos extends Context.Service<
       const viewer = yield* Effect.tryPromise((signal) => githubViewer(signal)).pipe(
         Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '1 hour' : 0)),
       );
+      // /api/recent reads it on every page and Watch PRs every few minutes; a short cache spares
+      // GitHub's rate limit (the inbox query is a few points; talk is read only for PRs that changed).
+      const readInbox = createInboxReader();
+      const inbox = yield* Effect.tryPromise((signal) => readInbox(signal)).pipe(
+        Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? '30 seconds' : 0)),
+      );
       const lfs = yield* makeLfsCache();
       return {
         lfs: (diff, object) =>
@@ -85,7 +103,7 @@ export class Repos extends Context.Service<
           ),
         pulls: (refs) =>
           Effect.tryPromise((signal) => githubPulls(refs, signal)).pipe(Effect.orElseSucceed(() => new Map())),
-        inbox: Effect.tryPromise((signal) => githubInbox(signal)).pipe(Effect.orElseSucceed(() => undefined)),
+        inbox: inbox.pipe(Effect.orElseSucceed(() => undefined)),
         viewer: viewer.pipe(Effect.orElseSucceed(() => undefined)),
         asset: (url) =>
           Effect.tryPromise((signal) => resolveGithubAsset(url, signal)).pipe(Effect.orElseSucceed(() => undefined)),
@@ -94,6 +112,7 @@ export class Repos extends Context.Service<
           Effect.tryPromise({ try: (signal) => submitGithubReview(review, signal), catch: repoError }),
         requestReviewers: (request) =>
           Effect.tryPromise({ try: (signal) => requestGithubReviewers(request, signal), catch: repoError }),
+        merge: (request) => Effect.tryPromise({ try: (signal) => mergeGithubPull(request, signal), catch: repoError }),
         searchReviewers: (owner, repo, query) =>
           Effect.tryPromise({ try: (signal) => searchGithubReviewers(owner, repo, query, signal), catch: repoError }),
         threads: (ref) => Effect.tryPromise({ try: (signal) => fetchReviewThreads(ref, signal), catch: repoError }),

@@ -19,6 +19,7 @@ import {
   type SourceRef,
   type Stack,
   type Subscription,
+  type TopicIconRequest,
   type TourSnapshot,
   type Trace,
   type UpdateStatus,
@@ -231,6 +232,14 @@ export const extensionAtom = Atom.family((id: string) =>
  */
 export const stackNameAtom = Atom.family((key: string) =>
   glossRuntime.atom(request((client) => client.stackName(JSON.parse(key) as Stack))).pipe(Atom.keepAlive),
+);
+
+/**
+ * A PR or stack's topic icon from the backend's fast model, keyed by `JSON.stringify({ titles })`.
+ * Kept for the page's life, like stack names.
+ */
+export const topicIconAtom = Atom.family((key: string) =>
+  glossRuntime.atom(request((client) => client.topicIcon(JSON.parse(key) as TopicIconRequest))).pipe(Atom.keepAlive),
 );
 
 /**

@@ -11,16 +11,25 @@ export const searchText = v.pipe(v.union([v.string(), v.number()]), v.transform(
 export const tourPositionSearch = { g: v.optional(searchText), f: v.optional(searchText) };
 
 /** The only mapping between refs and routes (mirrored by the CLI's `webPath`). */
-export function RefLink({ sourceRef, children }: { sourceRef: SourceRef; children: ReactNode }) {
+export function RefLink({
+  sourceRef,
+  className,
+  children,
+}: {
+  sourceRef: SourceRef;
+  className?: string;
+  children: ReactNode;
+}) {
   return sourceRef.kind === 'github-pr' ? (
     <Link
+      className={className}
       to="/gh/$owner/$repo/pull/$number"
       params={{ owner: sourceRef.owner, repo: sourceRef.repo, number: String(sourceRef.number) }}
     >
       {children}
     </Link>
   ) : (
-    <Link to="/local" search={{ repo: sourceRef.repo, target: sourceRef.target }}>
+    <Link className={className} to="/local" search={{ repo: sourceRef.repo, target: sourceRef.target }}>
       {children}
     </Link>
   );
@@ -44,6 +53,18 @@ export function navigateToPipeline(router: AnyRouter, ref: SourceRef, search: { 
         search,
       })
     : router.navigate({ to: '/local/pipeline', search: { repo: ref.repo, target: ref.target, ...search } });
+}
+
+/** A ref's page as a URL, for links the browser can open in a new tab. */
+export function useRefHref() {
+  const router = useRouter();
+  return (ref: SourceRef) =>
+    ref.kind === 'github-pr'
+      ? router.buildLocation({
+          to: '/gh/$owner/$repo/pull/$number',
+          params: { owner: ref.owner, repo: ref.repo, number: String(ref.number) },
+        }).href
+      : router.buildLocation({ to: '/local', search: { repo: ref.repo, target: ref.target } }).href;
 }
 
 export function useNavigateToRef() {

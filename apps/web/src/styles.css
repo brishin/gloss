@@ -2663,6 +2663,83 @@
     gap: var(--spacing-3);
   }
 
+  /* Merge: green, GitHub's merge colour from the palette, so it stands out beside Review. */
+  .merge-go .astryx-button[data-variant='primary'] {
+    background: var(--color-success);
+    color: var(--color-on-success);
+  }
+
+  .merge-go .astryx-button[data-variant='primary']:hover {
+    background: color-mix(in oklch, var(--color-success) 88%, black);
+  }
+
+  .merge-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--spacing-2);
+    font-size: 13px;
+  }
+
+  .merge-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-height: 26px;
+    white-space: nowrap;
+  }
+
+  .merge-row-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    flex: none;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-row[data-tone='ok'] .merge-row-icon {
+    color: var(--color-success);
+  }
+
+  .merge-row[data-tone='bad'] .merge-row-icon {
+    color: var(--color-text-red);
+  }
+
+  .merge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-text-orange);
+  }
+
+  .merge-row-detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-row-end {
+    margin-left: auto;
+    padding-left: var(--spacing-3);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-2);
+    margin-top: var(--spacing-2);
+  }
+
+  .merge-note {
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
   .collapsed {
     padding: var(--spacing-2) var(--spacing-3);
     color: var(--color-text-secondary);
@@ -2774,8 +2851,8 @@
   }
 
   .home {
-    max-width: 720px;
-    margin: 10vh auto;
+    max-width: 1040px;
+    margin: var(--spacing-8) auto;
     padding: 0 var(--spacing-4);
     display: flex;
     flex-direction: column;
@@ -3048,24 +3125,274 @@
     color: inherit;
   }
 
-  .recent {
+  /*
+   * Home dashboard: one grid per row so reasons, talk, faces, size and age line up down the page.
+   * Columns: topic tile, title, reason, talk, faces, size, age.
+   */
+  .dashboard {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-1);
+    gap: var(--spacing-5);
   }
 
-  .recent a {
+  .dashboard section {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .dashboard-section {
+    margin: 0 0 var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+  }
+
+  .dashboard-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) minmax(0, max-content) 76px 112px 84px 36px;
+    align-items: center;
+    gap: var(--spacing-3);
+    min-height: 34px;
+    padding: 0 var(--spacing-2);
+    border-radius: var(--radius-element);
     color: inherit;
     text-decoration: none;
-    padding: var(--spacing-2) var(--spacing-3);
-    border-radius: var(--radius-element);
-    display: flex;
-    justify-content: space-between;
-    gap: var(--spacing-3);
   }
 
-  .recent a:hover {
+  a.dashboard-row:hover {
     background: var(--color-background-muted);
+  }
+
+  a.dashboard-row:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  .dashboard-stack-head {
+    min-height: 36px;
+  }
+
+  .dashboard-lead {
+    display: grid;
+    place-items: center;
+    color: var(--color-text-secondary);
+  }
+
+  .dashboard-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--font-weight-medium);
+  }
+
+  .dashboard-title[data-done] {
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-regular, 400);
+  }
+
+  .dashboard-quiet {
+    color: var(--color-text-secondary);
+    font-weight: var(--font-weight-regular, 400);
+  }
+
+  .dashboard-reason {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+  }
+
+  .dashboard-reason[data-move='mine'] {
+    color: var(--color-text-primary);
+  }
+
+  .dashboard-reason[data-urgent],
+  .rail-mark {
+    display: inline-flex;
+    color: var(--flag-severe);
+    opacity: 0.75;
+  }
+
+  .dashboard-who {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-1-5);
+  }
+
+  .dashboard-divider {
+    width: 1px;
+    height: 14px;
+    background: var(--color-border);
+  }
+
+  .dashboard-size,
+  .dashboard-age {
+    font-size: var(--font-size-sm);
+    text-align: right;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dashboard-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  /* A stack's PRs hang off a guide line in the stack's own hue. */
+  .dashboard-kids {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-left: 18px;
+    padding-left: 4px;
+    border-left: 1px solid light-dark(oklch(85% 0.06 var(--topic-hue)), oklch(40% 0.07 var(--topic-hue)));
+  }
+
+  .dashboard-kids .dashboard-row {
+    min-height: 30px;
+  }
+
+  .dashboard-fold {
+    all: unset;
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: var(--spacing-1-5);
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  .dashboard-fold[aria-expanded='true'] .tree-chevron-icon {
+    transform: rotate(90deg);
+  }
+
+  /* A PR or stack's topic icon: one lightness and chroma, a hue of its own. */
+  .topic-tile {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 6px;
+    color: light-dark(oklch(48% 0.15 var(--topic-hue)), oklch(82% 0.11 var(--topic-hue)));
+    background: light-dark(oklch(94.5% 0.035 var(--topic-hue)), oklch(32% 0.06 var(--topic-hue)));
+  }
+
+  .tree .topic-tile {
+    border-radius: 5px;
+  }
+
+  .faces {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+  }
+
+  .face {
+    position: relative;
+    flex: none;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px var(--color-background-body);
+  }
+
+  .faces .face + .face {
+    margin-left: -4px;
+  }
+
+  .face img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--color-background-muted);
+  }
+
+  /* Asked, not reviewed yet. */
+  .face[data-state='pending'] {
+    box-shadow:
+      0 0 0 1.5px var(--color-background-body),
+      0 0 0 2.5px var(--color-border-emphasized, var(--color-border));
+  }
+
+  .face[data-state='pending'] img {
+    opacity: 0.65;
+    filter: grayscale(1);
+  }
+
+  .face-mark {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 11px;
+    height: 11px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #fff;
+    box-shadow: 0 0 0 1.5px var(--color-background-body);
+  }
+
+  .face[data-state='approved'] .face-mark {
+    background: var(--call-new);
+  }
+
+  .face[data-state='changes'] .face-mark {
+    background: var(--flag-severe);
+  }
+
+  /* Comments from people, then bots; a zero keeps its column but shows nothing. */
+  .talk {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-2);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .talk[data-compact] {
+    flex: none;
+    grid-template-columns: auto auto;
+    gap: var(--spacing-1);
+    font-size: var(--font-size-xs);
+  }
+
+  .talk-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .talk-count[data-zero] {
+    visibility: hidden;
+  }
+
+  .talk-bots {
+    color: var(--color-text-disabled, var(--color-text-secondary));
+  }
+
+  @media (max-width: 720px) {
+    .dashboard-row {
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+    }
+
+    .dashboard-row > .talk,
+    .dashboard-row > .dashboard-size,
+    .dashboard-row > .dashboard-age,
+    .dashboard-row > .dashboard-reason:empty,
+    .dashboard-stack-head > :nth-child(n + 3) {
+      display: none;
+    }
+
+    .dashboard-row > .dashboard-who {
+      display: none;
+    }
   }
 
   /* Narrow screens: the sidebar becomes a drawer, and the bars keep only what fits. */

@@ -4,6 +4,7 @@ import {
   editDecisionRules,
   ModelClient,
   nameStack,
+  pickTopicIcon,
   type PullSummary,
   type RepoClones,
   Repos,
@@ -32,10 +33,12 @@ import {
   JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
+  MergeRequestSchema,
   ReviewersRequestSchema,
   reviewProblem,
   ThreadReplyRequestSchema,
   ThreadResolveRequestSchema,
+  TopicIconRequestSchema,
   EditRulesRequestSchema,
   SaveDecisionRulesSchema,
   serializeRef,
@@ -191,7 +194,9 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
           }
           const recent: RecentTours = {
             ...(viewer ? { viewer } : {}),
-            ...(inbox ? { reviewRequested: inbox.reviewRequested, authored: inbox.authored } : {}),
+            ...(inbox
+              ? { reviewRequested: inbox.reviewRequested, reviewed: inbox.reviewed, authored: inbox.authored }
+              : {}),
             tours: (authors.size ? cache.listRecent(RECENT_LIMIT) : tours).map((tour) => withPullStates(tour, pulls)),
           };
           return recent;
@@ -422,6 +427,26 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
     );
   });
 
+  // A POST for the same reason as stack names: it spends model tokens, so only the app may ask.
+  app.post('/api/topic/icon', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Topic icons are given only as JSON to the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(TopicIconRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Expected the titles of a PR or stack' }, 400);
+    }
+    return run(
+      pickTopicIcon(parsed.output).pipe(
+        Effect.match({
+          onSuccess: (icon) => c.json({ icon }),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+      c.req.raw.signal,
+    );
+  });
+
   app.post('/api/reviews', async (c) => {
     if (!fromApp(c)) {
       return c.json({ error: 'Reviews are accepted only as JSON from the gloss app' }, 403);
@@ -458,6 +483,25 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       Repos.use((repos) => repos.requestReviewers(parsed.output)).pipe(
         Effect.match({
           onSuccess: (result) => c.json(result),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
+  });
+
+  // Merging acts as the user on GitHub and cannot be taken back: only the app may send one.
+  app.post('/api/merge', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Merges are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(MergeRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Expected a pull request and a merge action' }, 400);
+    }
+    return run(
+      Repos.use((repos) => repos.merge(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: (pull) => c.json(pull),
           onFailure: (error) => c.json({ error: error.message }, 502),
         }),
       ),

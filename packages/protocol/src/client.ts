@@ -35,6 +35,8 @@ import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchem
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import {
+  type MergeRequest,
+  PullActivitySchema,
   PullStateSchema,
   ReviewerCandidateSchema,
   type ReviewerCandidate,
@@ -42,8 +44,13 @@ import {
   type ReviewersResult,
   ReviewersResultSchema,
   type Stack,
+  type StackMember,
+  StackMemberSchema,
   StackNameSchema,
   StackSchema,
+  type TopicIcon,
+  type TopicIconRequest,
+  TopicIconResultSchema,
 } from './stack.ts';
 import { type Trace, TraceSchema } from './trace.ts';
 import { type AutoToursState, AutoToursStateSchema, type UpdateStatus, UpdateStatusSchema } from './update.ts';
@@ -88,6 +95,8 @@ export const RecentTourSchema = v.object({
   /** The stack the PR sat in when the app last asked for it, with each member's state as of now (PRs only). */
   stack: v.optional(StackSchema),
   updatedAt: v.string(),
+  /** Size, checks, reviewers and talk, for PRs read from the inbox. */
+  activity: v.optional(PullActivitySchema),
 });
 export type RecentTour = v.InferOutput<typeof RecentTourSchema>;
 
@@ -97,6 +106,8 @@ export const RecentToursSchema = v.object({
   tours: v.array(RecentTourSchema),
   /** Open PRs waiting on the viewer's review, newest first; missing when GitHub won't say. */
   reviewRequested: v.optional(v.array(RecentTourSchema)),
+  /** Open PRs by others the viewer has reviewed, newest first; missing when GitHub won't say. */
+  reviewed: v.optional(v.array(RecentTourSchema)),
   /** The viewer's open PRs, newest first; missing when GitHub won't say. */
   authored: v.optional(v.array(RecentTourSchema)),
 });
@@ -128,10 +139,14 @@ export interface GlossClient {
   stack(ref: Extract<SourceRef, { kind: 'github-pr' }>): Promise<Stack>;
   /** A short name for a stack of two or more PRs, from its titles, branches and descriptions (cached on the backend). */
   stackName(stack: Stack): Promise<string>;
+  /** An icon for a PR or stack's topic, from its titles (the backend's fast model picks it). */
+  topicIcon(request: TopicIconRequest): Promise<TopicIcon>;
   /** Submits a GitHub review (approve, request changes, or comment) as the backend's `gh` login. */
   review(review: ReviewRequest): Promise<ReviewResult>;
   /** Asks for reviews on a PR or withdraws asks, as the backend's `gh` login; resolves with the reviewers after. */
   requestReviewers(request: ReviewersRequest): Promise<ReviewersResult>;
+  /** Merges a PR, queues it, or turns auto-merge on or off, as the backend's `gh` login; resolves with the PR after. */
+  merge(request: MergeRequest): Promise<StackMember>;
   /** Collaborators of the repo matching `query`, who can be asked to review. */
   searchReviewers(owner: string, repo: string, query: string): Promise<ReviewerCandidate[]>;
   /** The PR's line comment threads already on GitHub, resolved ones too. */
@@ -292,6 +307,14 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
           body: JSON.stringify(stack),
         })
       ).name,
+    topicIcon: async (body) =>
+      (
+        await json(TopicIconResultSchema, '/api/topic/icon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      ).icon,
     review: (review) =>
       json(ReviewResultSchema, '/api/reviews', {
         method: 'POST',
@@ -300,6 +323,12 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       }),
     requestReviewers: (body) =>
       json(ReviewersResultSchema, '/api/reviewers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    merge: (body) =>
+      json(StackMemberSchema, '/api/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

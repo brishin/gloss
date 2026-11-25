@@ -92,6 +92,7 @@ const reposOnly = (contents: Repos['Service']['contents']) =>
     threads: () => Effect.fail(new RepoError({ message: 'no' })),
     replyToThread: () => Effect.fail(new RepoError({ message: 'no' })),
     requestReviewers: () => Effect.fail(new RepoError({ message: 'no' })),
+    merge: () => Effect.fail(new RepoError({ message: 'no' })),
     searchReviewers: () => Effect.fail(new RepoError({ message: 'no' })),
     resolveThread: () => Effect.fail(new RepoError({ message: 'no' })),
     contents,
