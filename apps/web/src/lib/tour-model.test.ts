@@ -631,8 +631,17 @@ describe('review', () => {
       headOid: 'head1',
     });
     expect(after.review.thenMerge).toBe(false);
-    // Without the box, an approval only approves.
-    const [plain] = run(mergeable, { type: 'ReviewOpened', verdict: 'APPROVE' }, { type: 'ReviewSubmitted' });
+    // The box counts as it was on submit, not as it is when GitHub answers.
+    const [unticked] = run(sending, { type: 'ReviewThenMergeChanged', thenMerge: false });
+    const [, untickedCmds] = run(unticked, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
+    expect(untickedCmds.some((cmd) => cmd.type === 'MergePull')).toBe(true);
+    // Without the box, an approval only approves, even if it is ticked on the way.
+    const [plain] = run(
+      mergeable,
+      { type: 'ReviewOpened', verdict: 'APPROVE' },
+      { type: 'ReviewSubmitted' },
+      { type: 'ReviewThenMergeChanged', thenMerge: true },
+    );
     const [, plainCmds] = run(plain, { type: 'ReviewSent', diffId: 'd1', verdict: 'APPROVE', url: 'u' });
     expect(plainCmds.some((cmd) => cmd.type === 'MergePull')).toBe(false);
   });

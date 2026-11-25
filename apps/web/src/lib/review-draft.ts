@@ -42,7 +42,7 @@ export interface ReviewDraft {
   /** The line comment being written. `editing` is the draft it replaces. */
   composing?: Composing;
   /** What is on its way to GitHub; words written meanwhile are kept when it lands. */
-  sending?: { body: string; ids: readonly string[] };
+  sending?: { body: string; ids: readonly string[]; thenMerge?: boolean };
   /** Why the review can't be sent as written: shown on the summary. */
   problem?: string;
   /** GitHub (or the backend) refused it. */

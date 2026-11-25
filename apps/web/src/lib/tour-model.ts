@@ -783,7 +783,12 @@ function stepReview(model: Model, msg: Msg): Next {
       if (problem) {
         return [set({ open: true, verdict, problem, sent: undefined }), []];
       }
-      const sending = { body: review.body, ids: review.comments.map((comment) => comment.id) };
+      // "Then merge" as it was on submit: the box stays live while the review is on its way.
+      const sending = {
+        body: review.body,
+        ids: review.comments.map((comment) => comment.id),
+        ...(verdict === 'APPROVE' && review.thenMerge ? { thenMerge: true } : {}),
+      };
       return [
         set({ verdict, sending, problem: undefined, error: undefined, sent: undefined }),
         [{ type: 'SubmitReview', diffId, request }],
@@ -807,7 +812,7 @@ function stepReview(model: Model, msg: Msg): Next {
         model.ref.kind === 'github-pr' ? [{ type: 'FetchThreads', ref: model.ref }] : [],
       );
       // An approval with "Then merge" merges now, or once checks pass (auto-merge or the queue).
-      if (msg.verdict !== 'APPROVE' || !review.thenMerge) {
+      if (msg.verdict !== 'APPROVE' || !sent.thenMerge) {
         return [done, cmds];
       }
       const [merging, mergeCmds] = step(
