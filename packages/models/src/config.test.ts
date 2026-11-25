@@ -45,9 +45,9 @@ describe('sketch tier', () => {
     [
       'follows an OpenAI notes tier, needing no Anthropic login',
       { GLOSS_MODEL_NOTES: 'openai/gpt-6-sol' },
-      'openai/gpt-6-astra',
+      'openai/gpt-6-sol',
     ],
-    ['follows the OpenAI profile', { GLOSS_PROFILE: 'openai' }, 'openai/gpt-6-astra'],
+    ['follows the OpenAI profile', { GLOSS_PROFILE: 'openai' }, 'openai/gpt-6-sol'],
     ['uses notes itself for another provider', { GLOSS_MODEL_NOTES: 'other/model' }, 'other/model'],
     ['takes GLOSS_MODEL', { GLOSS_MODEL: 'other/one' }, 'other/one'],
     ['takes GLOSS_MODEL_SKETCH', { GLOSS_MODEL_SKETCH: 'x/y' }, 'x/y'],

@@ -33,7 +33,7 @@ export interface GlossConfig {
 
 /**
  * Fast tier where latency dominates (small structured outputs), strong tier for the notes, the
- * provider's strongest model for the sketch (it runs beside the notes, so it adds no wait, and it
+ * provider's sketch model (Opus on Anthropic, sol on OpenAI) for the sketch (it runs beside the notes, so it adds no wait, and it
  * drew the review risk where the others drew the flow), and the small tier stays the provider's
  * cheapest model even when the others are raised.
  */
@@ -56,7 +56,7 @@ export const PROFILES = {
       define: 'openai/gpt-6-luna',
       followup: 'openai/gpt-6-luna',
       notes: 'openai/gpt-6-sol',
-      sketch: 'openai/gpt-6-astra',
+      sketch: 'openai/gpt-6-sol',
       small: 'openai/gpt-6-luna',
     },
     ask: {
@@ -191,7 +191,7 @@ function smallFor(define: string): string {
 }
 
 /**
- * The sketch tier when nothing sets it: the strongest model of the notes tier's provider, so it
+ * The sketch tier when nothing sets it: the sketch model of the notes tier's provider, so it
  * never needs a login the tour tiers do not; the notes model itself for other providers.
  */
 function sketchFor(notes: string): string {

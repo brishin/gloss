@@ -44,8 +44,8 @@
   and only while no other tour runs; again when the PR's `updatedAt` moves. `saveAutoTours` rewrites only that key. The `small` tier
   (Haiku, or luna on OpenAI; thinking off) names stacks, picks the dashboard's topic icons (`topic-icon.ts`, one
   of `TOPIC_ICONS` per PR or stack from its titles) and stays cheap when `define` is raised.
-  Unset, it takes the cheap model of `define`'s provider, so it never adds a login. The `sketch` tier (Opus, or astra on
-  OpenAI; thinking low) draws the tour's figure. Unset, it takes the strongest model of `notes`'s
+  Unset, it takes the cheap model of `define`'s provider, so it never adds a login. The `sketch` tier (Opus, or sol on
+  OpenAI; thinking low) draws the tour's figure. Unset, it takes the sketch model of `notes`'s
   provider. It runs beside the notes, so it adds about 12 s to the figure but nothing to the tour, and
   about 30% to its cost (2026-11-25 eval: Opus drew the review risk where Sonnet drew the flow). `validateModelIds` fails
   loudly at startup on ids missing from pi-ai's catalog. `decisionRules` is read from the file at the
