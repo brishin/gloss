@@ -128,7 +128,10 @@ export function stackRefs(stack: Stack): SourceRef[] {
 }
 
 /** A row below the toured PR: another recent tour, or a stack holding one or more of them. */
-export type RecentEntry = { kind: 'tour'; tour: RecentTour } | { kind: 'stack'; key: string; stack: Stack };
+export type RecentEntry =
+  | { kind: 'tour'; tour: RecentTour }
+  /** `updatedAt` is the tour the stack came from, for when no inbox data dates its PRs. */
+  | { kind: 'stack'; key: string; stack: Stack; updatedAt: string };
 
 /**
  * Recent tours as sidebar rows, newest first. A tour in a stack of two or more becomes that
@@ -155,7 +158,7 @@ export function recentEntries(recent: readonly RecentTour[], skip: ReadonlySet<s
     for (const member of members) {
       shown.add(member);
     }
-    entries.push({ kind: 'stack', key, stack });
+    entries.push({ kind: 'stack', key, stack, updatedAt: tour.updatedAt });
   }
   return entries;
 }
@@ -212,12 +215,13 @@ export function entryStand(entry: RecentEntry, recent: RecentTours, facts = inbo
 const latestOf = (entry: RecentEntry, facts: ReturnType<typeof inboxFacts>) => {
   const keys = entryKeys(entry);
   const times = keys.map((key) => facts.activity.get(key)?.updatedAt ?? '');
-  return times.reduce((a, b) => (a > b ? a : b), entry.kind === 'tour' ? entry.tour.updatedAt : '');
+  return times.reduce((a, b) => (a > b ? a : b), entry.kind === 'tour' ? entry.tour.updatedAt : entry.updatedAt);
 };
 
 /**
- * Splits the inbox into rows on the viewer's move and rows waiting on others, each by urgency
- * then newest; the viewer's drafts fold apart; other open recent tours come last. Closed and
+ * Splits the inbox into rows on the viewer's move and rows waiting on others; the viewer's
+ * drafts fold apart; other open recent tours come last. Each section is newest first, by the
+ * last update to a row's PR (a stack's newest member). Closed and
  * merged tours drop out; a stack drops out once none of its PRs is open. Without GitHub's lists
  * every open recent tour is in `recent`, the viewer's first.
  */
@@ -236,23 +240,28 @@ export function railSections(recent: RecentTours, skip: ReadonlySet<string>): Ra
     }
     return entries;
   };
+  const facts = inboxFacts(recent);
+  const newest = (entries: RecentEntry[]) =>
+    entries
+      .map((entry) => ({ entry, latest: latestOf(entry, facts) }))
+      .sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0))
+      .map((row) => row.entry);
   if (!recent.reviewRequested || !recent.authored) {
     const { mine, others } = splitByViewer(take(recent.tours), recent.viewer);
-    return { yourMove: [], waiting: [], drafts: [], recent: [...mine, ...others] };
+    return { yourMove: [], waiting: [], drafts: [], recent: [...newest(mine), ...newest(others)] };
   }
-  const facts = inboxFacts(recent);
   const inbox = take([...recent.reviewRequested, ...(recent.reviewed ?? []), ...recent.authored]).map((entry) => ({
     entry,
     stand: entryStand(entry, recent, facts),
     latest: latestOf(entry, facts),
   }));
-  inbox.sort((a, b) => a.stand.rank - b.stand.rank || (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
-  const where = (move: Move) => inbox.filter((row) => row.stand.move === move).map((row) => row.entry);
+  inbox.sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
+  const where = (...moves: Move[]) => inbox.filter((row) => moves.includes(row.stand.move)).map((row) => row.entry);
   return {
     yourMove: where('mine'),
-    waiting: [...where('theirs'), ...where('unknown')],
+    waiting: where('theirs', 'unknown'),
     drafts: where('draft'),
-    recent: take(recent.tours),
+    recent: newest(take(recent.tours)),
   };
 }
 
