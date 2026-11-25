@@ -128,7 +128,10 @@ export function stackRefs(stack: Stack): SourceRef[] {
 }
 
 /** A row below the toured PR: another recent tour, or a stack holding one or more of them. */
-export type RecentEntry = { kind: 'tour'; tour: RecentTour } | { kind: 'stack'; key: string; stack: Stack };
+export type RecentEntry =
+  | { kind: 'tour'; tour: RecentTour }
+  /** `updatedAt` is the tour the stack came from, for when no inbox data dates its PRs. */
+  | { kind: 'stack'; key: string; stack: Stack; updatedAt: string };
 
 /**
  * Recent tours as sidebar rows, newest first. A tour in a stack of two or more becomes that
@@ -155,7 +158,7 @@ export function recentEntries(recent: readonly RecentTour[], skip: ReadonlySet<s
     for (const member of members) {
       shown.add(member);
     }
-    entries.push({ kind: 'stack', key, stack });
+    entries.push({ kind: 'stack', key, stack, updatedAt: tour.updatedAt });
   }
   return entries;
 }
@@ -212,7 +215,7 @@ export function entryStand(entry: RecentEntry, recent: RecentTours, facts = inbo
 const latestOf = (entry: RecentEntry, facts: ReturnType<typeof inboxFacts>) => {
   const keys = entryKeys(entry);
   const times = keys.map((key) => facts.activity.get(key)?.updatedAt ?? '');
-  return times.reduce((a, b) => (a > b ? a : b), entry.kind === 'tour' ? entry.tour.updatedAt : '');
+  return times.reduce((a, b) => (a > b ? a : b), entry.kind === 'tour' ? entry.tour.updatedAt : entry.updatedAt);
 };
 
 /**

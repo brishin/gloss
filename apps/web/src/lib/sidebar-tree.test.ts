@@ -216,6 +216,10 @@ describe('railSections', () => {
         tours: [
           pr(6, { state: 'open', updatedAt: '2026-11-01T00:00:00Z' }),
           pr(7, { state: 'open', updatedAt: '2026-11-02T00:00:00Z' }),
+          pr(8, {
+            updatedAt: '2026-11-03T00:00:00Z',
+            stack: { owner: 'o', repo: 'r', base: 'main', members: [member(8, 'open'), member(9, 'open')] },
+          }),
         ],
       },
       new Set(),
@@ -223,7 +227,7 @@ describe('railSections', () => {
     expect([titles(sections.yourMove), titles(sections.waiting), titles(sections.recent)]).toEqual([
       ['stack 2', '#1'],
       ['#2'],
-      ['#7', '#6'],
+      ['stack 2', '#7', '#6'],
     ]);
   });
 
