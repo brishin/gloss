@@ -32,4 +32,15 @@ describe('reviewPayload', () => {
       'commit_id',
     );
   });
+
+  test('leaves out an empty body, so a Comment review of only line comments goes through', () => {
+    const payload = reviewPayload({
+      ...review,
+      body: '  ',
+      verdict: 'COMMENT',
+      comments: [{ path: 'a.ts', side: 'additions', line: 4, body: 'one' }],
+    });
+    expect(payload).not.toHaveProperty('body');
+    expect(payload.comments).toHaveLength(1);
+  });
 });

@@ -2,13 +2,17 @@ import type { ReviewRequest, ReviewResult } from '@gloss/protocol';
 import { CommandError } from './exec.ts';
 import { gh } from './github.ts';
 
-/** The body of `POST /repos/{owner}/{repo}/pulls/{number}/reviews` for a review. */
+/**
+ * The body of `POST /repos/{owner}/{repo}/pulls/{number}/reviews` for a review. An empty review
+ * body is left out: GitHub times out (HTTP 504) on `"body": ""` beside line comments.
+ */
 export function reviewPayload(review: ReviewRequest) {
   const side = (value: 'additions' | 'deletions') => (value === 'deletions' ? 'LEFT' : 'RIGHT');
+  const body = review.body.trim();
   return {
     ...(review.commitId ? { commit_id: review.commitId } : {}),
     event: review.verdict,
-    body: review.body.trim(),
+    ...(body ? { body } : {}),
     comments: review.comments.map((comment) => ({
       path: comment.path,
       body: comment.body,
