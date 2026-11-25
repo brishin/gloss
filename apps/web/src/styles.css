@@ -2663,6 +2663,83 @@
     gap: var(--spacing-3);
   }
 
+  /* Merge: green, GitHub's merge colour from the palette, so it stands out beside Review. */
+  .merge-go .astryx-button[data-variant='primary'] {
+    background: var(--color-success);
+    color: var(--color-on-success);
+  }
+
+  .merge-go .astryx-button[data-variant='primary']:hover {
+    background: color-mix(in oklch, var(--color-success) 88%, black);
+  }
+
+  .merge-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--spacing-2);
+    font-size: 13px;
+  }
+
+  .merge-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-height: 26px;
+    white-space: nowrap;
+  }
+
+  .merge-row-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    flex: none;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-row[data-tone='ok'] .merge-row-icon {
+    color: var(--color-success);
+  }
+
+  .merge-row[data-tone='bad'] .merge-row-icon {
+    color: var(--color-text-red);
+  }
+
+  .merge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-text-orange);
+  }
+
+  .merge-row-detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-row-end {
+    margin-left: auto;
+    padding-left: var(--spacing-3);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .merge-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-2);
+    margin-top: var(--spacing-2);
+  }
+
+  .merge-note {
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
   .collapsed {
     padding: var(--spacing-2) var(--spacing-3);
     color: var(--color-text-secondary);

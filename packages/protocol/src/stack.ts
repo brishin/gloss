@@ -56,6 +56,52 @@ export const PullActivitySchema = v.object({
 });
 export type PullActivity = v.InferOutput<typeof PullActivitySchema>;
 
+/** How a PR is merged: GitHub's three methods. */
+export const MergeMethodSchema = v.picklist(['squash', 'merge', 'rebase']);
+export type MergeMethod = v.InferOutput<typeof MergeMethodSchema>;
+
+/**
+ * What merging an open PR takes, as GitHub sees it for the viewer: what is left (checks,
+ * conflicts, a stale branch), how it may merge, and its merge queue when the base has one.
+ */
+export const PullMergeSchema = v.object({
+  /** The PR's GraphQL id, for the merge mutations. */
+  id: v.string(),
+  /** The head commit the viewer saw: a merge of a newer push is refused. */
+  headOid: v.string(),
+  /**
+   * GitHub's `mergeStateStatus`: `clean` merges now, `unstable` merges with non-required checks
+   * failing, `blocked` waits on required checks or reviews, `behind` needs the base merged in,
+   * `conflicts` needs fixing by hand.
+   */
+  status: v.picklist(['clean', 'unstable', 'blocked', 'behind', 'conflicts', 'unknown']),
+  /** The head commit's checks; failing names first. */
+  checks: v.object({
+    passed: v.number(),
+    failed: v.number(),
+    pending: v.number(),
+    failing: v.array(v.string()),
+  }),
+  /**
+   * How a merge goes in: GitHub's default for the viewer on this repo (the method its merge
+   * button offers first), always one the repo allows.
+   */
+  method: MergeMethodSchema,
+  /** The base branch merges through a queue: no method to pick, the queue's rules apply. */
+  queue: v.boolean(),
+  /** PRs in the base's queue now (this one included when queued). */
+  queueSize: v.optional(v.number()),
+  /** GitHub's estimate in seconds: until this PR merges when queued, else for a PR added now. */
+  queueEta: v.optional(v.number()),
+  /** Auto-merge is on: the PR merges (or joins the queue) by itself once it is ready. */
+  auto: v.optional(v.boolean()),
+  /** The viewer may turn auto-merge on. */
+  canAuto: v.boolean(),
+  /** The viewer may merge past unmet rules (an admin). */
+  canBypass: v.boolean(),
+});
+export type PullMerge = v.InferOutput<typeof PullMergeSchema>;
+
 export const StackMemberSchema = v.object({
   number: v.number(),
   title: v.string(),
@@ -82,6 +128,8 @@ export const StackMemberSchema = v.object({
   suggestedReviewers: v.optional(v.array(SuggestedReviewerSchema)),
   /** Whether the viewer may ask for reviews on the PR (triage access or more). Only the PR asked about has it. */
   canRequestReviews: v.optional(v.boolean()),
+  /** How the viewer may merge the PR; missing when they can't (no write access, closed, draft). Only the PR asked about has it. */
+  merge: v.optional(PullMergeSchema),
   /** The opening words of the PR's description, without its template lines; context for naming the stack. */
   blurb: v.optional(v.string()),
   /** Only PRs read from the inbox have it. */
@@ -251,6 +299,20 @@ export const ReviewersResultSchema = v.object({
   suggestedReviewers: v.array(SuggestedReviewerSchema),
 });
 export type ReviewersResult = v.InferOutput<typeof ReviewersResultSchema>;
+
+/**
+ * Merges a PR as the backend's `gh` login. `now` merges at once (an admin past unmet rules),
+ * `ready` merges or joins the queue now if it can, else turns auto-merge on, `cancel` turns
+ * auto-merge off, `dequeue` leaves the merge queue. `headOid` is the commit the reader saw.
+ */
+export const MergeRequestSchema = v.object({
+  owner: v.string(),
+  repo: v.string(),
+  number: v.number(),
+  action: v.picklist(['now', 'ready', 'cancel', 'dequeue']),
+  headOid: v.optional(v.string()),
+});
+export type MergeRequest = v.InferOutput<typeof MergeRequestSchema>;
 
 /** Someone who can be asked to review: a collaborator matching a search. */
 export const ReviewerCandidateSchema = v.object({

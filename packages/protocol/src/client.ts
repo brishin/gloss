@@ -35,6 +35,7 @@ import { type GithubLogin, GithubLoginSchema, type SetupStatus, SetupStatusSchem
 import type { SourceRef } from './source-ref.ts';
 import { SourceRefSchema } from './source-ref.ts';
 import {
+  type MergeRequest,
   PullActivitySchema,
   PullStateSchema,
   ReviewerCandidateSchema,
@@ -43,6 +44,8 @@ import {
   type ReviewersResult,
   ReviewersResultSchema,
   type Stack,
+  type StackMember,
+  StackMemberSchema,
   StackNameSchema,
   StackSchema,
   type TopicIcon,
@@ -142,6 +145,8 @@ export interface GlossClient {
   review(review: ReviewRequest): Promise<ReviewResult>;
   /** Asks for reviews on a PR or withdraws asks, as the backend's `gh` login; resolves with the reviewers after. */
   requestReviewers(request: ReviewersRequest): Promise<ReviewersResult>;
+  /** Merges a PR, queues it, or turns auto-merge on or off, as the backend's `gh` login; resolves with the PR after. */
+  merge(request: MergeRequest): Promise<StackMember>;
   /** Collaborators of the repo matching `query`, who can be asked to review. */
   searchReviewers(owner: string, repo: string, query: string): Promise<ReviewerCandidate[]>;
   /** The PR's line comment threads already on GitHub, resolved ones too. */
@@ -318,6 +323,12 @@ export function createHttpGlossClient({ baseUrl, token, fetch: doFetch = fetch }
       }),
     requestReviewers: (body) =>
       json(ReviewersResultSchema, '/api/reviewers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    merge: (body) =>
+      json(StackMemberSchema, '/api/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

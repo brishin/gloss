@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest';
 import {
   isOpen,
   MAX_STACK,
+  type MergeJson,
+  mergeOf,
   type StackLookup,
   type StackPull,
   walkStack,
@@ -42,6 +44,22 @@ describe('walkStack', () => {
     ['from the top', 3],
   ])('finds the whole chain %s', async (_, start) => {
     expect(await numbers(start, chain)).toEqual([1, 2, 3]);
+  });
+
+  test('the PR asked about keeps how it merges; its neighbours do not get it', async () => {
+    const merge = {
+      id: 'PR_2',
+      headOid: 'abc',
+      status: 'clean' as const,
+      checks: { passed: 1, failed: 0, pending: 0, failing: [] },
+      method: 'squash' as const,
+      queue: false,
+      canAuto: true,
+      canBypass: false,
+    };
+    const pulls = [pr(1, 'main', 'a', 'open'), { ...pr(2, 'a', 'b'), merge }, { ...pr(3, 'b', 'c'), merge }];
+    const members = await walkStack(2, lookup(pulls));
+    expect(members.map((member) => member.merge)).toEqual([undefined, merge, undefined]);
   });
 
   test('a PR with no neighbours is a stack of one', async () => {
@@ -229,5 +247,81 @@ describe('suggestionsOf', () => {
       { login: 'writer', why: 'wrote' },
       { login: 'reader', why: 'reviewed' },
     ]);
+  });
+});
+
+describe('mergeOf', () => {
+  const pull = (patch: Partial<MergeJson> = {}): MergeJson => ({
+    id: 'PR_1',
+    headRefOid: 'abc',
+    mergeStateStatus: 'BLOCKED',
+    viewerCanEnableAutoMerge: true,
+    mergeQueueEntry: null,
+    ...patch,
+  });
+  const repo = {
+    viewerPermission: 'WRITE',
+    squashMergeAllowed: true,
+    mergeCommitAllowed: true,
+    rebaseMergeAllowed: false,
+    viewerDefaultMergeMethod: 'MERGE' as const,
+  };
+
+  test.each([
+    ['a reader', 'open', { ...repo, viewerPermission: 'TRIAGE' }],
+    ['a draft', 'draft', repo],
+    ['a merged PR', 'merged', repo],
+  ] as const)('gives nothing for %s', (_, state, access) => {
+    expect(mergeOf(pull(), state, access)).toBeUndefined();
+  });
+
+  test('counts checks, failing names first, and takes the default method', () => {
+    const merge = mergeOf(
+      pull({
+        statusCheckRollup: {
+          contexts: {
+            nodes: [
+              { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' },
+              { __typename: 'CheckRun', name: 'e2e', status: 'COMPLETED', conclusion: 'FAILURE' },
+              { __typename: 'CheckRun', name: 'build', status: 'IN_PROGRESS', conclusion: null },
+              { __typename: 'CheckRun', name: 'docs', status: 'COMPLETED', conclusion: 'SKIPPED' },
+              { __typename: 'StatusContext', context: 'ci/legacy', state: 'ERROR' },
+              null,
+            ],
+          },
+        },
+      }),
+      'open',
+      repo,
+    );
+    expect(merge?.checks).toEqual({ passed: 2, failed: 2, pending: 1, failing: ['e2e', 'ci/legacy'] });
+    expect(merge?.method).toBe('merge');
+    expect(merge?.status).toBe('blocked');
+  });
+
+  test('falls back to a method the repo allows when the default is not', () => {
+    expect(mergeOf(pull(), 'open', { ...repo, viewerDefaultMergeMethod: 'REBASE' })?.method).toBe('squash');
+  });
+
+  test('reads the queue: its size and the estimate for this PR once queued', () => {
+    const queued = mergeOf(
+      pull({
+        isMergeQueueEnabled: true,
+        mergeQueueEntry: { position: 2, enqueuedAt: 't', estimatedTimeToMerge: 540 },
+        mergeQueue: { nextEntryEstimatedTimeToMerge: 900, entries: { totalCount: 4 } },
+      }),
+      'queued',
+      repo,
+    );
+    expect(queued).toMatchObject({ queue: true, queueSize: 4, queueEta: 540 });
+    const waiting = mergeOf(
+      pull({
+        isMergeQueueEnabled: true,
+        mergeQueue: { nextEntryEstimatedTimeToMerge: 900, entries: { totalCount: 3 } },
+      }),
+      'open',
+      repo,
+    );
+    expect(waiting).toMatchObject({ queueSize: 3, queueEta: 900 });
   });
 });

@@ -20,6 +20,7 @@ import {
   tourFromState,
 } from '@gloss/protocol';
 import { type AskCmd, type AskModel, type AskMsg, askForDiff, emptyAsk, updateAsk } from './ask-model.ts';
+import { emptyMerge, type MergeCmd, type MergeModel, type MergeMsg, updateMerge } from './merge-model.ts';
 import {
   type CommentAnchor,
   emptyReview,
@@ -131,6 +132,8 @@ export interface Model {
   threads: ThreadsModel;
   /** The picker that asks for reviews (PRs only). */
   reviewers: ReviewersModel;
+  /** The Merge panel in the top bar (PRs only). */
+  merge: MergeModel;
   /** The page is a static export (`gloss export`): no backend, so nothing can run, ask or review. */
   exported: boolean;
 }
@@ -215,7 +218,8 @@ export type Msg =
   | { type: 'CommentAsked' }
   | AskMsg
   | ThreadsMsg
-  | ReviewersMsg;
+  | ReviewersMsg
+  | MergeMsg;
 
 /** Where a rail click left the rail: the PR it opened and its row's offset. */
 export interface RailAnchor {
@@ -277,7 +281,8 @@ export type Cmd =
   | { type: 'OpenPipeline'; ref: SourceRef; jobId?: string }
   | AskCmd
   | ThreadsCmd
-  | ReviewersCmd;
+  | ReviewersCmd
+  | MergeCmd;
 
 export type Next = readonly [Model, readonly Cmd[]];
 
@@ -306,6 +311,7 @@ export function initialModel(
     ask: emptyAsk,
     threads: emptyThreads,
     reviewers: emptyReviewers,
+    merge: emptyMerge,
     exported,
   };
 }
@@ -358,6 +364,19 @@ export const groupOfFile = (groups: readonly GroupView[], fileId: string): Group
   groups.find((group) => group.fileIds.includes(fileId));
 
 /** This PR as GitHub gave it when the page opened (its state, since when); undefined until the stack loads. */
+/** The model with the PR as GitHub answered it, in its place in the stack. */
+function withPull(model: Model, pull: StackMember | undefined): Model {
+  return pull && model.stack
+    ? {
+        ...model,
+        stack: {
+          ...model.stack,
+          members: model.stack.members.map((member) => (member.number === pull.number ? pull : member)),
+        },
+      }
+    : model;
+}
+
 export function currentPull(model: Model): StackMember | undefined {
   const { ref, stack } = model;
   return ref.kind === 'github-pr' ? stack?.members.find((member) => member.number === ref.number) : undefined;
@@ -536,15 +555,18 @@ function step(model: Model, msg: Msg): Next {
     case 'ReviewersFailed': {
       const ref = model.ref.kind === 'github-pr' && !model.exported ? model.ref : undefined;
       const next = updateReviewers(model.reviewers, msg, ref, currentPull(model));
-      const stack =
-        next.pull && model.stack
-          ? {
-              ...model.stack,
-              members: model.stack.members.map((member) => (member.number === next.pull!.number ? next.pull! : member)),
-            }
-          : model.stack;
       const refetch: Cmd[] = next.refetch && ref ? [{ type: 'FetchStack', ref }] : [];
-      return [{ ...model, reviewers: next.state, stack }, [...next.cmds, ...refetch]];
+      return [{ ...withPull(model, next.pull), reviewers: next.state }, [...next.cmds, ...refetch]];
+    }
+    case 'MergeOpened':
+    case 'MergeClosed':
+    case 'MergeClicked':
+    case 'MergeDone':
+    case 'MergeFailed': {
+      const ref = model.ref.kind === 'github-pr' && !model.exported ? model.ref : undefined;
+      const next = updateMerge(model.merge, msg, ref, currentPull(model), model.tour.meta?.headSha);
+      const refetch: Cmd[] = next.refetch && ref ? [{ type: 'FetchStack', ref }] : [];
+      return [{ ...withPull(model, next.pull), merge: next.state }, [...next.cmds, ...refetch]];
     }
     case 'CommentAsked': {
       const composing = model.review.composing;
