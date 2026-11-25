@@ -43,6 +43,7 @@ import { type FileControls, GroupPanel } from './GroupPanel.tsx';
 import { GroupSidebar } from './GroupSidebar.tsx';
 import { KeyPaths } from './KeyPaths.tsx';
 import { Logo } from './Logo.tsx';
+import { MergePanel } from './MergePanel.tsx';
 import type { NoteActions } from './NoteLane.tsx';
 import { Overview, PullHead } from './Overview.tsx';
 import type { Reviewer } from './ReviewComments.tsx';
@@ -108,6 +109,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
     [dispatch],
   );
   const reviewable = canReview(model);
+  const pull = currentPull(model);
   const askable = canAsk(model);
   const { review } = model;
   const reviewer = useMemo<Reviewer | undefined>(
@@ -210,8 +212,16 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         )}
         <div className="toolbar">
           {!model.exported && <AutoToursSwitch />}
+          {!model.exported && pull?.merge && pull.state !== 'merged' && (
+            <MergePanel pull={{ ...pull, merge: pull.merge }} merge={model.merge} dispatch={dispatch} />
+          )}
           {reviewable && (
-            <ReviewPanel review={review} chord={model.chord === 'r'} dispatch={dispatch}>
+            <ReviewPanel
+              review={review}
+              chord={model.chord === 'r'}
+              canMerge={Boolean(pull?.merge && pull.state === 'open')}
+              dispatch={dispatch}
+            >
               <Button
                 size="sm"
                 variant="primary"
@@ -302,7 +312,7 @@ export function TourPage({ sourceRef }: { sourceRef: SourceRef }) {
         <main className="main">
           <PullHead
             state={state}
-            pull={currentPull(model)}
+            pull={pull}
             groups={groups}
             reviewers={model.exported ? undefined : model.reviewers}
             dispatch={dispatch}

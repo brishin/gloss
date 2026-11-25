@@ -47,6 +47,8 @@ export interface ReviewDraft {
   problem?: string;
   /** GitHub (or the backend) refused it. */
   error?: string;
+  /** Merge (or queue) the PR once an approval lands. */
+  thenMerge?: boolean;
   /** The last review sent, for the confirmation. */
   sent?: { verdict: ReviewVerdict; url: string };
 }

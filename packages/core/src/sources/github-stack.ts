@@ -1,4 +1,6 @@
 import type {
+  MergeMethod,
+  PullMerge,
   PullState,
   ReviewDecision,
   Reviewer,
@@ -165,30 +167,139 @@ interface PullGraphJson {
     viewer?: { login: string } | null;
     repository?: {
       viewerPermission?: 'ADMIN' | 'MAINTAIN' | 'WRITE' | 'TRIAGE' | 'READ' | null;
-      pullRequest?: {
-        number: number;
-        title: string;
-        body: string | null;
-        state: 'OPEN' | 'CLOSED' | 'MERGED';
-        isDraft: boolean;
-        isInMergeQueue: boolean;
-        createdAt: string;
-        mergedAt: string | null;
-        closedAt: string | null;
-        mergedBy: { login: string } | null;
-        mergeQueueEntry: { position: number; enqueuedAt: string } | null;
-        author: { login: string } | null;
-        baseRefName: string;
-        headRefName: string;
-        headRepository: { nameWithOwner: string } | null;
-        reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
-        latestReviews: { nodes: ReviewJson[] } | null;
-        latestOpinionatedReviews: { nodes: ReviewJson[] } | null;
-        reviewRequests: { nodes: ReviewRequestJson[] } | null;
-        suggestedReviewers?: SuggestionJson[] | null;
-      } | null;
+      squashMergeAllowed?: boolean;
+      mergeCommitAllowed?: boolean;
+      rebaseMergeAllowed?: boolean;
+      viewerDefaultMergeMethod?: 'SQUASH' | 'MERGE' | 'REBASE';
+      pullRequest?:
+        | (MergeJson & {
+            number: number;
+            title: string;
+            body: string | null;
+            state: 'OPEN' | 'CLOSED' | 'MERGED';
+            isDraft: boolean;
+            isInMergeQueue: boolean;
+            createdAt: string;
+            mergedAt: string | null;
+            closedAt: string | null;
+            mergedBy: { login: string } | null;
+            author: { login: string } | null;
+            baseRefName: string;
+            headRefName: string;
+            headRepository: { nameWithOwner: string } | null;
+            reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+            latestReviews: { nodes: ReviewJson[] } | null;
+            latestOpinionatedReviews: { nodes: ReviewJson[] } | null;
+            reviewRequests: { nodes: ReviewRequestJson[] } | null;
+            suggestedReviewers?: SuggestionJson[] | null;
+          })
+        | null;
       defaultBranchRef: { name: string } | null;
     } | null;
+  };
+}
+
+/** What the PR query reads for merging. */
+export interface MergeJson {
+  id: string;
+  headRefOid: string;
+  isMergeQueueEnabled?: boolean;
+  mergeStateStatus?: 'BEHIND' | 'BLOCKED' | 'CLEAN' | 'DIRTY' | 'DRAFT' | 'HAS_HOOKS' | 'UNKNOWN' | 'UNSTABLE';
+  viewerCanEnableAutoMerge?: boolean;
+  viewerCanMergeAsAdmin?: boolean;
+  autoMergeRequest?: { enabledAt: string | null } | null;
+  mergeQueueEntry: { position: number; enqueuedAt: string; estimatedTimeToMerge?: number | null } | null;
+  mergeQueue?: { nextEntryEstimatedTimeToMerge: number | null; entries: { totalCount: number } | null } | null;
+  statusCheckRollup?: { contexts: { nodes: (CheckJson | null)[] } | null } | null;
+}
+
+/** A check run (Actions and apps) or a commit status (older integrations). */
+type CheckJson =
+  | { __typename: 'CheckRun'; name: string; status: string; conclusion: string | null }
+  | { __typename: 'StatusContext'; context: string; state: string };
+
+const PASSED = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+
+/** A check's outcome: a finished run passed or failed; anything still going is pending. */
+function checkOutcome(check: CheckJson): 'passed' | 'failed' | 'pending' {
+  if (check.__typename === 'CheckRun') {
+    return check.status !== 'COMPLETED' ? 'pending' : PASSED.has(check.conclusion ?? '') ? 'passed' : 'failed';
+  }
+  return check.state === 'SUCCESS'
+    ? 'passed'
+    : check.state === 'PENDING' || check.state === 'EXPECTED'
+      ? 'pending'
+      : 'failed';
+}
+
+const MERGE_STATUS: Record<NonNullable<MergeJson['mergeStateStatus']>, PullMerge['status']> = {
+  CLEAN: 'clean',
+  HAS_HOOKS: 'clean',
+  UNSTABLE: 'unstable',
+  BLOCKED: 'blocked',
+  BEHIND: 'behind',
+  DIRTY: 'conflicts',
+  DRAFT: 'blocked',
+  UNKNOWN: 'unknown',
+};
+
+const METHOD: Record<'SQUASH' | 'MERGE' | 'REBASE', MergeMethod> = {
+  SQUASH: 'squash',
+  MERGE: 'merge',
+  REBASE: 'rebase',
+};
+
+/** Merging needs write access or more. */
+const MAY_MERGE = new Set(['ADMIN', 'MAINTAIN', 'WRITE']);
+
+/**
+ * How the viewer may merge the PR, or nothing when they can't: no write access, or a PR that
+ * is closed, merged or a draft. Methods come in the repo's allowed set, the viewer's usual
+ * one first.
+ */
+export function mergeOf(
+  pull: MergeJson,
+  state: PullState,
+  repo: {
+    viewerPermission?: string | null;
+    squashMergeAllowed?: boolean;
+    mergeCommitAllowed?: boolean;
+    rebaseMergeAllowed?: boolean;
+    viewerDefaultMergeMethod?: 'SQUASH' | 'MERGE' | 'REBASE';
+  },
+): PullMerge | undefined {
+  if ((state !== 'open' && state !== 'queued') || !MAY_MERGE.has(repo.viewerPermission ?? '')) {
+    return undefined;
+  }
+  const checks = { passed: 0, failed: 0, pending: 0, failing: [] as string[] };
+  for (const check of pull.statusCheckRollup?.contexts?.nodes ?? []) {
+    if (!check) continue;
+    const outcome = checkOutcome(check);
+    checks[outcome] += 1;
+    if (outcome === 'failed') checks.failing.push(check.__typename === 'CheckRun' ? check.name : check.context);
+  }
+  const allowed: MergeMethod[] = [
+    ...(repo.squashMergeAllowed ? ['squash' as const] : []),
+    ...(repo.mergeCommitAllowed ? ['merge' as const] : []),
+    ...(repo.rebaseMergeAllowed ? ['rebase' as const] : []),
+  ];
+  const usual = repo.viewerDefaultMergeMethod && METHOD[repo.viewerDefaultMergeMethod];
+  const methods = usual && allowed.includes(usual) ? [usual, ...allowed.filter((one) => one !== usual)] : allowed;
+  const queued = pull.mergeQueueEntry;
+  const size = pull.mergeQueue?.entries?.totalCount;
+  const eta = queued ? queued.estimatedTimeToMerge : pull.mergeQueue?.nextEntryEstimatedTimeToMerge;
+  return {
+    id: pull.id,
+    headOid: pull.headRefOid,
+    status: MERGE_STATUS[pull.mergeStateStatus ?? 'UNKNOWN'],
+    checks,
+    methods,
+    queue: Boolean(pull.isMergeQueueEnabled),
+    ...(pull.isMergeQueueEnabled && size !== undefined ? { queueSize: size } : {}),
+    ...(pull.isMergeQueueEnabled && typeof eta === 'number' ? { queueEta: eta } : {}),
+    ...(pull.autoMergeRequest ? { auto: true } : {}),
+    canAuto: Boolean(pull.viewerCanEnableAutoMerge),
+    canBypass: Boolean(pull.viewerCanMergeAsAdmin),
   };
 }
 
@@ -281,9 +392,22 @@ const PULL_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $repo) {
     defaultBranchRef { name } viewerPermission
+    squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed viewerDefaultMergeMethod
     pullRequest(number: $number) {
       number title body state isDraft isInMergeQueue author { login } baseRefName headRefName
-      createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt }
+      createdAt mergedAt closedAt mergedBy { login } mergeQueueEntry { position enqueuedAt estimatedTimeToMerge }
+      id headRefOid isMergeQueueEnabled mergeStateStatus viewerCanEnableAutoMerge viewerCanMergeAsAdmin
+      autoMergeRequest { enabledAt }
+      mergeQueue { nextEntryEstimatedTimeToMerge entries { totalCount } }
+      statusCheckRollup {
+        contexts(first: 100) {
+          nodes {
+            __typename
+            ... on CheckRun { name status conclusion }
+            ... on StatusContext { context state }
+          }
+        }
+      }
       headRepository { nameWithOwner } reviewDecision
       latestReviews(first: 20) { nodes { author { login avatarUrl(size: 40) } state } }
       latestOpinionatedReviews(first: 100) { nodes { author { login } state } }
@@ -370,6 +494,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
           })
         : [];
       const canRequestReviews = isOpen(state) && MAY_REQUEST.has(json.data?.repository?.viewerPermission ?? '');
+      const merge = mergeOf(pull, state, json.data?.repository ?? {});
       const since =
         state === 'merged' ? pull.mergedAt : state === 'closed' ? pull.closedAt : (queue?.enqueuedAt ?? pull.createdAt);
       return {
@@ -383,6 +508,7 @@ export function githubStackLookup(ref: GithubRef, signal?: AbortSignal): StackLo
         ...(reviewDecision ? { reviewDecision } : {}),
         ...(suggestedReviewers.length ? { suggestedReviewers } : {}),
         ...(canRequestReviews ? { canRequestReviews } : {}),
+        ...(merge ? { merge } : {}),
         ...(pull.author?.login ? { author: pull.author.login } : {}),
         baseRef: pull.baseRefName,
         headRef: pull.headRefName,

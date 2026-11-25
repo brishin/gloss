@@ -225,6 +225,7 @@ export function createSnapshotGlossClient(snapshot: TourSnapshot): GlossClient {
     topicIcon: missing('Topic icons'),
     review: missing('Review'),
     requestReviewers: missing('Requesting reviewers'),
+    merge: missing('Merging'),
     searchReviewers: () => Promise.resolve([]),
     threads: (ref) => Promise.resolve(serializeRef(ref) === serializeRef(snapshot.ref) ? (snapshot.threads ?? []) : []),
     replyToThread: missing('Reply'),

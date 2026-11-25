@@ -33,6 +33,7 @@ import {
   JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
+  MergeRequestSchema,
   ReviewersRequestSchema,
   reviewProblem,
   ThreadReplyRequestSchema,
@@ -482,6 +483,25 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
       Repos.use((repos) => repos.requestReviewers(parsed.output)).pipe(
         Effect.match({
           onSuccess: (result) => c.json(result),
+          onFailure: (error) => c.json({ error: error.message }, 502),
+        }),
+      ),
+    );
+  });
+
+  // Merging acts as the user on GitHub and cannot be taken back: only the app may send one.
+  app.post('/api/merge', async (c) => {
+    if (!fromApp(c)) {
+      return c.json({ error: 'Merges are accepted only as JSON from the gloss app' }, 403);
+    }
+    const parsed = v.safeParse(MergeRequestSchema, await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Expected a pull request and a merge action' }, 400);
+    }
+    return run(
+      Repos.use((repos) => repos.merge(parsed.output)).pipe(
+        Effect.match({
+          onSuccess: (pull) => c.json(pull),
           onFailure: (error) => c.json({ error: error.message }, 502),
         }),
       ),
