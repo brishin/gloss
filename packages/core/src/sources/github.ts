@@ -257,46 +257,64 @@ export async function githubViewer(signal?: AbortSignal): Promise<string> {
   return (await gh(['user', '--jq', '.login'], signal)).trim();
 }
 
+// Limits sized from a busy repo (200 recent PRs, 2026-11-24):
+// up to 87 open PRs in one list; per PR at most 4 latest reviews, 2 requests, 12 threads,
+// 15 reviews, 6 comments, 6 comments in one thread. Each per-PR limit is about twice the largest
+// seen: GitHub's rate-limit cost and time grow with each nested `first`.
+
 /** Open PRs per inbox list; the side rail shows them all. */
-const INBOX_LIMIT = 50;
+const INBOX_LIMIT = 100;
+
+/** How many PRs one details or talk query reads. */
+const NODE_BATCH = 25;
 
 const AVATAR = 'avatarUrl(size: 40)';
 
+/** What a search gives of each PR: enough for a row and its stack. */
 const INBOX_FIELDS = `nodes { ... on PullRequest {
   id number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName
   repository { owner { login } name }
-  additions deletions reviewDecision
-  commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-  latestReviews(first: 20) { nodes { author { __typename login ${AVATAR} } state submittedAt commit { oid } } }
-  latestOpinionatedReviews(first: 100) { nodes { author { __typename login } state } }
-  reviewRequests(first: 20) { nodes { requestedReviewer {
-    __typename
-    ... on User { login ${AVATAR} }
-    ... on Bot { login ${AVATAR} }
-    ... on Mannequin { login ${AVATAR} }
-    ... on Team { combinedSlug }
-  } } }
-  reviewThreads(first: 100) { nodes { isResolved } }
 } }`;
 
 /**
- * Who said what on some PRs, by node id. Kept apart from the inbox query: a thread's comments are a
- * connection per thread, which costs GitHub's rate limit far more than the rest of the inbox, so
- * they are read only for PRs that changed since the last read.
+ * What the dashboard shows of some PRs, by node id. Kept out of the searches: with these fields,
+ * three lists of up to 100 PRs pass GitHub's 10 s limit, while batches of 25 by id take about 1.5 s.
+ */
+export const detailsQuery = (ids: readonly string[]) => `query {
+  nodes(ids: ${JSON.stringify(ids)}) { ... on PullRequest {
+    id additions deletions reviewDecision
+    commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+    latestReviews(first: 10) { nodes { author { __typename login ${AVATAR} } state submittedAt commit { oid } } }
+    latestOpinionatedReviews(first: 10) { nodes { author { __typename login } state } }
+    reviewRequests(first: 10) { nodes { requestedReviewer {
+      __typename
+      ... on User { login ${AVATAR} }
+      ... on Bot { login ${AVATAR} }
+      ... on Mannequin { login ${AVATAR} }
+      ... on Team { combinedSlug }
+    } } }
+    reviewThreads(first: 30) { nodes { isResolved } }
+  } }
+}`;
+
+/**
+ * Who said what on some PRs, by node id. Kept apart from the details: a thread's comments are a
+ * connection per thread, which costs GitHub's rate limit far more, so they are read only for PRs
+ * that changed since the last read.
  */
 export const talkQuery = (ids: readonly string[]) => `query {
   nodes(ids: ${JSON.stringify(ids)}) { ... on PullRequest {
     id
-    comments(first: 100) { nodes { author { __typename } } }
-    reviews(first: 50) { nodes { author { __typename } body } }
-    reviewThreads(first: 50) { nodes { comments(first: 20) { nodes { author { __typename } } } } }
+    comments(first: 30) { nodes { author { __typename } } }
+    reviews(first: 30) { nodes { author { __typename } body } }
+    reviewThreads(first: 30) { nodes { comments(first: 10) { nodes { author { __typename } } } } }
   } }
 }`;
 
 /**
  * One GraphQL query for the open PRs that ask for the viewer's review, the open PRs by others
  * they have already reviewed (GitHub drops the review request once they review, so a push after
- * it is only found here), and the open PRs they wrote, each with what the dashboard shows.
+ * it is only found here), and the open PRs they wrote. `detailsQuery` adds what the dashboard shows.
  */
 export const INBOX_QUERY = `query {
   viewer { login }
@@ -465,7 +483,10 @@ export function inboxTours(
     ...(node.author?.login ? { author: node.author.login } : {}),
     baseRef: node.baseRefName,
     headRef: node.headRefName,
-    activity: activityOf(node, viewer, node.id ? talk.get(node.id) : undefined),
+    // Without details (their read failed) a PR has no activity rather than made-up zeros.
+    ...(node.additions !== undefined
+      ? { activity: activityOf(node, viewer, node.id ? talk.get(node.id) : undefined) }
+      : {}),
   });
   return pulls.map((node) => {
     // Walk down to the bottom, then up to the top; `seen` stops a cycle of branches.
@@ -502,24 +523,47 @@ export function inboxTours(
   });
 }
 
-/** How many PRs one talk query reads. */
-const TALK_BATCH = 25;
+/** A PR's details as `detailsQuery` reads them. */
+export type DetailsNode = Omit<
+  InboxNode,
+  | 'number'
+  | 'title'
+  | 'state'
+  | 'isDraft'
+  | 'isInMergeQueue'
+  | 'updatedAt'
+  | 'author'
+  | 'baseRefName'
+  | 'headRefName'
+  | 'repository'
+> & { id: string };
+
+const batches = <T>(items: readonly T[]) =>
+  Array.from({ length: Math.ceil(items.length / NODE_BATCH) }, (_, index) =>
+    items.slice(index * NODE_BATCH, (index + 1) * NODE_BATCH),
+  );
+
+const readNodes = async <T>(query: string, signal?: AbortSignal) =>
+  (await ghJson<{ data: { nodes: (T | null)[] } }>(['graphql', '-f', `query=${query}`], signal)).data.nodes.filter(
+    (node): node is T => !!node,
+  );
 
 /**
- * Reads the viewer's inbox. Each PR's talk is kept by node id and `updatedAt` (a new comment
- * moves it), so after the first read only PRs that changed are asked for again. A failed talk
- * read leaves those PRs without counts rather than failing the inbox.
+ * Reads the viewer's inbox: the searches, then each PR's details in batches, all at once. Each
+ * PR's talk is kept by node id and `updatedAt` (a new comment moves it), so after the first read
+ * only PRs that changed are asked for again. Details are read every time: checks finish without
+ * moving `updatedAt`. A failed batch leaves those PRs without activity or counts rather than
+ * failing the inbox.
  */
 export function createInboxReader(
   run: {
     inbox: (signal?: AbortSignal) => Promise<InboxJson>;
+    details: (ids: readonly string[], signal?: AbortSignal) => Promise<DetailsNode[]>;
     talk: (ids: readonly string[], signal?: AbortSignal) => Promise<TalkNode[]>;
   } = {
     inbox: (signal) => ghJson(['graphql', '-f', `query=${INBOX_QUERY}`], signal),
-    talk: async (ids, signal) =>
-      (
-        await ghJson<{ data: { nodes: (TalkNode | null)[] } }>(['graphql', '-f', `query=${talkQuery(ids)}`], signal)
-      ).data.nodes.filter((node): node is TalkNode => !!node),
+    details: (ids, signal) => readNodes<DetailsNode>(detailsQuery(ids), signal),
+    talk: (ids, signal) => readNodes<TalkNode>(talkQuery(ids), signal),
   },
 ): (signal?: AbortSignal) => Promise<Inbox> {
   const kept = new Map<string, { updatedAt: string; talk: { people: number; bots: number } }>();
@@ -527,23 +571,24 @@ export function createInboxReader(
     const { data } = await run.inbox(signal);
     const viewer = data.viewer?.login;
     const nodes = [...data.review.nodes, ...data.reviewed.nodes, ...data.authored.nodes];
-    const stale = [
-      ...new Set(
-        nodes.filter((node) => node.id && kept.get(node.id)?.updatedAt !== node.updatedAt).map((node) => node.id!),
-      ),
-    ];
     const updatedAt = new Map(nodes.flatMap((node) => (node.id ? [[node.id, node.updatedAt] as const] : [])));
-    for (let start = 0; start < stale.length; start += TALK_BATCH) {
-      const read = await run.talk(stale.slice(start, start + TALK_BATCH), signal).catch(() => []);
-      for (const node of read) {
-        kept.set(node.id, { updatedAt: updatedAt.get(node.id) ?? '', talk: talkOf(node) });
-      }
+    const ids = [...updatedAt.keys()];
+    const stale = ids.filter((id) => kept.get(id)?.updatedAt !== updatedAt.get(id));
+    const [details, talkRead] = await Promise.all([
+      Promise.all(batches(ids).map((batch) => run.details(batch, signal).catch(() => []))),
+      Promise.all(batches(stale).map((batch) => run.talk(batch, signal).catch(() => []))),
+    ]);
+    for (const node of talkRead.flat()) {
+      kept.set(node.id, { updatedAt: updatedAt.get(node.id) ?? '', talk: talkOf(node) });
     }
+    const byId = new Map(details.flat().map((node) => [node.id, node]));
+    const full = (list: readonly InboxNode[]) =>
+      list.map((node) => (node.id && byId.get(node.id) ? { ...node, ...byId.get(node.id) } : node));
     const talk = new Map([...kept].map(([id, entry]) => [id, entry.talk]));
     return {
-      reviewRequested: inboxTours(data.review.nodes, viewer, talk),
-      reviewed: inboxTours(data.reviewed.nodes, viewer, talk),
-      authored: inboxTours(data.authored.nodes, viewer, talk),
+      reviewRequested: inboxTours(full(data.review.nodes), viewer, talk),
+      reviewed: inboxTours(full(data.reviewed.nodes), viewer, talk),
+      authored: inboxTours(full(data.authored.nodes), viewer, talk),
     };
   };
 }

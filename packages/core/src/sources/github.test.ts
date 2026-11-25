@@ -208,19 +208,40 @@ describe('activityOf', () => {
     ).toEqual({ people: 3, bots: 3 });
   });
 
-  it('reads talk again only for PRs that changed since the last read', async () => {
+  it('reads details every time and talk only for PRs that changed', async () => {
     let updatedAt = pull.updatedAt;
+    let failDetails = false;
+    const { number, title, state, isDraft, isInMergeQueue, author, baseRefName, headRefName, repository } = pull;
+    const thin: InboxNode = {
+      id: pull.id,
+      number,
+      title,
+      state,
+      isDraft,
+      isInMergeQueue,
+      updatedAt,
+      author,
+      baseRefName,
+      headRefName,
+      repository,
+    };
     const asked: string[][] = [];
+    const detailed: string[][] = [];
     const read = createInboxReader({
       inbox: async () =>
         ({
           data: {
             viewer: { login: 'me' },
             review: { nodes: [] },
-            reviewed: { nodes: [{ ...pull, updatedAt }] },
-            authored: { nodes: [{ ...pull, id: 'PR_8', number: 8, author: { login: 'me' } }] },
+            reviewed: { nodes: [{ ...thin, updatedAt }] },
+            authored: { nodes: [{ ...thin, id: 'PR_8', number: 8, author: { login: 'me' } }] },
           },
         }) satisfies InboxJson,
+      details: async (ids) => {
+        detailed.push([...ids]);
+        if (failDetails) throw new Error('502');
+        return ids.map((id) => ({ id, additions: 5, deletions: 1 }));
+      },
       talk: async (ids) => {
         asked.push([...ids]);
         return ids.map((id) => ({ id, comments: { nodes: [{ author: user('ana') }] } }));
@@ -231,6 +252,14 @@ describe('activityOf', () => {
     updatedAt = '2026-11-25T00:00:00Z';
     await read();
     expect(asked).toEqual([['PR_7', 'PR_8'], ['PR_7']]);
-    expect(first.reviewed[0]!.activity?.comments).toEqual({ people: 1, bots: 0 });
+    expect(detailed).toEqual([
+      ['PR_7', 'PR_8'],
+      ['PR_7', 'PR_8'],
+      ['PR_7', 'PR_8'],
+    ]);
+    expect(first.reviewed[0]!.activity).toMatchObject({ additions: 5, comments: { people: 1, bots: 0 } });
+    failDetails = true;
+    const failed = await read();
+    expect(failed.authored[0]!.activity).toBeUndefined();
   });
 });
