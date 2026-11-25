@@ -154,7 +154,7 @@ describe('railSections', () => {
   const titles = (entries: ReturnType<typeof recentEntries>) =>
     entries.map((entry) => (entry.kind === 'tour' ? entry.tour.title : `stack ${entry.stack.members.length}`));
 
-  test('splits the inbox by whose move it is, most pressing first, drafts apart, then other open tours', () => {
+  test('splits the inbox by whose move it is, drafts apart, then other open tours', () => {
     const local: RecentTour = { ref: { kind: 'local', repo: '/r', target: 'HEAD' }, title: 'local', updatedAt: '' };
     const sections = railSections(
       {
@@ -190,6 +190,41 @@ describe('railSections', () => {
       titles(sections.drafts),
       titles(sections.recent),
     ]).toEqual([['#1', 'stack 2', '#12'], ['#11'], ['#13'], ['#5', 'local']]);
+  });
+
+  test('lists each section newest first, a stack by its newest PR', () => {
+    const at = (day: number) => activity({ updatedAt: `2026-11-${day}T00:00:00Z` });
+    const sections = railSections(
+      {
+        viewer: 'me',
+        reviewRequested: [pr(1, { author: 'ana', activity: at(10) })],
+        authored: [
+          pr(2, { author: 'me', activity: at(12) }),
+          pr(3, {
+            author: 'me',
+            stack: {
+              owner: 'o',
+              repo: 'r',
+              base: 'main',
+              members: [
+                member(3, 'open', { activity: at(5) }),
+                member(4, 'open', { activity: { ...at(20), checks: 'failing' } }),
+              ],
+            },
+          }),
+        ],
+        tours: [
+          pr(6, { state: 'open', updatedAt: '2026-11-01T00:00:00Z' }),
+          pr(7, { state: 'open', updatedAt: '2026-11-02T00:00:00Z' }),
+        ],
+      },
+      new Set(),
+    );
+    expect([titles(sections.yourMove), titles(sections.waiting), titles(sections.recent)]).toEqual([
+      ['stack 2', '#1'],
+      ['#2'],
+      ['#7', '#6'],
+    ]);
   });
 
   test("drops a stack once none of its PRs is open, and lists recent tours, the viewer's first, without GitHub's lists", () => {
