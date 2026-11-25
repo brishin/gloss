@@ -48,7 +48,7 @@ export function standOf(pull: PullFacts, viewer: string | undefined): Stand {
     if (pull.requested && !reviewedAt) {
       return { move: 'mine', reason: 'Review requested', short: 'Review', urgent: false, rank: 0 };
     }
-    if (reviewedAt && activity.pushedAt && activity.pushedAt > reviewedAt) {
+    if (reviewedAt && activity.pushedSinceReview) {
       return { move: 'mine', reason: 'Pushed since your review', short: 'New push', urgent: false, rank: 1 };
     }
     if (pull.requested) {
@@ -75,6 +75,9 @@ export function standOf(pull: PullFacts, viewer: string | undefined): Stand {
   }
   if (activity.openThreads) {
     return { move: 'mine', reason: threads, short: plural(activity.openThreads, 'thread'), urgent: false, rank: 4 };
+  }
+  if (activity.reviewDecision === 'approved' && pull.state !== 'queued' && activity.checks === 'pending') {
+    return { move: 'theirs', reason: 'Approved · checks running', urgent: false, rank: 8 };
   }
   if (activity.reviewDecision === 'approved' && pull.state !== 'queued') {
     return { move: 'mine', reason: 'Ready to merge', short: 'Approved', urgent: false, rank: 5 };

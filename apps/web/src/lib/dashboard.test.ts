@@ -30,14 +30,13 @@ describe('standOf', () => {
     ['a review asked of me', theirs({}, true), ['mine', 'Review requested', 'Review']],
     [
       'a push after my review',
-      theirs({ viewerReviewedAt: '2026-11-20T00:00:00Z', pushedAt: '2026-11-21T00:00:00Z' }),
+      theirs({ viewerReviewedAt: '2026-11-20T00:00:00Z', pushedSinceReview: true }),
       ['mine', 'Pushed since your review', 'New push'],
     ],
     [
       'my approval with no push since',
       theirs({
         viewerReviewedAt: '2026-11-21T00:00:00Z',
-        pushedAt: '2026-11-20T00:00:00Z',
         reviewers: [{ login: 'me', state: 'approved' }],
       }),
       ['theirs', 'You approved', undefined],
@@ -49,6 +48,11 @@ describe('standOf', () => {
     ],
     ['changes asked', mine({ reviewDecision: 'changes', openThreads: 1 }), ['mine', 'Changes requested', 'Changes']],
     ['open threads', mine({ openThreads: 1 }), ['mine', '1 open thread', '1 thread']],
+    [
+      'an approval with checks running',
+      mine({ reviewDecision: 'approved', checks: 'pending' }),
+      ['theirs', 'Approved · checks running', undefined],
+    ],
     ['an approval', mine({ reviewDecision: 'approved' }), ['mine', 'Ready to merge', 'Approved']],
     ['the merge queue', mine({ reviewDecision: 'approved' }, 'queued'), ['theirs', 'In the merge queue', undefined]],
     [

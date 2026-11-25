@@ -42,8 +42,6 @@ export const PullActivitySchema = v.object({
   deletions: v.number(),
   /** The head commit's checks, rolled up; missing when it has none. */
   checks: v.optional(v.picklist(['passing', 'failing', 'pending'])),
-  /** When the head commit was made (ISO time). */
-  pushedAt: v.optional(v.string()),
   updatedAt: v.string(),
   reviewers: v.array(ReviewerSchema),
   reviewDecision: v.optional(ReviewDecisionSchema),
@@ -51,8 +49,10 @@ export const PullActivitySchema = v.object({
   openThreads: v.number(),
   /** Comments, line comments and review notes, from people and from bots; missing when GitHub would not say. */
   comments: v.optional(v.object({ people: v.number(), bots: v.number() })),
-  /** When the viewer last reviewed it (others' PRs only), to tell a push since. */
+  /** When the viewer last reviewed it (others' PRs only). */
   viewerReviewedAt: v.optional(v.string()),
+  /** The head commit is not the one the viewer last reviewed (others' PRs only). */
+  pushedSinceReview: v.optional(v.boolean()),
 });
 export type PullActivity = v.InferOutput<typeof PullActivitySchema>;
 

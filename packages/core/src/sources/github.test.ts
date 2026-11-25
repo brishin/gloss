@@ -118,14 +118,15 @@ describe('activityOf', () => {
     deletions: 30,
     reviewDecision: null,
     commits: {
-      nodes: [{ commit: { committedDate: '2026-11-24T09:00:00Z', statusCheckRollup: { state: 'FAILURE' } } }],
+      nodes: [{ commit: { oid: 'h2', statusCheckRollup: { state: 'FAILURE' } } }],
     },
     latestReviews: {
       nodes: [
         { author: bot, state: 'COMMENTED', submittedAt: '2026-11-24T08:00:00Z' },
-        { author: user('me'), state: 'APPROVED', submittedAt: '2026-11-24T08:30:00Z' },
+        { author: user('me'), state: 'APPROVED', submittedAt: '2026-11-24T08:30:00Z', commit: { oid: 'h1' } },
       ],
     },
+    latestOpinionatedReviews: { nodes: [{ author: user('me'), state: 'APPROVED' }] },
     reviewRequests: {
       nodes: [{ requestedReviewer: user('li') }, { requestedReviewer: { __typename: 'Bot', login: 'copilot' } }],
     },
@@ -137,7 +138,6 @@ describe('activityOf', () => {
       additions: 120,
       deletions: 30,
       checks: 'failing',
-      pushedAt: '2026-11-24T09:00:00Z',
       updatedAt: '2026-11-24T10:00:00Z',
       reviewers: [
         { login: 'me', state: 'approved', avatar: 'https://a/me' },
@@ -147,7 +147,22 @@ describe('activityOf', () => {
       openThreads: 1,
       comments: { people: 3, bots: 3 },
       viewerReviewedAt: '2026-11-24T08:30:00Z',
+      pushedSinceReview: true,
     });
+  });
+
+  it('keeps a change request when its reviewer is asked again', () => {
+    const asked: InboxNode = {
+      ...pull,
+      latestReviews: { nodes: [{ author: user('ana'), state: 'APPROVED', submittedAt: null }] },
+      latestOpinionatedReviews: {
+        nodes: [
+          { author: user('ana'), state: 'APPROVED' },
+          { author: user('li'), state: 'CHANGES_REQUESTED' },
+        ],
+      },
+    };
+    expect(activityOf(asked, 'me').reviewDecision).toBe('changes');
   });
 
   it('reads an old inbox answer without the new fields', () => {

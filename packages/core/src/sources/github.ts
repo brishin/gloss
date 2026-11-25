@@ -266,8 +266,9 @@ const INBOX_FIELDS = `nodes { ... on PullRequest {
   id number title state isDraft isInMergeQueue updatedAt author { login } baseRefName headRefName
   repository { owner { login } name }
   additions deletions reviewDecision
-  commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
-  latestReviews(first: 20) { nodes { author { __typename login ${AVATAR} } state submittedAt } }
+  commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+  latestReviews(first: 20) { nodes { author { __typename login ${AVATAR} } state submittedAt commit { oid } } }
+  latestOpinionatedReviews(first: 100) { nodes { author { __typename login } state } }
   reviewRequests(first: 20) { nodes { requestedReviewer {
     __typename
     ... on User { login ${AVATAR} }
@@ -275,7 +276,7 @@ const INBOX_FIELDS = `nodes { ... on PullRequest {
     ... on Mannequin { login ${AVATAR} }
     ... on Team { combinedSlug }
   } } }
-  reviewThreads(first: 50) { nodes { isResolved } }
+  reviewThreads(first: 100) { nodes { isResolved } }
 } }`;
 
 /**
@@ -327,13 +328,20 @@ export interface InboxNode {
   deletions?: number;
   reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
   commits?: {
-    nodes: { commit: { committedDate: string; statusCheckRollup: { state: string } | null } }[];
+    nodes: { commit: { oid?: string; statusCheckRollup: { state: string } | null } }[];
   } | null;
   latestReviews?: {
     nodes: {
       author: InboxAuthor | null;
       state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
       submittedAt: string | null;
+      commit?: { oid: string } | null;
+    }[];
+  } | null;
+  latestOpinionatedReviews?: {
+    nodes: {
+      author: InboxAuthor | null;
+      state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
     }[];
   } | null;
   reviewRequests?: { nodes: { requestedReviewer: (InboxAuthor & { combinedSlug?: string }) | null }[] } | null;
@@ -404,22 +412,30 @@ export function activityOf(
     requests.map((request) => ({ requestedReviewer: request.requestedReviewer })),
     node.author?.login,
   );
-  const viewerReviewedAt = viewer
-    ? (reviews.find((review) => review.author?.login === viewer)?.submittedAt ?? undefined)
-    : undefined;
-  const reviewDecision = reviewDecisionOf(node.reviewDecision, reviewers);
+  const viewerReview =
+    viewer && node.author?.login !== viewer ? reviews.find((review) => review.author?.login === viewer) : undefined;
+  const viewerReviewedAt = viewerReview?.submittedAt ?? undefined;
+  // A push since the review: the head is not the commit reviewed. Commit times can predate the push.
+  const reviewedOid = viewerReview?.commit?.oid;
+  const pushedSinceReview = !!reviewedOid && !!head?.oid && head.oid !== reviewedOid;
+  // Without repo rules, each reviewer's latest approval or change request decides, as in `githubStackLookup`:
+  // the display reviewers lose a verdict to a later comment or a new request.
+  const verdicts = (node.latestOpinionatedReviews?.nodes ?? [])
+    .filter((review) => !isBot(review.author))
+    .map((review) => ({ author: review.author?.login ? { login: review.author.login } : null, state: review.state }));
+  const reviewDecision = reviewDecisionOf(node.reviewDecision, reviewersOf(verdicts, [], node.author?.login));
   const checks = head?.statusCheckRollup ? CHECKS[head.statusCheckRollup.state] : undefined;
   return {
     additions: node.additions ?? 0,
     deletions: node.deletions ?? 0,
     ...(checks ? { checks } : {}),
-    ...(head ? { pushedAt: head.committedDate } : {}),
     updatedAt: node.updatedAt,
     reviewers,
     ...(reviewDecision ? { reviewDecision } : {}),
     openThreads: (node.reviewThreads?.nodes ?? []).filter((thread) => !thread.isResolved).length,
     ...(comments ? { comments } : {}),
-    ...(viewerReviewedAt && node.author?.login !== viewer ? { viewerReviewedAt } : {}),
+    ...(viewerReviewedAt ? { viewerReviewedAt } : {}),
+    ...(pushedSinceReview ? { pushedSinceReview } : {}),
   };
 }
 
