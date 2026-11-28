@@ -59,7 +59,7 @@ Options
   --no-update     Skip the pull, install and build that gloss [target] runs first
   --brief         (tour) Decisions, groups and files only; no notes or walks
   --code          (tour) Print each snippet's lines instead of its path:from-to
-  --wait <s>      (tour) Give up after s seconds (exit 2); running it again joins the same job
+  --wait <s>      (tour) Give up after s seconds (exit 2); starts the server if needed, so running it again joins the job
   --json          (tour) Print the finished tour as JSON
   -o, --out <f>   (export) Where to write the HTML (default gloss-<target>.html)
   --backend <url> (export) Use a running gloss server instead of an in-process one
@@ -299,15 +299,22 @@ async function main() {
       const ref = await resolveTarget(rest[0], process.cwd());
       // A running server shares its jobs with any open tab and keeps a past-placement job going if this exits.
       const url = `http://${host}:${port}`;
-      const running = await createHttpGlossClient({ baseUrl: url, token })
+      let running = await createHttpGlossClient({ baseUrl: url, token })
         .health()
         .then(() => true)
         .catch(() => false);
+      const waitSeconds = Number(values.wait ?? 0);
+      if (!running && waitSeconds > 0) {
+        // An in-process job dies with this process, so a timed-out wait could never be joined again.
+        const started = await startDetached(port, { host: values.host, token });
+        if ('error' in started) throw new Error(`--wait needs a server: ${started.error}`);
+        console.error(`gloss server on ${started.url} (logs: ${glossPath('serve.log')})`);
+        running = true;
+      }
       const backend = await exportBackend(running ? url : undefined, token);
       const start = performance.now();
       const controller = new AbortController();
       process.once('SIGINT', () => controller.abort());
-      const waitSeconds = Number(values.wait ?? 0);
       if (waitSeconds > 0) {
         setTimeout(() => controller.abort(), waitSeconds * 1000).unref();
       }
