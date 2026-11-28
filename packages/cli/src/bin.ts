@@ -335,8 +335,10 @@ async function main() {
         }
         const tour = tourFromState(state);
         if (state.status !== 'complete' || !tour) {
-          console.error(controller.signal.aborted ? tourProgress(state) : 'The tour ended without finishing.');
-          process.exitCode = 2;
+          // 2 only for a wait that ran out on a running job, which the skill says to join again.
+          const waiting = controller.signal.aborted && (state.status === 'running' || state.status === 'idle');
+          console.error(waiting ? tourProgress(state) : 'The tour ended without finishing.');
+          process.exitCode = waiting ? 2 : 1;
           return;
         }
         console.error(`${elapsed(start).padStart(6)}  done`);
