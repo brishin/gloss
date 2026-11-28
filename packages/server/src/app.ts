@@ -29,7 +29,12 @@ import {
   AskRequestSchema,
   AutoToursStateSchema,
   encodeNdjson,
+  initialTourState,
   lfsPointer,
+  parseGithubTarget,
+  reduceTourEvent,
+  renderTourMarkdown,
+  tourProgress,
   JudgeKeyRequestSchema,
   LoginAnswerSchema,
   ReviewRequestSchema,
@@ -46,7 +51,7 @@ import {
   StackSchema,
   StartLoginRequestSchema,
 } from '@gloss/protocol';
-import { Effect, type ManagedRuntime, Schedule, Stream } from 'effect';
+import { Effect, type ManagedRuntime, Option, Schedule, Stream } from 'effect';
 import { type Context, Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
 import { cors } from 'hono/cors';
@@ -256,6 +261,48 @@ export function createApp({ runtime, health, token, corsOrigins = [], setup, upd
         () => out.write(': ping\n\n'),
       ),
     );
+  });
+
+  /**
+   * The tour for a PR as compact markdown for agents: starts the tour or joins its running job,
+   * waits up to `wait` seconds (default 25, at most 300), then answers 200 with the markdown, or
+   * 202 with the stage it reached and `Retry-After`. Calling again joins the same job.
+   */
+  app.get('/api/tour.md', async (c) => {
+    const ref = parseGithubTarget(c.req.query('target') ?? '');
+    if (!ref) {
+      return c.text('Pass target as a PR URL or owner/repo#123.', 400);
+    }
+    const waitMs = Math.min(300, Math.max(0, Number(c.req.query('wait') ?? 25) || 0)) * 1000;
+    const flag = (name: string) => ['1', 'true'].includes(c.req.query(name) ?? '');
+    const result = await run(
+      Effect.gen(function* () {
+        const jobs = yield* Jobs;
+        const job = yield* jobs.start(ref, flag('force'));
+        const last = yield* jobs.events(job, 0).pipe(Stream.runLast, Effect.timeoutOption(waitMs));
+        const event = Option.flatten(last);
+        if (Option.isNone(event)) {
+          return {
+            status: 202 as const,
+            text: `${tourProgress(job.log.reduce(reduceTourEvent, initialTourState()))}\n`,
+          };
+        }
+        if (event.value.type !== 'tour.complete') {
+          const reason = event.value.type === 'job.error' ? event.value.message : 'The tour was aborted.';
+          return { status: 502 as const, text: `${reason}\n` };
+        }
+        const { tour } = event.value;
+        const diff = flag('code') ? (yield* TourCache).get<DiffPayload>(tour.diffId) : undefined;
+        const detail = c.req.query('detail') === 'brief' ? 'brief' : 'full';
+        return { status: 200 as const, text: renderTourMarkdown(tour, { detail, files: diff?.files }) };
+      }),
+      c.req.raw.signal,
+    );
+    if (result.status === 202) {
+      c.header('Retry-After', '5');
+    }
+    c.header('Content-Type', result.status === 200 ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8');
+    return c.body(result.text, result.status);
   });
 
   app.post('/api/tours/:id/abort', async (c) => {

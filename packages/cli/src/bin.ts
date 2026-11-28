@@ -5,11 +5,20 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { RepoClones, runTour, TourCache } from '@gloss/core';
+import { RepoClones, TourCache } from '@gloss/core';
 import { configPath, glossPath, login, logout, providerStatus, SUBSCRIPTIONS, type Subscription } from '@gloss/models';
 import type { TourEventBody } from '@gloss/protocol';
-import { createHttpGlossClient, describeRef, RISK_LABELS, RISK_KEYS } from '@gloss/protocol';
-import { Effect, Fiber, ManagedRuntime, Stream } from 'effect';
+import {
+  createHttpGlossClient,
+  describeRef,
+  initialTourState,
+  reduceTourEvent,
+  renderTourMarkdown,
+  tourFromState,
+  tourProgress,
+} from '@gloss/protocol';
+import { Effect, ManagedRuntime } from 'effect';
+import { installAgentSkill, uninstallAgentSkill } from './agent.ts';
 import { BackendInfo, BackendLayer, VERSION } from './backend.ts';
 import { startDetached, stopServer } from './daemon.ts';
 import { exportBackend, exportName, exportTour } from './export.ts';
@@ -25,12 +34,13 @@ Usage
   gloss serve                 Run the local server only
   gloss update                Pull, install, build, and restart the server in the background
   gloss restart               Restart the server in the background on this checkout's code
-  gloss tour <target>         Print a tour in the terminal (--json for the full tour)
+  gloss tour <target>         Print a tour as compact markdown, for you or an agent (--json for the full tour)
   gloss export <target>       Run a tour and save it as one self-contained HTML file
   gloss login claude|chatgpt  Sign in with a Claude or ChatGPT subscription
   gloss logout claude|chatgpt
   gloss status                Show providers, models and judge
   gloss extension install     Let the browser extension start the server (uninstall to undo)
+  gloss agent install         Teach Claude Code to read tours with gloss tour (uninstall to undo)
   gloss cache prune [--days N]
 
 Targets
@@ -47,6 +57,9 @@ Options
   --force         Ignore cached results
   --no-open       Do not open the browser
   --no-update     Skip the pull, install and build that gloss [target] runs first
+  --brief         (tour) Decisions, groups and files only; no notes or walks
+  --code          (tour) Print each snippet's lines instead of its path:from-to
+  --wait <s>      (tour) Give up after s seconds (exit 2); starts the server if needed, so running it again joins the job
   --json          (tour) Print the finished tour as JSON
   -o, --out <f>   (export) Where to write the HTML (default gloss-<target>.html)
   --backend <url> (export) Use a running gloss server instead of an in-process one
@@ -103,6 +116,34 @@ async function updateFirst(port: number, url: string, host?: string, token?: str
   return undefined;
 }
 
+/** One stderr line per milestone of a `gloss tour` run. */
+function logTourEvent(event: TourEventBody, at: string) {
+  switch (event.type) {
+    case 'job.started':
+      if (event.cached) console.error(`${at}  cached`);
+      break;
+    case 'diff.ready':
+      console.error(`${at}  diff: ${event.files.length} files — ${event.meta.title}`);
+      break;
+    case 'groups.resolved':
+      console.error(
+        `${at}  placed: ${event.groups.map((group) => `${group.label} (${group.fileIds.length})`).join(', ')}`,
+      );
+      break;
+    case 'group.notes':
+      console.error(`${at}  notes: ${event.groupKey}${event.source === 'cache' ? ' (cached)' : ''}`);
+      break;
+    case 'stage.status':
+      if (event.state !== 'running')
+        console.error(`${at}  ${event.stage} ${event.state}${event.detail ? `: ${event.detail}` : ''}`);
+      break;
+    case 'job.warning':
+    case 'job.error':
+      console.error(`${at}  ! ${event.message}`);
+      break;
+  }
+}
+
 const elapsed = (start: number) => `${((performance.now() - start) / 1000).toFixed(1)}s`;
 
 async function main() {
@@ -117,6 +158,9 @@ async function main() {
       'no-open': { type: 'boolean', default: false },
       'no-update': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
+      brief: { type: 'boolean', default: false },
+      code: { type: 'boolean', default: false },
+      wait: { type: 'string' },
       out: { type: 'string', short: 'o' },
       backend: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
@@ -206,6 +250,19 @@ async function main() {
       return;
     }
 
+    case 'agent': {
+      if (rest[0] === 'uninstall') {
+        uninstallAgentSkill();
+        console.log('Removed the gloss skill.');
+        return;
+      }
+      if (rest[0] !== 'install') {
+        throw new Error('Usage: gloss agent install|uninstall');
+      }
+      console.log(`Wrote the gloss skill for Claude Code to ${installAgentSkill()}`);
+      return;
+    }
+
     case 'extension': {
       if (rest[0] === 'uninstall') {
         uninstallExtension();
@@ -240,88 +297,59 @@ async function main() {
 
     case 'tour': {
       const ref = await resolveTarget(rest[0], process.cwd());
-      const runtime = ManagedRuntime.make(BackendLayer);
-      const info = await runtime.runPromise(BackendInfo.use(Effect.succeed));
+      // A running server shares its jobs with any open tab and keeps a past-placement job going if this exits.
+      const url = `http://${host}:${port}`;
+      let running = await createHttpGlossClient({ baseUrl: url, token })
+        .health()
+        .then(() => true)
+        .catch(() => false);
+      const waitSeconds = Number(values.wait ?? 0);
+      if (!running && waitSeconds > 0) {
+        // An in-process job dies with this process, so a timed-out wait could never be joined again.
+        const started = await startDetached(port, { host: values.host, token });
+        if ('error' in started) throw new Error(`--wait needs a server: ${started.error}`);
+        console.error(`gloss server on ${started.url} (logs: ${glossPath('serve.log')})`);
+        running = true;
+      }
+      const backend = await exportBackend(running ? url : undefined, token);
       const start = performance.now();
-      console.error(`Touring ${describeRef(ref)}${info.judge ? '' : ' (no judge: LLM places files)'}`);
-      const log = (event: TourEventBody) => {
-        const at = elapsed(start).padStart(6);
-        switch (event.type) {
-          case 'job.started':
-            if (event.cached) console.error(`${at}  cached`);
-            break;
-          case 'diff.ready':
-            console.error(`${at}  diff: ${event.files.length} files — ${event.meta.title}`);
-            break;
-          case 'groups.provisional':
-            console.error(`${at}  provisional: ${event.groups.map((group) => group.label).join(', ')}`);
-            break;
-          case 'group.defined':
-            console.error(`${at}  group: ${event.group.label}`);
-            break;
-          case 'groups.resolved':
-            console.error(
-              `${at}  placed: ${event.groups.map((group) => `${group.label} (${group.fileIds.length})`).join(', ')}`,
-            );
-            break;
-          case 'group.notes':
-            console.error(
-              `${at}  notes: ${event.groupKey} (${event.notes.lineNotes.length + event.notes.fileNotes.length} notes${event.source === 'cache' ? ', cached' : ''})`,
-            );
-            break;
-          case 'stage.status':
-            if (event.state !== 'running')
-              console.error(`${at}  ${event.stage} ${event.state}${event.detail ? `: ${event.detail}` : ''}`);
-            break;
-          case 'job.warning':
-          case 'job.error':
-            console.error(`${at}  ! ${event.message}`);
-            break;
-        }
-      };
+      const controller = new AbortController();
+      process.once('SIGINT', () => controller.abort());
+      if (waitSeconds > 0) {
+        setTimeout(() => controller.abort(), waitSeconds * 1000).unref();
+      }
+      let state = initialTourState();
       try {
-        const fiber = runtime.runFork(
-          runTour({ ref, force: values.force }).pipe(
-            Stream.tap((event) => Effect.sync(() => log(event))),
-            Stream.runLast,
-          ),
+        const health = await backend.client.health();
+        console.error(
+          `Touring ${describeRef(ref)}${running ? ` on ${url}` : ''}${health.judge?.available === false ? ' (no judge: LLM places files)' : ''}`,
         );
-        process.once('SIGINT', () => void Effect.runFork(Fiber.interrupt(fiber)));
-        const last = await Effect.runPromise(Fiber.join(fiber));
-        if (last._tag === 'None' || last.value.type !== 'tour.complete') {
-          throw new Error('The tour ended without finishing.');
+        const { jobId } = await backend.client.startTour(ref, { force: values.force });
+        try {
+          for await (const event of backend.client.events(jobId, { signal: controller.signal })) {
+            state = reduceTourEvent(state, event);
+            logTourEvent(event, elapsed(start).padStart(6));
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) throw error;
         }
-        const { tour } = last.value;
+        const tour = tourFromState(state);
+        if (state.status !== 'complete' || !tour) {
+          // 2 only for a wait that ran out on a running job, which the skill says to join again.
+          const waiting = controller.signal.aborted && (state.status === 'running' || state.status === 'idle');
+          console.error(waiting ? tourProgress(state) : 'The tour ended without finishing.');
+          process.exitCode = waiting ? 2 : 1;
+          return;
+        }
         console.error(`${elapsed(start).padStart(6)}  done`);
         if (values.json) {
           console.log(JSON.stringify(tour, null, 2));
           return;
         }
-        const paths = new Map(tour.files.map((file) => [file.id, file.path]));
-        console.log(`\n# ${tour.meta.title}\n\n${tour.overallSummary ?? ''}\n`);
-        for (const group of tour.groups) {
-          console.log(
-            `## ${group.label}${group.critical ? '  [critical]' : ''}  (${group.category})\n${group.summary}`,
-          );
-          for (const fileId of group.fileIds) {
-            console.log(`  - ${paths.get(fileId)}`);
-          }
-          const notes = tour.notes[group.key];
-          for (const note of notes?.riskNotes ?? []) {
-            console.log(
-              `  ! ${paths.get(note.fileId)}: ${RISK_LABELS[note.risk as (typeof RISK_KEYS)[number]]}. ${note.text}`,
-            );
-          }
-          for (const note of notes?.fileNotes ?? []) {
-            console.log(`  > ${paths.get(note.fileId)}: ${note.text}`);
-          }
-          for (const note of notes?.lineNotes ?? []) {
-            console.log(`  > ${paths.get(note.fileId)}:${note.line}: ${note.text}`);
-          }
-          console.log('');
-        }
+        const files = values.code ? (await backend.client.diff(tour.diffId)).files : undefined;
+        process.stdout.write(renderTourMarkdown(tour, { detail: values.brief ? 'brief' : 'full', files }));
       } finally {
-        await runtime.dispose();
+        await backend.close();
         // Flue's runtime keeps handles open; a one-shot command exits explicitly.
         setTimeout(() => process.exit(process.exitCode ?? 0), 50).unref();
       }

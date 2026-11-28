@@ -179,6 +179,24 @@ describe('tour API', () => {
     expect(events.at(-1)).toMatchObject({ type: 'job.aborted', reason: 'client' });
   });
 
+  it('serves the tour as markdown for agents, saying how far a running one got', async () => {
+    const script = scripted();
+    const { app } = setup(script.run);
+    expect((await app.request('/api/tour.md?target=nope')).status).toBe(400);
+
+    const running = await app.request('/api/tour.md?target=o/r%231&wait=0');
+    expect(running.status).toBe(202);
+    expect(running.headers.get('Retry-After')).toBe('5');
+    expect(await running.text()).toMatch(/^Still running/);
+
+    setTimeout(script.release, 20);
+    const done = await app.request('/api/tour.md?target=https://github.com/o/r/pull/1&wait=5&detail=brief');
+    expect(done.status).toBe(200);
+    expect(done.headers.get('Content-Type')).toContain('text/markdown');
+    expect(await done.text()).toMatch(/^# t\n/);
+    expect(script.runs()).toBe(1);
+  });
+
   it('rejects malformed refs', async () => {
     const { app } = setup(scripted().run);
     const response = await app.request('/api/tours', {

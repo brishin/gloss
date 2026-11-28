@@ -84,6 +84,15 @@ one minified module; shiki grammars and themes, the two highlighter wasm modules
 load from jsDelivr at their installed versions, which artifact hosts allow for scripts). The tour model's `exported` flag hides
 what needs a backend (Re-run, Ask, Review, stack stepping).
 
+**Agent text** (`tour-text.ts`): `renderTourMarkdown(tour, { detail, files? })` is the finished tour as compact
+markdown for agents: decisions, affected surfaces, groups and files, notes and walks, citing code as
+`path:line` (new side; `path:-line` removed) and leaving out what only the page uses (judgments,
+placements, visuals, ids, the PR body). `brief` keeps decisions, groups, files and risks; `files` (the
+diff's hunks) prints each snippet's lines. `gloss tour` prints it, through the running server when there
+is one. `GET /api/tour.md?target=<PR>&detail=brief|full&wait=<s>&code=1` starts or joins the job and
+answers 200 markdown, or 202 with `tourProgress` and `Retry-After`. `gloss agent install` writes a Claude
+Code skill (`packages/cli/src/agent-skill.md`) that tells agents how to use it.
+
 Change rules: adding an optional field is compatible. A new event type fails
 validation in older clients, so prefer an optional field on an existing event. Bump
 `PIPELINE_VERSION` when the same inputs can produce different output.

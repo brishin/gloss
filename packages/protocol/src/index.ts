@@ -15,6 +15,7 @@ export * from './source-ref.ts';
 export * from './stack.ts';
 export * from './svg-sanitize.ts';
 export * from './tour.ts';
+export * from './tour-text.ts';
 export * from './trace.ts';
 export * from './update.ts';
 
